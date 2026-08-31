@@ -2662,13 +2662,6 @@
   z-index: 2;
 }
 
-/* icon-shield.svg is multicolor (white eye on themed body) so it can't go
-   through the currentColor mask — dark mode swaps the whole image for the
-   #636067-body variant (Figma 5200:100388). */
-.dark img[src$="/icon-shield.svg"] {
-  content: url("/wallet-workspace/facelift/icon-shield-dark.svg");
-}
-
 /* In @layer components so display utilities (hidden, max-*:block) can
    override the inline-block default — unlayered CSS would always win. */
 @layer components {

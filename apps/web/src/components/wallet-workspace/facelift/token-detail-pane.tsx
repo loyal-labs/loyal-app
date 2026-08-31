@@ -227,14 +227,12 @@ function BalanceRow({
   amountLabel,
   icon,
   isBalanceHidden,
-  isSecured,
   title,
   valueUsd,
 }: {
   amountLabel: string;
   icon: string;
   isBalanceHidden: boolean;
-  isSecured?: boolean;
   title: string;
   valueUsd: number;
 }) {
@@ -248,14 +246,6 @@ function BalanceRow({
             className="size-11 rounded-full object-cover"
             src={icon}
           />
-          {isSecured ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt="Shielded"
-              className="-bottom-0.5 -right-[3px] absolute size-5"
-              src={`${ASSET_BASE}/icon-shield-badge.svg`}
-            />
-          ) : null}
         </span>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
@@ -307,8 +297,8 @@ function LinkChip({
 }
 
 // Figma 4826:439625 — the Crypto/Stablecoins right pane: market header +
-// price, range chart, stats chips, the wallet's balance with quick actions
-// and the public/shielded split, then the About block with link chips.
+// price, range chart, stats chips, the wallet's balance with quick actions,
+// then the About block with link chips.
 // Market data rides the OG /api/tokens/[mint] CoinGecko proxy. Passing
 // onClose renders the <1204 sheet variant (Figma 4826:440136): X in the
 // header and the actions pinned in a bottom bar instead of inline.
@@ -319,12 +309,9 @@ export function TokenDetailPane({
   name,
   onClose,
   onSend,
-  onShield,
   onSwap,
-  onUnshield,
   price,
   publicBalance,
-  securedBalance,
   symbol,
 }: {
   /** Stablecoins skip the price chart — a flat $1 line is just noise. */
@@ -334,12 +321,9 @@ export function TokenDetailPane({
   name: string;
   onClose?: () => void;
   onSend: () => void;
-  onShield: () => void;
   onSwap: () => void;
-  onUnshield: () => void;
   price: number;
   publicBalance: number;
-  securedBalance: number;
   symbol: string;
 }) {
   const isSheet = Boolean(onClose);
@@ -554,10 +538,9 @@ export function TokenDetailPane({
     return chips;
   }, [detail, mint]);
 
-  const totalBalanceUsd = (publicBalance + securedBalance) * price;
+  const totalBalanceUsd = publicBalance * price;
   const balanceParts = splitUsdBalance(totalBalanceUsd);
   const hasPublic = publicBalance > 0;
-  const hasSecured = securedBalance > 0;
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
@@ -835,9 +818,7 @@ export function TokenDetailPane({
             <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
               <ScrambleText
                 isHidden={isBalanceHidden}
-                text={`${formatTokenBalance(
-                  publicBalance + securedBalance
-                )} ${symbol}`}
+                text={`${formatTokenBalance(publicBalance)} ${symbol}`}
               />
             </p>
           </div>
@@ -862,50 +843,17 @@ export function TokenDetailPane({
                 label="Send"
                 onClick={onSend}
               />
-              <CircleActionButton
-                icon={`${ASSET_BASE}/icon-shield.svg`}
-                label="Shield"
-                onClick={onShield}
-              />
-              {hasSecured ? (
-                <CircleActionButton
-                  icon={`${ASSET_BASE}/icon-shield-break.svg`}
-                  iconColorClass="text-muted-foreground"
-                  label="Unshield"
-                  onClick={onUnshield}
-                />
-              ) : null}
             </div>
           )}
-          {hasPublic || hasSecured ? (
+          {hasPublic ? (
             <div className="relative flex w-full flex-col">
-              {hasPublic ? (
-                <BalanceRow
-                  amountLabel={`${formatTokenBalance(publicBalance)} ${symbol}`}
-                  icon={icon}
-                  isBalanceHidden={isBalanceHidden}
-                  title="Public"
-                  valueUsd={publicBalance * price}
-                />
-              ) : null}
-              {hasSecured ? (
-                <BalanceRow
-                  amountLabel={`${formatTokenBalance(
-                    securedBalance
-                  )} ${symbol}`}
-                  icon={icon}
-                  isBalanceHidden={isBalanceHidden}
-                  isSecured
-                  title="Shielded"
-                  valueUsd={securedBalance * price}
-                />
-              ) : null}
-              {hasPublic && hasSecured ? (
-                <span
-                  aria-hidden="true"
-                  className="-translate-y-1/2 absolute top-1/2 left-[37px] h-3 w-0.5 rounded-full bg-border"
-                />
-              ) : null}
+              <BalanceRow
+                amountLabel={`${formatTokenBalance(publicBalance)} ${symbol}`}
+                icon={icon}
+                isBalanceHidden={isBalanceHidden}
+                title="Public"
+                valueUsd={publicBalance * price}
+              />
             </div>
           ) : null}
         </div>
@@ -938,7 +886,7 @@ export function TokenDetailPane({
 
       {isSheet ? (
         // Sheet variant pins the actions under the scroll area (Figma
-        // 4834:440680): labeled Swap/Send pills, stretched shield circles.
+        // 4834:440680): labeled Swap/Send pills.
         <div className="flex w-full shrink-0 items-center gap-2 bg-card px-4 pt-2 pb-4">
           <button
             className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-foreground p-2.5"
@@ -954,7 +902,7 @@ export function TokenDetailPane({
             </span>
           </button>
           <button
-            className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-secondary p-2.5"
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-secondary p-2.5"
             onClick={onSend}
             type="button"
           >
@@ -966,33 +914,6 @@ export function TokenDetailPane({
               Send
             </span>
           </button>
-          <button
-            aria-label="Shield"
-            className="flex min-w-0 flex-1 items-center justify-center rounded-full bg-accent p-2.5"
-            onClick={onShield}
-            type="button"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
-              src={`${ASSET_BASE}/icon-shield.svg`}
-            />
-          </button>
-          {hasSecured ? (
-            <button
-              aria-label="Unshield"
-              className="flex min-w-0 flex-1 items-center justify-center rounded-full bg-accent p-2.5"
-              onClick={onUnshield}
-              type="button"
-            >
-              <ThemedIcon
-                className="size-6 text-muted-foreground"
-                src={`${ASSET_BASE}/icon-shield-break.svg`}
-              />
-            </button>
-          ) : null}
         </div>
       ) : null}
     </div>

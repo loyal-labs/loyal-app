@@ -25,7 +25,6 @@ import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transiti
 import { SplitAmount } from "@/components/wallet-workspace/facelift/sidebar";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
-import { usePrivateSend } from "@/hooks/use-private-send";
 import { useSend } from "@/hooks/use-send";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
@@ -101,10 +100,10 @@ function RecipientStashIcon() {
   );
 }
 
-// Send screen (Figma 4852:38932 / ready 4852:41339): the shield-pane shell
-// with a recipient cell under the source asset cell. Execution is the OG
-// SendContent routing — public tokens through useSend, shielded ones through
-// usePrivateSend — and the results walk the shared action screens.
+// Send screen (Figma 4852:38932 / ready 4852:41339): an amount form with a
+// recipient cell under the source asset cell. Execution is the OG
+// SendContent routing through useSend — and the results walk the shared
+// action screens.
 export function SendPane({
   onBack,
   onDone,
@@ -127,7 +126,6 @@ export function SendPane({
   token: SwapToken;
 }) {
   const { executeSend } = useSend();
-  const { executePrivateSend } = usePrivateSend();
   const { isBalanceHidden } = useBalanceVisibility();
 
   const [amountInput, setAmountInput] = useState("");
@@ -178,7 +176,7 @@ export function SendPane({
 
   const handleMax = () => {
     let value = token.balance;
-    if (!token.isSecured && token.symbol.toUpperCase() === "SOL") {
+    if (token.symbol.toUpperCase() === "SOL") {
       value = Math.max(0, value - SOL_FEE_RESERVE);
     }
     if (value <= 0) {
@@ -206,25 +204,16 @@ export function SendPane({
       amount: String(tokenAmount),
       usd_value: `$${formatUsdAmount(usdAmount)}`,
       destination_type: "wallet",
-      is_private: Boolean(token.isSecured),
+      is_private: false,
     };
-    const result = token.isSecured
-      ? await executePrivateSend({
-          tokenSymbol: token.symbol,
-          amount: tokenAmount,
-          recipient,
-          recipientType: "wallet",
-          tokenMint: token.mint,
-          successTrackingProperties: tracking,
-        })
-      : await executeSend(
-          token.symbol,
-          String(tokenAmount),
-          recipient,
-          token.mint,
-          undefined,
-          tracking
-        );
+    const result = await executeSend(
+      token.symbol,
+      String(tokenAmount),
+      recipient,
+      token.mint,
+      undefined,
+      tracking
+    );
     setIsSubmitting(false);
     if (result.success) {
       setTxSignature(result.signature ?? null);
@@ -368,14 +357,6 @@ export function SendPane({
                           className="block size-11 rounded-full object-cover"
                           src={token.icon || getTokenIconUrl(token.symbol)}
                         />
-                        {token.isSecured ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            alt="Shielded"
-                            className="-bottom-0.5 -right-[3px] absolute size-5"
-                            src={`${ASSET_BASE}/icon-shield-badge.svg`}
-                          />
-                        ) : null}
                       </span>
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">

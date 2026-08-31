@@ -28,14 +28,8 @@ const PAGE_DESCRIPTION =
 // ships the per-page 1200x630 card.
 const OG_IMAGE = "/og-image.png";
 
-const PRIVATE_TRANSFERS_PROGRAM_ID =
-  "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV";
-const VERIFICATION_PROGRAM_ID = "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz";
-
 const LINK_CLASS =
   "underline underline-offset-4 transition-colors hover:text-[#f9363c]";
-const PROGRAM_ID_CLASS =
-  "block break-all font-mono text-[14px] leading-[1.4] tracking-normal text-black md:text-[16px]";
 
 export const metadata: Metadata = {
   title: PAGE_TITLE,
@@ -141,10 +135,9 @@ export default function TrustPage() {
         title="No lock-in"
         body={
           <>
-            Your smart account lives on the Squads program. Shielded balances sit
-            in a Vault program with its own withdrawal path. Neither depends on
-            our frontend, our API, or our permission. Any Solana client can reach
-            them, including the CLI on your own machine.
+            Your smart account lives on the Squads program. It doesn&apos;t
+            depend on our frontend, our API, or our permission. Any Solana
+            client can reach it, including the CLI on your own machine.
           </>
         }
         cta={{
@@ -173,33 +166,13 @@ export default function TrustPage() {
         cards={[
           {
             icon: <CircleCheck className="size-16 text-[#f9363c]" />,
-            title: "Private transfers",
-            body: (
-              <>
-                Live on Solana mainnet.
-                <Link
-                  className={`${LINK_CLASS} ${PROGRAM_ID_CLASS} mt-3`}
-                  href={`https://solscan.io/account/${PRIVATE_TRANSFERS_PROGRAM_ID}`}
-                >
-                  {PRIVATE_TRANSFERS_PROGRAM_ID}
-                </Link>
-              </>
-            ),
+            title: "Smart accounts",
+            body: "Live on Solana mainnet, on the audited Squads program.",
           },
           {
             icon: <ShieldCheck className="size-16 text-[#f9363c]" />,
-            title: "Verification",
-            body: (
-              <>
-                Live on Solana mainnet.
-                <Link
-                  className={`${LINK_CLASS} ${PROGRAM_ID_CLASS} mt-3`}
-                  href={`https://solscan.io/account/${VERIFICATION_PROGRAM_ID}`}
-                >
-                  {VERIFICATION_PROGRAM_ID}
-                </Link>
-              </>
-            ),
+            title: "Open-source clients",
+            body: "The wallet, the extension, and the SDKs are all public repositories you can build and run yourself.",
           },
         ]}
         closingStatement={

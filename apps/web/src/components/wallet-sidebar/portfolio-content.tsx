@@ -12,7 +12,6 @@ import {
   Send,
   X,
 } from "lucide-react";
-import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import type {
@@ -20,10 +19,7 @@ import type {
   SmartAccountSignerEntry,
   SmartAccountVaultEntry,
 } from "@/hooks/use-smart-account-sidebar-data";
-import type {
-  WalletEarningsSummary,
-  WalletPortfolioChange24h,
-} from "@/hooks/use-wallet-desktop-data";
+import type { WalletPortfolioChange24h } from "@/hooks/use-wallet-desktop-data";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
@@ -1273,7 +1269,6 @@ export function PortfolioContent({
   onOpenReceive,
   onOpenSend,
   onOpenSwap,
-  onOpenShield,
   onOpenEarnDeposit,
   onOpenEarn,
   onOpenAutodeposit,
@@ -1284,7 +1279,6 @@ export function PortfolioContent({
   onOpenMockRootSigner,
   onSmartAccountRetry,
   portfolioChange24h = null,
-  earningsSummary = null,
   earnDepositLabel = "Deposit",
   autodepositDepositedLabel,
   autodepositFloorLabel,
@@ -1325,7 +1319,6 @@ export function PortfolioContent({
   onOpenReceive: () => void;
   onOpenSend: () => void;
   onOpenSwap: () => void;
-  onOpenShield: () => void;
   onOpenEarnDeposit?: () => void;
   onOpenEarn?: () => void;
   onOpenAutodeposit?: () => void;
@@ -1338,7 +1331,6 @@ export function PortfolioContent({
   onOpenMockRootSigner?: (signer: MockRootSignerEntry) => void;
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
-  earningsSummary?: WalletEarningsSummary | null;
   earnDepositLabel?: string;
   autodepositDepositedLabel?: string;
   autodepositFloorLabel?: string;
@@ -1545,9 +1537,6 @@ export function PortfolioContent({
         }
         .portfolio-action-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;
-        }
-        .portfolio-shield-btn:hover {
-          background: rgba(60, 60, 67, 0.06) !important;
         }
         .portfolio-link-btn:hover {
           opacity: 0.7;
@@ -1845,13 +1834,8 @@ export function PortfolioContent({
           </div>
           {(() => {
             const hasChange = portfolioChange24h !== null;
-            const earnedUsd = earningsSummary?.totalEarnedUsd ?? 0;
-            const hasEarned =
-              typeof earnedUsd === "number" &&
-              Number.isFinite(earnedUsd) &&
-              earnedUsd > 0;
 
-            if (!hasChange && !hasEarned) {
+            if (!hasChange) {
               return null;
             }
 
@@ -1900,26 +1884,13 @@ export function PortfolioContent({
                     {" · 24h"}
                   </>
                 )}
-                {hasChange && hasEarned ? " · " : null}
-                {hasEarned && (
-                  <span
-                    style={{
-                      color: isBalanceHidden ? "#BBBBC0" : "#34C759",
-                      filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                      transition: "filter 0.15s ease, color 0.15s ease",
-                      userSelect: isBalanceHidden ? "none" : "auto",
-                    }}
-                  >
-                    {`+${formatUsd(earnedUsd)} earned`}
-                  </span>
-                )}
               </span>
             );
           })()}
         </div>
       )}
 
-      {/* Action buttons: receive, send, swap + Shield pill */}
+      {/* Action buttons: receive, send, swap */}
       {showActionButtons && (
         <div
           style={{
@@ -1994,37 +1965,6 @@ export function PortfolioContent({
             type="button"
           >
             <RefreshCw size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-          </button>
-          <button
-            className="portfolio-shield-btn"
-            onClick={onOpenShield}
-            style={{
-              alignItems: "center",
-              background: "transparent",
-              border: "2px solid rgba(60, 60, 67, 0.18)",
-              borderRadius: "9999px",
-              cursor: "pointer",
-              display: "flex",
-              flex: 1,
-              gap: "6px",
-              justifyContent: "center",
-              padding: "10px 16px 10px 8px",
-              transition: "background 0.15s ease",
-            }}
-            type="button"
-          >
-            <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
-            <span
-              style={{
-                color: "#000",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-              }}
-            >
-              Shield
-            </span>
           </button>
         </div>
       )}

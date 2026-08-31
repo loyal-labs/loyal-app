@@ -61,7 +61,7 @@ const POSITIVE_AMOUNT_COLOR = "var(--positive)";
 const LOYAL_EARN_BRAND_COLOR = "var(--primary)";
 // USDC mark badged onto the Main Account icon when a row reflects only the
 // account's USDC balance (deposit/withdraw/autodeposit), so it isn't confused
-// with the account's full multi-token value. Mirrors the shielded-asset badge.
+// with the account's full multi-token value.
 const USDC_BADGE_ICON_URL = getTokenIconUrl("USDC");
 
 const TOP_EARN_VAULT = {

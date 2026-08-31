@@ -19,9 +19,7 @@ export type CryptoRowActions = {
   onEarn?: (token: TokenRow) => void;
   onSelect?: (token: TokenRow) => void;
   onSend: (token: TokenRow) => void;
-  onShield: (token: TokenRow) => void;
   onSwap: (token: TokenRow) => void;
-  onUnshield: (token: TokenRow) => void;
 };
 
 // $9,884.55 → black whole + gray fraction, scrambled while hidden.
@@ -47,10 +45,6 @@ export function SplitUsd({
 
 function formatChangeLabel(change: number): string {
   return `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
-}
-
-function getPairKey(row: TokenRow): string {
-  return (row.id?.replace(/-secured$/, "") ?? row.symbol).toLowerCase();
 }
 
 // Header action pill; label optionally collapses to icon-only when the pane
@@ -156,20 +150,16 @@ function RowPill({
 }
 
 // Figma 4813:338887..338935 — one asset row. Every row hover-reveals its
-// action pills replacing the amounts: public rows Shield/Send/Swap, shielded
-// rows Unshield only (shielded balances can't be sent or swapped) plus the
-// badge and "· Shielded" suffix; the stables variant appends a black Earn
-// pill and shows the ticker instead of price.
+// action pills replacing the amounts (Send/Swap); the stables variant
+// appends a black Earn pill and shows the ticker instead of price.
 function TokenCell({
   actions,
   isBalanceHidden,
-  isPairFirst,
   row,
   variant,
 }: {
   actions: CryptoRowActions;
   isBalanceHidden: boolean;
-  isPairFirst: boolean;
   row: TokenRow;
   variant: CryptoPaneVariant;
 }) {
@@ -182,12 +172,6 @@ function TokenCell({
       className="group relative flex w-full cursor-pointer items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-accent"
       onClick={() => actions.onSelect?.(row)}
     >
-      {isPairFirst ? (
-        <span
-          aria-hidden="true"
-          className="-bottom-1.5 absolute left-[37px] z-10 h-3 w-0.5 rounded-full bg-border"
-        />
-      ) : null}
       <div className="flex shrink-0 items-center py-2 pr-3">
         <div className="relative size-11 shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -196,22 +180,11 @@ function TokenCell({
             className="size-11 rounded-full object-cover"
             src={row.icon}
           />
-          {row.isSecured ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt="Shielded"
-              className="-bottom-0.5 -right-[3px] absolute size-5"
-              src={`${ASSET_BASE}/icon-shield-badge.svg`}
-            />
-          ) : null}
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
         <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
           {row.name ?? row.symbol}
-          {row.isSecured ? (
-            <span className="text-tertiary">{" · Shielded"}</span>
-          ) : null}
         </p>
         <p className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
           {isStables ? (
@@ -249,43 +222,23 @@ function TokenCell({
         {/* Reveal rides a short delay so quick pointer passes don't flash the
             buttons; un-hover drops the delay and hides immediately. */}
         <div className="pointer-events-none absolute right-0 flex items-center gap-2 rounded-[40px] bg-secondary opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
-          {row.isSecured ? (
-            <RowPill
-              icon="icon-shield-break.svg"
-              iconColorClass="text-muted-foreground"
-              label="Unshield"
-              onClick={() => actions.onUnshield(row)}
-            />
-          ) : (
-            <RowPill
-              icon="icon-shield.svg"
-              label="Shield"
-              onClick={() => actions.onShield(row)}
-            />
-          )}
-          {row.isSecured ? null : (
-            <>
-              <RowPill
-                icon="icon-arrow-up-circle.svg"
-                iconColorClass="text-tertiary"
-                label="Send"
-                onClick={() => actions.onSend(row)}
-              />
-              <RowPill
-                icon={
-                  isStables
-                    ? "icon-swap-repeat-gray.svg"
-                    : "icon-swap-repeat.svg"
-                }
-                iconColorClass={
-                  isStables ? "text-tertiary" : "text-background"
-                }
-                isBlack={!isStables}
-                label="Swap"
-                onClick={() => actions.onSwap(row)}
-              />
-            </>
-          )}
+          <RowPill
+            icon="icon-arrow-up-circle.svg"
+            iconColorClass="text-tertiary"
+            label="Send"
+            onClick={() => actions.onSend(row)}
+          />
+          <RowPill
+            icon={
+              isStables
+                ? "icon-swap-repeat-gray.svg"
+                : "icon-swap-repeat.svg"
+            }
+            iconColorClass={isStables ? "text-tertiary" : "text-background"}
+            isBlack={!isStables}
+            label="Swap"
+            onClick={() => actions.onSwap(row)}
+          />
           {isStables ? (
             <RowPill
               icon="icon-coins-add.svg"
@@ -303,8 +256,7 @@ function TokenCell({
 
 // Figma 4813:338844 (wide) / 4813:339148 (downsized) — the Crypto middle
 // pane, and via variant="stables" the Stablecoins one (4813:339437 /
-// 4813:339683): header actions, the stash balance cell, then the asset list
-// with public/shielded pairs joined by a connector.
+// 4813:339683): header actions, the stash balance cell, then the asset list.
 export function CryptoPane({
   balanceFraction,
   balanceWhole,
@@ -312,7 +264,6 @@ export function CryptoPane({
   onBack,
   onEarn,
   onSend,
-  onShield,
   onSwap,
   rowActions,
   tokenRows,
@@ -324,7 +275,6 @@ export function CryptoPane({
   onBack: () => void;
   onEarn?: () => void;
   onSend: () => void;
-  onShield: () => void;
   onSwap: () => void;
   rowActions: CryptoRowActions;
   tokenRows: TokenRow[];
@@ -358,12 +308,6 @@ export function CryptoPane({
             </h1>
           </div>
           <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
-            <HeaderPill
-              hideLabel
-              icon="icon-shield.svg"
-              label="Shield"
-              onClick={onShield}
-            />
             <HeaderPill
               hideLabel
               icon="icon-arrow-up-circle.svg"
@@ -441,23 +385,15 @@ export function CryptoPane({
         </div>
 
         <div className="flex w-full flex-1 flex-col p-2">
-          {tokenRows.map((row, index) => {
-            const next = tokenRows[index + 1];
-            const isPairFirst =
-              row.isSecured !== true &&
-              next?.isSecured === true &&
-              getPairKey(next) === getPairKey(row);
-            return (
-              <TokenCell
-                actions={rowActions}
-                isBalanceHidden={isBalanceHidden}
-                isPairFirst={isPairFirst}
-                key={row.id ?? row.symbol}
-                row={row}
-                variant={variant}
-              />
-            );
-          })}
+          {tokenRows.map((row) => (
+            <TokenCell
+              actions={rowActions}
+              isBalanceHidden={isBalanceHidden}
+              key={row.id ?? row.symbol}
+              row={row}
+              variant={variant}
+            />
+          ))}
         </div>
       </section>
 
@@ -488,22 +424,6 @@ export function CryptoPane({
           />
           <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
             Send
-          </span>
-        </button>
-        <button
-          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-accent p-2.5"
-          onClick={onShield}
-          type="button"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
-            src={`${ASSET_BASE}/icon-shield.svg`}
-          />
-          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
-            Shield
           </span>
         </button>
       </div>

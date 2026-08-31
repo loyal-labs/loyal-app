@@ -31,7 +31,6 @@ export function AccountPageView({
   onOpenReceive,
   onOpenSend,
   onOpenSwap,
-  onOpenShield,
   getTokenActions,
 }: {
   accountLabel: string;
@@ -49,7 +48,6 @@ export function AccountPageView({
   onOpenReceive: () => void;
   onOpenSend: () => void;
   onOpenSwap: () => void;
-  onOpenShield: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
 }) {
   return (
@@ -60,9 +58,6 @@ export function AccountPageView({
         }
         .acct-action-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;
-        }
-        .acct-shield-btn:hover {
-          background: rgba(60, 60, 67, 0.06) !important;
         }
         .acct-link-btn:hover {
           opacity: 0.7;
@@ -180,15 +175,6 @@ export function AccountPageView({
           type="button"
         >
           <RefreshCw size={24} style={{ color: "rgba(60, 60, 67, 0.6)" }} />
-        </button>
-        <button
-          className="acct-shield-btn"
-          onClick={onOpenShield}
-          style={{ flex: 1, display: "flex", gap: "6px", alignItems: "center", justifyContent: "center", padding: "10px 16px 10px 8px", borderRadius: "9999px", background: "transparent", border: "2px solid rgba(60, 60, 67, 0.18)", cursor: "pointer", transition: "background 0.15s ease" }}
-          type="button"
-        >
-          <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
-          <span style={{ fontFamily: font, fontSize: "16px", fontWeight: 400, lineHeight: "20px", color: "#000" }}>Shield</span>
         </button>
       </div>
 

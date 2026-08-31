@@ -521,9 +521,9 @@ export function createFrontendAssetProvider(args: {
       };
     },
     resolveAssets: async (mints) => {
-      // Used by the wallet-data client to render shielded-only mints (no
-      // public ATA on chain). Without this, the placeholder descriptor
-      // collapses decimals to 0 and the row shows raw u64 lamports.
+      // Used by the wallet-data client to render mints without a public ATA
+      // on chain. Without this, the placeholder descriptor collapses decimals
+      // to 0 and the row shows raw u64 lamports.
       const uniqueMints = [...new Set(mints)];
       const connection = getConnection();
       const results = await Promise.all(

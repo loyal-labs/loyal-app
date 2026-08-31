@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ChevronRight,
   Globe,
-  Send,
   Share,
   Wallet,
   X,
@@ -14,17 +13,11 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import { usePrivateSend } from "@/hooks/use-private-send";
 import { useSend } from "@/hooks/use-send";
 import { openTrackedLink, trackWalletSendPressed } from "@/lib/core/analytics";
 import { getExplorerTxUrl } from "@/lib/solana/explorer";
 
-import type {
-  ActivityRow,
-  SubView,
-  SwapToken,
-  TransactionDetail,
-} from "./types";
+import type { SubView, SwapToken } from "./types";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
@@ -32,24 +25,6 @@ const red = "#F9363C";
 
 export function isValidSolanaAddress(value: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value);
-}
-
-// Username must be between 5 and 32 characters.
-// Username can only contain lowercase alphanumeric characters and underscores.
-// We should allow mixed case usernames for UI but convert to lowercase before send.
-// Source: https://limits.tginfo.me/en
-// Source: https://telegram.org/faq#q-what-can-i-use-as-my-username
-function isTelegramUsername(value: string): boolean {
-  if (!value.startsWith("@")) {
-    return false;
-  }
-  const trimmed = value.replace(/^@/, "");
-
-  return (
-    /^[a-zA-Z0-9_]+$/.test(trimmed) &&
-    trimmed.length >= 5 &&
-    trimmed.length <= 32
-  );
 }
 
 export function truncateAddress(addr: string): string {
@@ -256,7 +231,6 @@ function SendResult({
   token,
   amount,
   recipient,
-  isTgRecipient,
   errorMessage,
   onClose,
   onDone,
@@ -266,16 +240,13 @@ function SendResult({
   token: SwapToken;
   amount: string;
   recipient: string;
-  isTgRecipient: boolean;
   errorMessage?: string;
   onClose: () => void;
   onDone: () => void;
   onDetails: () => void;
 }) {
   const isSuccess = variant === "success";
-  const displayRecipient = isTgRecipient
-    ? recipient
-    : truncateAddress(recipient);
+  const displayRecipient = truncateAddress(recipient);
   const headerTitle = isSuccess ? `Send to ${displayRecipient}` : "Send";
 
   return (
@@ -453,27 +424,21 @@ function SendTransactionDetail({
   token,
   amount,
   recipient,
-  isTgRecipient,
   usdValue,
   signature,
-  isPrivate,
   onClose,
   onDone,
 }: {
   token: SwapToken;
   amount: string;
   recipient: string;
-  isTgRecipient: boolean;
   usdValue: string;
   signature?: string;
-  isPrivate?: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
   const publicEnv = usePublicEnv();
-  const displayRecipient = isTgRecipient
-    ? recipient
-    : truncateAddress(recipient);
+  const displayRecipient = truncateAddress(recipient);
   const transactionUrl = signature ? getExplorerTxUrl(signature) : null;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
@@ -695,57 +660,56 @@ function SendTransactionDetail({
             width: "100%",
           }}
         >
-          {!isPrivate && (
-            <div
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <button
+              className="send-tx-action-btn"
+              onClick={() =>
+                transactionUrl &&
+                openTrackedLink(publicEnv, {
+                  href: transactionUrl,
+                  linkText: "View in explorer",
+                  source: "send_transaction_detail",
+                })
+              }
               style={{
-                flex: 1,
+                width: "48px",
+                height: "48px",
+                borderRadius: "9999px",
+                background: "rgba(249, 54, 60, 0.14)",
+                border: "none",
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
-                gap: "8px",
+                justifyContent: "center",
+                cursor: signature ? "pointer" : "default",
+                opacity: signature ? 1 : 0.5,
+                transition: "background-color 0.15s ease",
+              }}
+              type="button"
+            >
+              <Globe size={24} style={{ color: "#3C3C43" }} />
+            </button>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                color: secondary,
+                textAlign: "center",
               }}
             >
-              <button
-                className="send-tx-action-btn"
-                onClick={() =>
-                  transactionUrl &&
-                  openTrackedLink(publicEnv, {
-                    href: transactionUrl,
-                    linkText: "View in explorer",
-                    source: "send_transaction_detail",
-                  })
-                }
-                style={{
-                  width: "48px",
-                  height: "48px",
-                  borderRadius: "9999px",
-                  background: "rgba(249, 54, 60, 0.14)",
-                  border: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: signature ? "pointer" : "default",
-                  opacity: signature ? 1 : 0.5,
-                  transition: "background-color 0.15s ease",
-                }}
-                type="button"
-              >
-                <Globe size={24} style={{ color: "#3C3C43" }} />
-              </button>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                  textAlign: "center",
-                }}
-              >
-                View in explorer
-              </span>
-            </div>
-          )}
+              View in explorer
+            </span>
+          </div>
+
           <div
             style={{
               flex: 1,
@@ -758,11 +722,7 @@ function SendTransactionDetail({
             <button
               className="send-tx-action-btn"
               onClick={() => {
-                if (isPrivate) {
-                  void navigator.clipboard.writeText(
-                    `Sent ${amount} ${token.symbol} to ${displayRecipient} (${usdValue})`
-                  );
-                } else if (transactionUrl) {
+                if (transactionUrl) {
                   void navigator.clipboard.writeText(transactionUrl);
                 }
               }}
@@ -775,8 +735,8 @@ function SendTransactionDetail({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                cursor: isPrivate || signature ? "pointer" : "default",
-                opacity: isPrivate || signature ? 1 : 0.5,
+                cursor: signature ? "pointer" : "default",
+                opacity: signature ? 1 : 0.5,
                 transition: "background-color 0.15s ease",
               }}
               type="button"
@@ -871,11 +831,9 @@ export function SendContent({
   onNavigate,
   onSuccess,
   token,
-  addLocalActivity,
   initialRecipient = "",
   vaultContext,
   recipientSuggestions,
-  allowPrivateSend = false,
 }: {
   onBack?: () => void;
   onClose: () => void;
@@ -886,23 +844,18 @@ export function SendContent({
     signature?: string;
   }) => Promise<void> | void;
   token: SwapToken;
-  addLocalActivity?: (row: ActivityRow, detail: TransactionDetail) => void;
   initialRecipient?: string;
   vaultContext?: SendContentVaultContext;
   recipientSuggestions?: RecipientSuggestion[];
-  allowPrivateSend?: boolean;
 }) {
   const publicEnv = usePublicEnv();
   const { executeSend } = useSend();
-  const { executePrivateSend } = usePrivateSend();
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState(initialRecipient);
-  const [isPrivate, setIsPrivate] = useState(false);
   const [phase, setPhase] = useState<SendPhase>("form");
   const [resultAmount, setResultAmount] = useState("");
   const [resultUsd, setResultUsd] = useState("");
   const [resultRecipient, setResultRecipient] = useState("");
-  const [resultIsTg, setResultIsTg] = useState(false);
   const [resultSignature, setResultSignature] = useState<string | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
 
@@ -918,27 +871,14 @@ export function SendContent({
 
   const recipientTrimmed = recipient.trim();
   const hasRecipient = recipientTrimmed.length > 0;
-  const startsWithAt = recipientTrimmed.startsWith("@");
-  const isTg = isTelegramUsername(recipientTrimmed);
-  const isWallet = isValidSolanaAddress(recipientTrimmed);
-  const isValidRecipient = isTg || isWallet;
-  const showInvalidHint = hasRecipient && !isValidRecipient && !startsWithAt;
-  const isTgNonSol = isTg && token.symbol.toUpperCase() !== "SOL";
-  const recipientIsStash =
-    recipientSuggestions?.some(
-      (suggestion) =>
-        suggestion.kind === "stash" && suggestion.address === recipientTrimmed
-    ) ?? false;
-  const effectiveIsPrivate = isPrivate && !recipientIsStash;
+  const isValidRecipient = isValidSolanaAddress(recipientTrimmed);
+  const showInvalidHint = hasRecipient && !isValidRecipient;
 
   useEffect(() => {
     setRecipient(initialRecipient);
   }, [initialRecipient]);
 
   const isVaultBlocked = vaultContext?.mode === "blocked";
-  // Vault transfers go through multisig and don't support Telegram-username
-  // recipients (no agent flow on the receiving side). Force wallet-only.
-  const vaultRequiresWalletRecipient = vaultContext?.mode === "ready" && isTg;
   const buttonLabel = isVaultBlocked
     ? vaultContext.reason
     : !hasAmount
@@ -949,18 +889,9 @@ export function SendContent({
     ? "Enter Recipient"
     : !isValidRecipient
     ? "Invalid Address"
-    : vaultRequiresWalletRecipient
-    ? "Stash sends to wallet addresses only"
-    : isTgNonSol
-    ? "Only SOL for Telegram"
     : "Send";
   const buttonDisabled =
-    isVaultBlocked ||
-    !hasAmount ||
-    insufficientFunds ||
-    !isValidRecipient ||
-    vaultRequiresWalletRecipient ||
-    isTgNonSol;
+    isVaultBlocked || !hasAmount || insufficientFunds || !isValidRecipient;
 
   const handlePercentage = useCallback(
     (pct: number) => {
@@ -997,15 +928,12 @@ export function SendContent({
     setResultAmount(currentAmount);
     setResultUsd(currentUsd);
     setResultRecipient(recipientTrimmed);
-    setResultIsTg(isTg);
     setResultSignature(undefined);
     setErrorMessage(undefined);
     setPhase("processing");
 
-    const destinationType = isTg ? "telegram" : "wallet";
-    const cleanRecipient = isTg
-      ? recipientTrimmed.replace(/^@/, "")
-      : recipientTrimmed;
+    const destinationType = "wallet";
+    const cleanRecipient = recipientTrimmed;
 
     trackWalletSendPressed(publicEnv, {
       source: "send_confirm",
@@ -1015,7 +943,7 @@ export function SendContent({
       amount: currentAmount,
       usd_value: currentUsd,
       destination_type: destinationType,
-      is_private: effectiveIsPrivate,
+      is_private: false,
     });
 
     let result: {
@@ -1040,22 +968,6 @@ export function SendContent({
         });
         result = vaultResult;
       }
-    } else if (effectiveIsPrivate || isTg) {
-      result = await executePrivateSend({
-        tokenSymbol: token.symbol,
-        amount: numericAmount,
-        recipient: cleanRecipient,
-        recipientType: destinationType,
-        tokenMint: token.mint,
-        successTrackingProperties: {
-          token_symbol: token.symbol,
-          token_mint: token.mint,
-          amount: currentAmount,
-          usd_value: currentUsd,
-          destination_type: destinationType,
-          is_private: effectiveIsPrivate || isTg,
-        },
-      });
     } else {
       result = await executeSend(
         token.symbol,
@@ -1100,48 +1012,13 @@ export function SendContent({
           console.error("[SendContent] onSuccess callback failed", err);
         });
       }
-
-      if (effectiveIsPrivate && addLocalActivity) {
-        const now = new Date();
-        const syntheticRow: ActivityRow = {
-          id: result.signature ?? `private-${Date.now()}`,
-          type: "sent",
-          counterparty: cleanRecipient,
-          amount: `-${currentAmount} ${token.symbol}`,
-          timestamp: now.toLocaleTimeString("en-US", {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          }),
-          date: now.toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-          }),
-          icon: "/hero-new/Shield_40.svg",
-          isPrivate: true,
-          rawTimestamp: now.getTime(),
-        };
-        const syntheticDetail: TransactionDetail = {
-          activity: syntheticRow,
-          usdValue: currentUsd,
-          status: "Completed",
-          networkFee: "0.00005 SOL",
-          networkFeeUsd: "$0.00",
-          isPrivate: true,
-        };
-        addLocalActivity(syntheticRow, syntheticDetail);
-      }
     } else {
       setErrorMessage(result.error);
       setPhase("error");
     }
   }, [
-    addLocalActivity,
-    executePrivateSend,
     executeSend,
     hasAmount,
-    effectiveIsPrivate,
-    isTg,
     numericAmount,
     onDone,
     onSuccess,
@@ -1188,7 +1065,6 @@ export function SendContent({
         <SendResult
           amount={resultAmount}
           errorMessage={errorMessage}
-          isTgRecipient={resultIsTg}
           onClose={onClose}
           onDetails={() => setPhase("details")}
           onDone={onDone}
@@ -1202,8 +1078,6 @@ export function SendContent({
       return (
         <SendTransactionDetail
           amount={resultAmount}
-          isPrivate={effectiveIsPrivate}
-          isTgRecipient={resultIsTg}
           onClose={onClose}
           onDone={onDone}
           recipient={resultRecipient}
@@ -1227,9 +1101,6 @@ export function SendContent({
           }
           .confirm-btn:not(:disabled):hover {
             background: #333 !important;
-          }
-          .private-card:hover {
-            background: rgba(0, 0, 0, 0.06) !important;
           }
           .clear-btn:hover {
             opacity: 0.7;
@@ -1602,14 +1473,14 @@ export function SendContent({
                     paddingTop: "15px",
                   }}
                 >
-                  {startsWithAt ? <Send size={20} /> : <Wallet size={20} />}
+                  <Wallet size={20} />
                 </div>
               )}
               <textarea
                 onChange={(e) =>
                   setRecipient(e.target.value.replace(/\n/g, ""))
                 }
-                placeholder="Address or Telegram username"
+                placeholder="Wallet address"
                 rows={1}
                 style={
                   {
@@ -1746,116 +1617,6 @@ export function SendContent({
             )}
           </div>
 
-          {allowPrivateSend && (
-            <div
-              className="private-card"
-              onClick={
-                isTg || recipientIsStash
-                  ? undefined
-                  : () => setIsPrivate(!isPrivate)
-              }
-              style={{
-                display: "flex",
-                alignItems: "center",
-                padding: "0 12px",
-                borderRadius: "16px",
-                cursor: isTg || recipientIsStash ? "default" : "pointer",
-                background:
-                  effectiveIsPrivate || isTg
-                    ? "rgba(0, 0, 0, 0.04)"
-                    : "transparent",
-                opacity: recipientIsStash ? 0.55 : 1,
-                transition: "background 0.15s ease, opacity 0.15s ease",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  paddingRight: "12px",
-                  paddingTop: "4px",
-                  paddingBottom: "4px",
-                  flexShrink: 0,
-                }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt="Private"
-                  src="/hero-new/Shield_40.svg"
-                  style={{ width: "40px", height: "40px" }}
-                />
-              </div>
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px",
-                  padding: "10px 0",
-                  minWidth: 0,
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    color: "#000",
-                  }}
-                >
-                  {isTg ? "Private Send Active" : "Private Send"}
-                </span>
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "13px",
-                    fontWeight: 400,
-                    lineHeight: "16px",
-                    color: secondary,
-                  }}
-                >
-                  {recipientIsStash
-                    ? "Stash recipients can't receive private sends"
-                    : isTg
-                    ? "Telegram transfers are always private"
-                    : "Prevents the recipient from seeing which wallet sent the funds"}
-                </span>
-              </div>
-              {!isTg && (
-                <div style={{ paddingLeft: "12px", flexShrink: 0 }}>
-                  <div
-                    style={{
-                      width: "51px",
-                      height: "31px",
-                      borderRadius: "100px",
-                      background: effectiveIsPrivate
-                        ? red
-                        : "rgba(0, 0, 0, 0.04)",
-                      position: "relative",
-                      transition: "background 0.2s ease",
-                    }}
-                  >
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        left: effectiveIsPrivate ? "22px" : "2px",
-                        width: "27px",
-                        height: "27px",
-                        borderRadius: "100px",
-                        background: "#fff",
-                        boxShadow:
-                          "0px 0px 0px 0px rgba(0,0,0,0.04), 0px 3px 8px 0px rgba(0,0,0,0.15), 0px 3px 1px 0px rgba(0,0,0,0.06)",
-                        transition: "left 0.2s ease",
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Bottom button */}

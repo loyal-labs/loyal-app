@@ -36,8 +36,6 @@ const STATIC_ROUTES: ReadonlyArray<{ path: string; lastModified: string }> = [
   { path: "/", lastModified: "2026-06-01" },
   { path: "/earn", lastModified: "2026-05-28" },
   { path: "/agents", lastModified: "2026-05-28" },
-  { path: "/yield", lastModified: "2026-06-01" },
-  { path: "/private-payments", lastModified: "2026-06-01" },
   { path: "/trust", lastModified: "2026-06-01" },
   { path: "/privacy-policy", lastModified: "2026-02-23" },
 ];

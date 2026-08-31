@@ -2552,22 +2552,13 @@ function mapVaultActivity(
 } {
   const timestamp = formatTimestamp(activity.timestamp);
   const isIncoming = activity.direction === "in";
-  const type: ActivityRow["type"] =
-    activity.type === "secure"
-      ? "shielded"
-      : activity.type === "unshield"
-      ? "unshielded"
-      : isIncoming
-      ? "received"
-      : "sent";
+  const type: ActivityRow["type"] = isIncoming ? "received" : "sent";
   let baseAmount: string;
   let icon: string;
   let usdValue = "$0.00";
 
   switch (activity.type) {
-    case "token_transfer":
-    case "secure":
-    case "unshield": {
+    case "token_transfer": {
       const position = resolvePositionByMint(positions, activity.token.mint);
       const symbol = resolveTokenSymbol(position, activity.token.mint);
       baseAmount = `${activity.token.amount} ${symbol}`;
@@ -2595,10 +2586,26 @@ function mapVaultActivity(
       break;
     }
     case "sol_transfer":
+    default: {
+      if ("token" in activity) {
+        // Legacy activity variants carry a token leg; render it like a
+        // token transfer.
+        const position = resolvePositionByMint(positions, activity.token.mint);
+        const symbol = resolveTokenSymbol(position, activity.token.mint);
+        baseAmount = `${activity.token.amount} ${symbol}`;
+        icon = position
+          ? resolveTokenIcon(position)
+          : "/hero-new/Wallet-Cover.png";
+        usdValue = formatUsd(
+          tokenAmountToUsd(activity.token.amount, position?.priceUsd)
+        );
+        break;
+      }
       baseAmount = `${formatSolAmount(activity.amountLamports)} SOL`;
       icon = getTokenIconUrl("SOL");
       usdValue = formatUsd(lamportsToUsd(activity.amountLamports, solPriceUsd));
       break;
+    }
     case "program_action":
       if (activity.token) {
         const position = resolvePositionByMint(positions, activity.token.mint);
@@ -2619,10 +2626,7 @@ function mapVaultActivity(
       break;
   }
 
-  const amount =
-    activity.type === "secure" || activity.type === "unshield"
-      ? baseAmount
-      : `${isIncoming ? "+" : "-"}${baseAmount}`;
+  const amount = `${isIncoming ? "+" : "-"}${baseAmount}`;
   const counterparty =
     activity.type === "program_action"
       ? activity.action
@@ -2679,8 +2683,6 @@ function mapVaultToTokenRows(
         totalValueDisplay: formatUsd(position.totalValueUsd),
         publicAmountDisplay: formatTokenBalance(position.publicBalance),
         publicValueDisplay: formatUsd(position.publicValueUsd),
-        securedAmountDisplay: formatTokenBalance(position.securedBalance),
-        securedValueDisplay: formatUsd(position.securedValueUsd),
       };
       const pct = priceChange24hByMint?.get(position.asset.mint);
       if (

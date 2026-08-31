@@ -86,10 +86,7 @@ export function ActivityRowItem({
           }}
         >
           {activity.titleOverride ??
-            (activity.type === "received" ? "Received"
-              : activity.type === "shielded" ? "Shielded"
-              : activity.type === "unshielded" ? "Unshielded"
-              : "Sent")}
+            (activity.type === "received" ? "Received" : "Sent")}
         </span>
         <span
           style={{
@@ -101,9 +98,7 @@ export function ActivityRowItem({
           }}
         >
           {activity.subtitle ??
-            (activity.type === "shielded" ? "to secure balance"
-              : activity.type === "unshielded" ? "to main balance"
-              : activity.type === "received" ? `from ${truncateAddress(activity.counterparty)}`
+            (activity.type === "received" ? `from ${truncateAddress(activity.counterparty)}`
               : `to ${truncateAddress(activity.counterparty)}`)}
         </span>
       </div>
@@ -131,9 +126,7 @@ export function ActivityRowItem({
               ? "#BBBBC0"
               : activity.type === "received"
                 ? "#34C759"
-                : activity.type === "shielded" || activity.type === "unshielded"
-                  ? "#000"
-                  : "#000",
+                : "#000",
             textAlign: "right",
             filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
             transition: "filter 0.15s ease, color 0.15s ease",

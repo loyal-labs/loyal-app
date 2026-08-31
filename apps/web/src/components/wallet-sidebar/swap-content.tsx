@@ -16,12 +16,102 @@ import { useSwap, type SwapExecutionContext } from "@/hooks/use-swap";
 import { openTrackedLink, trackWalletSwapPressed } from "@/lib/core/analytics";
 import { getExplorerTxUrl } from "@/lib/solana/explorer";
 
-import { SwapShieldTabs } from "./shield-content";
-import type { FormButtonProps, SubView, SwapMode, SwapToken } from "./types";
+import type { FormButtonProps, SubView, SwapToken } from "./types";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const red = "#F9363C";
+
+export function SwapPanelHeader({
+  onBack,
+  onClose,
+}: {
+  onBack?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "8px",
+        gap: "8px",
+      }}
+    >
+      <style jsx>{`
+        .swap-header-btn:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+      `}</style>
+      {onBack && (
+        <button
+          className="swap-header-btn"
+          onClick={onBack}
+          style={{
+            width: "36px",
+            height: "36px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            background: "rgba(0, 0, 0, 0.04)",
+            border: "none",
+            borderRadius: "9999px",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            color: "#3C3C43",
+            flexShrink: 0,
+          }}
+          type="button"
+        >
+          <ArrowLeft size={24} />
+        </button>
+      )}
+      <div
+        style={{
+          flex: 1,
+          paddingLeft: onBack ? "0" : "12px",
+          paddingTop: "4px",
+          paddingBottom: "4px",
+          textAlign: onBack ? "center" : undefined,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: font,
+            fontSize: "18px",
+            fontWeight: 600,
+            lineHeight: "28px",
+            color: "#000",
+          }}
+        >
+          Swap
+        </span>
+      </div>
+      <button
+        className="swap-header-btn"
+        onClick={onClose}
+        style={{
+          width: "36px",
+          height: "36px",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          background: "rgba(0, 0, 0, 0.04)",
+          border: "none",
+          borderRadius: "9999px",
+          cursor: "pointer",
+          transition: "all 0.2s ease",
+          color: "#3C3C43",
+          flexShrink: 0,
+        }}
+        type="button"
+      >
+        <X size={24} />
+      </button>
+    </div>
+  );
+}
 
 function TokenPill({
   token,
@@ -899,8 +989,6 @@ export function SwapContent({
   toToken: toTokenProp,
   onFromTokenChange,
   onToTokenChange,
-  swapMode,
-  onSwapModeChange,
   hideFormChrome,
   onFormActiveChange,
   onFormButtonChange,
@@ -915,8 +1003,6 @@ export function SwapContent({
   toToken: SwapToken;
   onFromTokenChange: (t: SwapToken) => void;
   onToTokenChange: (t: SwapToken) => void;
-  swapMode: SwapMode;
-  onSwapModeChange: (mode: SwapMode) => void;
   hideFormChrome?: boolean;
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
@@ -1216,14 +1302,8 @@ export function SwapContent({
           }
         `}</style>
 
-        {/* Header with tabs — hidden when parent owns chrome */}
-        {!hideFormChrome && (
-          <SwapShieldTabs
-            mode={swapMode}
-            onClose={onClose}
-            onModeChange={onSwapModeChange}
-          />
-        )}
+        {/* Header — hidden when parent owns chrome */}
+        {!hideFormChrome && <SwapPanelHeader onClose={onClose} />}
 
         {/* Body */}
         <div

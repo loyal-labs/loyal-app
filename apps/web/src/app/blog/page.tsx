@@ -7,7 +7,7 @@ import { BlogCard, BlogPagination, getBlogPosts } from "@/features/blog";
 
 const PAGE_TITLE = "Blog | Loyal";
 const PAGE_DESCRIPTION =
-  "Notes from the Loyal team on private payments, Smart Accounts, yield on shielded USDC, and self-custody on Solana.";
+  "Notes from the Loyal team on Smart Accounts, stablecoin yield, and self-custody on Solana.";
 const OG_IMAGE = "/og-image.png";
 
 type BlogSearchParams = { page?: string };

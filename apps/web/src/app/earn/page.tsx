@@ -116,12 +116,7 @@ const earnFaqs: FaqItem[] = [
   {
     question: "Has Loyal been audited?",
     answer:
-      "Loyal hasn't commissioned its own standalone audit yet, but it's built on primitives that have been audited heavily. Squads, which holds the funds and enforces the policy, and MagicBlock, which the privacy layer runs on, have each been through multiple independent audits, and the earning happens in Kamino, one of Solana's most-used lending protocols. The full Loyal stack is open-source, so you can review it directly.",
-  },
-  {
-    question: "Can I keep my balance private while it earns?",
-    answer:
-      "Shielding and optimizing are two different paths. Shielded dollars earn the private baseline lending rate, covered on the yield on shielded assets page. The optimizer on this page works on your open balance, because routing across reserves and swapping stablecoins isn't run on shielded funds. You can use both: keep part of a balance shielded for privacy and put the rest into the optimizer for the best rate.",
+      "Loyal hasn't commissioned its own standalone audit yet, but it's built on primitives that have been audited heavily. Squads, which holds the funds and enforces the policy, has been through multiple independent audits, and the earning happens in Kamino, one of Solana's most-used lending protocols. The full Loyal stack is open-source, so you can review it directly.",
   },
 ];
 
@@ -151,40 +146,11 @@ export default function EarnPage() {
         }}
       />
 
-      {/* Block 2 — Section: Two ways your dollars earn with Loyal */}
+      {/* Block 2 — Section: How your dollars earn with Loyal */}
       <Section
-        title="Two ways your dollars earn with Loyal"
-        description="Earning with Loyal comes in two forms, and you choose which fits."
+        title="How your dollars earn with Loyal"
+        description="Deposit dollars and let the optimizer do the rotating."
         cards={[
-          {
-            size: "lg",
-            body: (
-              <>
-                <strong>
-                  Private and passive: your shielded dollars earn while they
-                  sit.
-                </strong>{" "}
-                Dollars you hold and{" "}
-                <Link
-                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
-                  href="/private-payments"
-                >
-                  shield
-                </Link>{" "}
-                don&apos;t sit idle. The underlying tokens are put to work in
-                Kamino lending while your balance stays private, earning the
-                baseline lending rate with nothing for you to manage.
-                That&apos;s the{" "}
-                <Link
-                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
-                  href="/yield"
-                >
-                  yield on shielded assets
-                </Link>{" "}
-                story.
-              </>
-            ),
-          },
           {
             size: "lg",
             body: (
@@ -202,7 +168,18 @@ export default function EarnPage() {
                 continuously moves your allocation to the best-paying reserve
                 instead of leaving it in one pool, swapping between
                 risk-equivalent stablecoins to reach a better market.
-                Optimizing runs on your open balance, not on shielded dollars.
+              </>
+            ),
+          },
+          {
+            size: "lg",
+            body: (
+              <>
+                <strong>Bounded by a policy you approve.</strong> The routing
+                runs through an on-chain Squads policy on your own smart
+                account, limited to a whitelist of reputable stablecoins and
+                established reserves. It never takes custody, and you can
+                withdraw any time.
               </>
             ),
           },
@@ -416,9 +393,8 @@ export default function EarnPage() {
               <>
                 Loyal hasn&apos;t commissioned its own standalone audit yet,
                 but the substrate has been audited heavily: Squads, which holds
-                the funds and enforces the policy, and MagicBlock, which the
-                privacy layer runs on. Every line of Loyal-specific code on top
-                is{" "}
+                the funds and enforces the policy. Every line of
+                Loyal-specific code on top is{" "}
                 <a
                   className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
                   href="https://github.com/loyal-labs/loyal-app"
@@ -449,16 +425,7 @@ export default function EarnPage() {
                 between a parked rate and an optimized one compounds into real
                 money over a year. Loyal earns the better rate automatically,
                 without your team manually rotating positions and without
-                handing custody to a vault manager. If you&apos;d rather keep
-                part of the balance off public view,{" "}
-                <Link
-                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
-                  href="/yield"
-                >
-                  shielding
-                </Link>{" "}
-                earns the private baseline rate instead, so you can split a
-                treasury between the two.
+                handing custody to a vault manager.
               </>
             ),
           },

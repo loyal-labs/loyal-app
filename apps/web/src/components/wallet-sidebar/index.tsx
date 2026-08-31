@@ -23,10 +23,7 @@ import {
   splitUsdBalance,
   type WalletDesktopData,
 } from "@/hooks/use-wallet-desktop-data";
-import {
-  trackWalletShieldPressed,
-  trackWalletSidebarTabOpen,
-} from "@/lib/core/analytics";
+import { trackWalletSidebarTabOpen } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 import { AllActivityView } from "./all-activity-view";
@@ -35,9 +32,8 @@ import { AllTokensView } from "./all-tokens-view";
 import { PortfolioContent } from "./portfolio-content";
 import { ReceiveContent } from "./receive-content";
 import { SendContent } from "./send-content";
-import { ShieldContent, SwapShieldTabs } from "./shield-content";
 import { createSwapTokensFromPositions } from "./swap-account-context";
-import { SwapContent } from "./swap-content";
+import { SwapContent, SwapPanelHeader } from "./swap-content";
 import { TokenSelectView } from "./token-select-view";
 import { AccountPageView } from "./account-page-view";
 import { AgentPageView } from "./agent-page-view";
@@ -50,7 +46,6 @@ import type {
   FormButtonProps,
   RightSidebarTab,
   SubView,
-  SwapMode,
   SwapToken,
   TokenRow,
   TransactionDetail,
@@ -246,21 +241,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
     return tokens;
   }, [props.walletDesktopData.positions]);
-  const securedTokens = useMemo<SwapToken[]>(
-    () =>
-      props.walletDesktopData.positions
-        .filter((position) => position.securedBalance > 0)
-        .map((position) => ({
-          balance: position.securedBalance,
-          icon:
-            position.asset.imageUrl ?? getTokenIconUrl(position.asset.symbol),
-          isSecured: true,
-          mint: position.asset.mint,
-          price: position.priceUsd ?? 0,
-          symbol: position.asset.symbol,
-        })),
-    [props.walletDesktopData.positions]
-  );
 
   // Merge user's held tokens with popular tokens for swap target selection
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
@@ -351,39 +331,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       (token) => token.mint && token.mint === swapFromToken.mint
     ) ?? swapFromToken;
 
-  // Swap/Shield mode
-  const [swapMode, setSwapMode] = useState<SwapMode>("swap");
+  // Swap form state
   const [swapFormActive, setSwapFormActive] = useState(true);
-  const [shieldFormActive, setShieldFormActive] = useState(true);
-  const showSharedTabs =
-    swapMode === "swap" ? swapFormActive : shieldFormActive;
+  const showSharedTabs = swapFormActive;
   const [swapButtonProps, setSwapButtonProps] =
     useState<FormButtonProps | null>(null);
-  const [shieldButtonProps, setShieldButtonProps] =
-    useState<FormButtonProps | null>(null);
-  const activeButtonProps =
-    swapMode === "swap" ? swapButtonProps : shieldButtonProps;
-
-  // Shield token state
-  const [shieldToken, setShieldToken] = useState<SwapToken>(
-    derivedTokens[0] ?? fallbackSwapTokens[0]
-  );
-  const [shieldDirection, setShieldDirection] = useState<"shield" | "unshield">(
-    "shield"
-  );
-
-  // Derived secured balance for the selected shield token
-  const shieldSecuredBalance = useMemo(() => {
-    if (!shieldToken.mint) return 0;
-    const position = props.walletDesktopData.positions.find(
-      (p) => p.asset.mint === shieldToken.mint
-    );
-    return position?.securedBalance ?? 0;
-  }, [shieldToken.mint, props.walletDesktopData.positions]);
-  const shieldSourceTokens = useMemo(
-    () => [...derivedTokens, ...securedTokens],
-    [derivedTokens, securedTokens]
-  );
+  const activeButtonProps = swapButtonProps;
 
   // Send token state
   const [sendToken, setSendToken] = useState<SwapToken>(
@@ -404,58 +357,15 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [activeTab, onTabChange, publicEnv]
   );
 
-  const handleSwapModeChange = useCallback(
-    (mode: SwapMode) => {
-      if (swapMode !== mode && mode === "shield") {
-        trackWalletShieldPressed(publicEnv, {
-          source: "swap_sidebar_tab",
-          interaction: "open",
-        });
-      }
-
-      setSwapMode(mode);
-    },
-    [publicEnv, swapMode]
-  );
-
   // Build contextual actions for each token row on hover
   const getTokenActions = useCallback(
     (token: TokenRow): TokenRowActions | undefined => {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
-      const isSecured = token.isSecured === true;
-
-      if (isSecured) {
-        return {
-          onSend: () => pushView({ type: "sendPanel" }),
-          onUnshield: () => {
-            const baseToken = derivedTokens.find(
-              (nextToken) =>
-                nextToken.mint === token.id?.replace(/-secured$/, "")
-            ) ?? {
-              balance: Number.parseFloat(token.amount.replace(/,/g, "")) || 0,
-              icon: token.icon,
-              mint: token.id?.replace(/-secured$/, ""),
-              price: Number.parseFloat(token.price.replace(/[$,]/g, "")) || 0,
-              symbol: token.symbol,
-            };
-            setShieldToken(baseToken);
-            setShieldDirection("unshield");
-            handleSwapModeChange("shield");
-            pushView({ type: "swapPanel", mode: "shield" });
-          },
-        };
-      }
 
       const actions: TokenRowActions = {
         onSend: () => pushView({ type: "sendPanel" }),
         onSwap: () => {
-          handleSwapModeChange("swap");
-          pushView({ type: "swapPanel", mode: "swap" });
-        },
-        onShield: () => {
-          setShieldDirection("shield");
-          handleSwapModeChange("shield");
-          pushView({ type: "swapPanel", mode: "shield" });
+          pushView({ type: "swapPanel" });
         },
       };
 
@@ -471,7 +381,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
       return actions;
     },
-    [derivedTokens, handleSwapModeChange, pushView]
+    [pushView]
   );
 
   // Update tokens when wallet connects/disconnects (not on every balance refresh)
@@ -486,7 +396,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         derivedTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN
       );
       setSendToken(derivedTokens[0]);
-      setShieldToken(derivedTokens[0]);
     }
     prevHadTokens.current = hasTokens;
   }, [derivedTokens]);
@@ -689,46 +598,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         />
       );
     }
-    if (type === "shieldTokenSelect") {
-      return (
-        <TokenSelectView
-          currentToken={shieldToken}
-          isTokenSelected={(token) =>
-            token.mint === shieldToken.mint &&
-            (token.isSecured
-              ? shieldDirection === "unshield"
-              : shieldDirection === "shield")
-          }
-          onBack={onBack}
-          onClose={props.onClose}
-          onSelect={(token) => {
-            const nextDirection = token.isSecured ? "unshield" : "shield";
-            const baseToken =
-              derivedTokens.find(
-                (nextToken) => nextToken.mint === token.mint
-              ) ??
-              props.walletDesktopData.positions
-                .filter((position) => position.asset.mint === token.mint)
-                .map((position) => ({
-                  balance: position.publicBalance,
-                  icon:
-                    position.asset.imageUrl ??
-                    getTokenIconUrl(position.asset.symbol),
-                  mint: position.asset.mint,
-                  price: position.priceUsd ?? 0,
-                  symbol: position.asset.symbol,
-                }))[0] ??
-              token;
-
-            setShieldToken(baseToken);
-            setShieldDirection(nextDirection);
-            popView();
-          }}
-          title="Select token"
-          tokens={shieldSourceTokens}
-        />
-      );
-    }
     if (type === "approvalReview") {
       return (
         <ApprovalReviewContent
@@ -814,13 +683,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           onOpenReceive={() => navigateFn({ type: "receivePanel" })}
           onOpenSend={() => navigateFn({ type: "sendPanel" })}
           onOpenSwap={() => {
-            handleSwapModeChange("swap");
-            navigateFn({ type: "swapPanel", mode: "swap" });
-          }}
-          onOpenShield={() => {
-            setShieldDirection("shield");
-            handleSwapModeChange("shield");
-            navigateFn({ type: "swapPanel", mode: "shield" });
+            navigateFn({ type: "swapPanel" });
           }}
           getTokenActions={getTokenActions}
         />
@@ -899,8 +762,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     if (type === "sendPanel") {
       return (
         <SendContent
-          addLocalActivity={props.walletDesktopData.addLocalActivity}
-          allowPrivateSend
           onBack={onBack}
           onClose={props.onClose}
           onDone={() => {
@@ -921,7 +782,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
       );
     }
     if (type === "swapPanel") {
-      const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
+      const showTabs = swapFormActive;
       const effectiveSwapFromToken =
         isVaultSubview && selectedVaultSwapTokens.length > 0
           ? selectedVaultSwapTokens.find(
@@ -941,12 +802,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
           }}
         >
           {showTabs && (
-            <SwapShieldTabs
-              mode={swapMode}
-              onBack={onBack}
-              onClose={props.onClose}
-              onModeChange={handleSwapModeChange}
-            />
+            <SwapPanelHeader onBack={onBack} onClose={props.onClose} />
           )}
           <div
             style={{
@@ -962,10 +818,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 inset: 0,
                 display: "flex",
                 flexDirection: "column",
-                transform:
-                  swapMode === "swap" ? "translateX(0)" : "translateX(-100%)",
-                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
-                willChange: "transform",
               }}
             >
               <SwapContent
@@ -980,49 +832,16 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 onFormButtonChange={setSwapButtonProps}
                 onFromTokenChange={setSwapFromToken}
                 onNavigate={navigateFn}
-                onSwapModeChange={handleSwapModeChange}
                 onToTokenChange={setSwapToToken}
                 executionContext={vaultSwapExecutionContext}
-                swapMode={swapMode}
                 toToken={swapToToken}
-              />
-            </div>
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                flexDirection: "column",
-                transform:
-                  swapMode === "shield" ? "translateX(0)" : "translateX(100%)",
-                transition: "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
-                willChange: "transform",
-              }}
-            >
-              <ShieldContent
-                hideFormChrome
-                onBack={onBack}
-                onClose={props.onClose}
-                onDone={() => {
-                  resetViews();
-                }}
-                onFormActiveChange={setShieldFormActive}
-                onFormButtonChange={setShieldButtonProps}
-                initialDirection={shieldDirection}
-                onNavigate={navigateFn}
-                onSwapModeChange={handleSwapModeChange}
-                onTokenChange={setShieldToken}
-                securedBalance={shieldSecuredBalance}
-                swapMode={swapMode}
-                token={shieldToken}
               />
             </div>
           </div>
 
           {/* Shared bottom button — stays fixed */}
           {(() => {
-            const btnProps =
-              swapMode === "swap" ? swapButtonProps : shieldButtonProps;
+            const btnProps = swapButtonProps;
             return btnProps ? (
               <div style={{ padding: "16px 20px" }}>
                 <button
@@ -1316,13 +1135,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                   onOpenReceive={() => pushView({ type: "receivePanel" })}
                   onOpenSend={() => pushView({ type: "sendPanel" })}
                   onOpenSwap={() => {
-                    handleSwapModeChange("swap");
-                    pushView({ type: "swapPanel", mode: "swap" });
-                  }}
-                  onOpenShield={() => {
-                    setShieldDirection("shield");
-                    handleSwapModeChange("shield");
-                    pushView({ type: "swapPanel", mode: "shield" });
+                    pushView({ type: "swapPanel" });
                   }}
                   onOpenVault={openVaultAccount}
                   onOpenAgent={openAgentPage}
@@ -1336,8 +1149,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               )}
               {displayTab === "send" && (
                 <SendContent
-                  addLocalActivity={props.walletDesktopData.addLocalActivity}
-                  allowPrivateSend
                   onClose={props.onClose}
                   onDone={() => props.onTabChange("portfolio")}
                   onNavigate={pushView}
@@ -1353,16 +1164,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                     minHeight: 0,
                   }}
                 >
-                  {/* Shared tab bar — stays fixed, hidden when non-form phase takes over */}
+                  {/* Shared header — stays fixed, hidden when non-form phase takes over */}
                   {showSharedTabs && (
-                    <SwapShieldTabs
-                      mode={swapMode}
-                      onClose={props.onClose}
-                      onModeChange={handleSwapModeChange}
-                    />
+                    <SwapPanelHeader onClose={props.onClose} />
                   )}
 
-                  {/* Sliding content area */}
+                  {/* Content area */}
                   <div
                     style={{
                       position: "relative",
@@ -1377,13 +1184,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         inset: 0,
                         display: "flex",
                         flexDirection: "column",
-                        transform:
-                          swapMode === "swap"
-                            ? "translateX(0)"
-                            : "translateX(-100%)",
-                        transition:
-                          "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
-                        willChange: "transform",
                       }}
                     >
                       <SwapContent
@@ -1395,40 +1195,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onFormButtonChange={setSwapButtonProps}
                         onFromTokenChange={setSwapFromToken}
                         onNavigate={pushView}
-                        onSwapModeChange={handleSwapModeChange}
                         onToTokenChange={setSwapToToken}
-                        swapMode={swapMode}
                         toToken={swapToToken}
-                      />
-                    </div>
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        display: "flex",
-                        flexDirection: "column",
-                        transform:
-                          swapMode === "shield"
-                            ? "translateX(0)"
-                            : "translateX(100%)",
-                        transition:
-                          "transform 0.35s cubic-bezier(0.25, 0.1, 0.25, 1)",
-                        willChange: "transform",
-                      }}
-                    >
-                      <ShieldContent
-                        hideFormChrome
-                        onClose={props.onClose}
-                        onDone={() => props.onTabChange("portfolio")}
-                        onFormActiveChange={setShieldFormActive}
-                        onFormButtonChange={setShieldButtonProps}
-                        initialDirection={shieldDirection}
-                        onNavigate={pushView}
-                        onSwapModeChange={handleSwapModeChange}
-                        onTokenChange={setShieldToken}
-                        securedBalance={shieldSecuredBalance}
-                        swapMode={swapMode}
-                        token={shieldToken}
                       />
                     </div>
                   </div>

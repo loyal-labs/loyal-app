@@ -91,29 +91,6 @@ function SelectableTokenRow({
               </div>
             )}
           </div>
-          {token.isSecured && (
-            <div
-              style={{
-                alignItems: "center",
-                background: "#fff",
-                borderRadius: "9999px",
-                bottom: "-4px",
-                display: "flex",
-                height: "24px",
-                justifyContent: "center",
-                position: "absolute",
-                right: "-4px",
-                width: "24px",
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                src="/hero-new/Shield.png"
-                style={{ height: "20px", width: "20px" }}
-              />
-            </div>
-          )}
         </div>
       </div>
       <div

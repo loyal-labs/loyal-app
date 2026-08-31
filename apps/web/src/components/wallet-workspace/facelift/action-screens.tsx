@@ -10,7 +10,7 @@ import { getExplorerTxUrl } from "@/lib/solana/explorer";
 const ASSET_BASE = "/wallet-workspace/facelift";
 
 // Keeps the SOL a transfer can't spend so the wallet can still pay fees —
-// the same reserve the OG swap/shield forms' MAX applies.
+// the same reserve the OG swap form's MAX applies.
 export const SOL_FEE_RESERVE = 0.00005;
 
 export function formatTokenAmount(value: number): string {
@@ -42,7 +42,7 @@ const CONFETTI_PARTICLES = Array.from({ length: 18 }, (_, index) => {
   };
 });
 
-// The swap/shield flows share their result screens; each pane mounts these
+// The action flows share their result screens; each pane mounts these
 // inside its own step-keyed PaneReveal so screen changes replay the rise.
 
 // Figma 4813:405472 / 4822:422952 — centered pair icons + animated ellipsis.
