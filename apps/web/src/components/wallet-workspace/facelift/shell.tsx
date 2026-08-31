@@ -96,27 +96,37 @@ export function WorkspaceFaceliftShell() {
   const [activePage, setActivePage] = useState<WorkspacePage>("earn");
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
-  // Reload lands on the last visited page — signed-in only; a disconnected
-  // wallet always lands on Earn. Restored in an effect (not the initializer)
+  // Reload lands on the last visited page (signed out: Earn or Earn MAX,
+  // the pages that work without a wallet). Restored in an effect (not the
+  // initializer)
   // so the client's first render matches the server HTML, and only after auth
   // hydration (the pre-hydration render is the quiet white pane anyway). The
   // once-ref keeps a later sign-in from yanking the user back to the stored
   // page mid-session.
   const hasRestoredPageRef = useRef(false);
+  // The persist effect below writes the boot page ("earn") on mount, before
+  // auth hydration lets the restore run — so the pre-clobber value must be
+  // captured the first time either effect touches storage.
+  const storedPageRef = useRef<string | null>(null);
   useEffect(() => {
+    storedPageRef.current ??= localStorage.getItem(PAGE_STORAGE_KEY) ?? "";
     if (!isHydrated || hasRestoredPageRef.current) {
       return;
     }
     hasRestoredPageRef.current = true;
-    if (!isSignedIn) {
+    const stored = storedPageRef.current as WorkspacePage;
+    if (!WORKSPACE_PAGES.includes(stored) || stored === "earn") {
       return;
     }
-    const stored = localStorage.getItem(PAGE_STORAGE_KEY) as WorkspacePage;
-    if (WORKSPACE_PAGES.includes(stored) && stored !== "earn") {
-      setActivePage(stored);
+    // Signed out only the Earn products render — every other stored page
+    // needs a session, so those reloads fall back to Earn.
+    if (!isSignedIn && stored !== "earnmax") {
+      return;
     }
+    setActivePage(stored);
   }, [isHydrated, isSignedIn]);
   useEffect(() => {
+    storedPageRef.current ??= localStorage.getItem(PAGE_STORAGE_KEY) ?? "";
     localStorage.setItem(PAGE_STORAGE_KEY, activePage);
   }, [activePage]);
   // Signing out mid-session snaps back to the Earn products — the only
