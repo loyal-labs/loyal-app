@@ -14,6 +14,10 @@ import {
 } from "react";
 
 import {
+  HistoricalApyChart,
+  type HistoricalApySample,
+} from "@/components/wallet-sidebar/earn-detail-view";
+import {
   ScrambledPopDigits,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
@@ -235,23 +239,37 @@ const EARN_MAX_CHART_TABS: readonly ChartTab[] = ["APY", "Earned"];
 // ponytail: daily "earned" ≈ equity delta minus confirmed same-day flows
 // (deposits in, withdrawal requests out) — replace with a dedicated earnings
 // feed when the indexer grows one.
-function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[] {
-  const days: { date: Date; equity: number; key: string }[] = [];
+const EARNED_WINDOW_DAYS = 30;
+
+function dayKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function buildEarnMaxDailySeries(view: EarnMaxViewModel): {
+  days: {
+    date: Date;
+    earnedUsd: number;
+    equityUsd: number | null;
+    isCurrent: boolean;
+  }[];
+} {
+  // First and last confirmed equity per calendar day — the first one anchors
+  // the position's opening day so its intra-day earnings still chart.
+  const equityByDay = new Map<string, { first: number; last: number }>();
   for (const point of view.performance) {
     const date = new Date(point.timestamp);
     if (Number.isNaN(date.getTime())) {
       continue;
     }
-    const key = date.toDateString();
-    const last = days.at(-1);
-    if (last && last.key === key) {
-      last.date = date;
-      last.equity = point.equityUsd;
+    const key = dayKey(date);
+    const existing = equityByDay.get(key);
+    if (existing) {
+      existing.last = point.equityUsd;
     } else {
-      days.push({ date, equity: point.equityUsd, key });
+      equityByDay.set(key, { first: point.equityUsd, last: point.equityUsd });
     }
   }
-  const flows = new Map<string, number>();
+  const flowsByDay = new Map<string, number>();
   for (const operation of view.activity) {
     if (!(operation.amountRaw && operation.timestamp)) {
       continue;
@@ -269,53 +287,76 @@ function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[] {
     if (sign === 0) {
       continue;
     }
-    const key = date.toDateString();
-    flows.set(
+    const key = dayKey(date);
+    flowsByDay.set(
       key,
-      (flows.get(key) ?? 0) + (sign * Number(operation.amountRaw)) / 1_000_000
+      (flowsByDay.get(key) ?? 0) + (sign * Number(operation.amountRaw)) / 1_000_000
     );
   }
-  const bars: EarnedChartBar[] = [];
-  for (let index = 1; index < days.length; index += 1) {
-    const previous = days[index - 1]!;
-    const current = days[index]!;
-    bars.push({
-      apyBps: null,
-      earnedUsd:
-        current.equity - previous.equity - (flows.get(current.key) ?? 0),
-      endAt: current.date.toISOString(),
-      isCurrent: index === days.length - 1,
-      label: current.date.toLocaleDateString("en-US", {
-        day: "numeric",
-        month: "short",
-      }),
-      startAt: previous.date.toISOString(),
+  // Fixed window ending today, like the Earn earnings API — days without a
+  // position render as empty bars so young positions still read as 30 days.
+  const now = new Date();
+  const days: {
+    date: Date;
+    earnedUsd: number;
+    equityUsd: number | null;
+    isCurrent: boolean;
+  }[] = [];
+  let carryEquity: number | null = null;
+  for (let offset = EARNED_WINDOW_DAYS - 1; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+    const key = dayKey(date);
+    const dayEquity = equityByDay.get(key);
+    const equity: number | null = dayEquity?.last ?? carryEquity;
+    const base = carryEquity ?? dayEquity?.first ?? null;
+    const earned =
+      base === null || equity === null
+        ? 0
+        : equity -
+          base -
+          (carryEquity === null ? 0 : flowsByDay.get(key) ?? 0);
+    days.push({
+      date,
+      earnedUsd: earned,
+      equityUsd: equity,
+      isCurrent: offset === 0,
     });
+    carryEquity = equity;
   }
-  return bars.slice(-30);
+  return { days };
 }
 
-// ponytail: no Earn MAX APY history feed yet — the tab shows the realized /
-// forecast figure in the shared chart typography until one exists.
-function EarnMaxApyBody({ view }: { view: EarnMaxViewModel }) {
-  const hasRealized = view.realizedApyBps !== null;
-  const apyBps =
-    view.realizedApyBps ?? view.forecastApyBps ?? EARN_MAX_FALLBACK_APY_BPS;
-  return (
-    <div className="flex min-h-0 w-full flex-1 flex-col">
-      <div className="flex w-full flex-col gap-0.5 pb-2">
-        <p className="truncate text-[16px] text-muted-foreground leading-5">
-          {hasRealized ? "Realized APY" : "Forecast APY"}
-        </p>
-        <p className="font-semibold text-[40px] text-foreground leading-[48px]">
-          {(apyBps / 100).toFixed(2)}%
-        </p>
-      </div>
-      <div className="flex min-h-0 w-full flex-1 items-center justify-center text-center text-[13px] text-muted-foreground leading-4">
-        APY history appears as your position ages.
-      </div>
-    </div>
-  );
+function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[] {
+  return buildEarnMaxDailySeries(view).days.map((day) => ({
+    apyBps: null,
+    earnedUsd: day.earnedUsd,
+    endAt: day.date.toISOString(),
+    isCurrent: day.isCurrent,
+    label: day.date.toLocaleDateString("en-US", {
+      day: "numeric",
+      month: "short",
+    }),
+    startAt: day.date.toISOString(),
+  }));
+}
+
+// Earn MAX rides Earn's animated HistoricalApyChart: days with confirmed
+// history plot their realized daily APY, the rest sit at the realized /
+// forecast figure — the Kamino benchmark lines stay for comparison.
+function buildEarnMaxApySamples(view: EarnMaxViewModel): HistoricalApySample[] {
+  const baselinePercent =
+    (view.realizedApyBps ?? view.forecastApyBps ?? EARN_MAX_FALLBACK_APY_BPS) /
+    100;
+  return buildEarnMaxDailySeries(view).days.map((day) => {
+    const dailyPercent =
+      day.equityUsd && day.equityUsd > 0 && day.earnedUsd !== 0
+        ? Math.max((day.earnedUsd / day.equityUsd) * 365 * 100, 0)
+        : null;
+    return {
+      apyPercent: dailyPercent ?? baselinePercent,
+      observedAtMs: day.date.getTime(),
+    };
+  });
 }
 
 function SmallPill({
@@ -936,7 +977,13 @@ export function EarnMaxWorkspace({
           lifetimeEarnedUsd={view.earnedUsd ?? 0}
         />
       ) : (
-        <EarnMaxApyBody view={view} />
+        <HistoricalApyChart
+          apyDataRevealed={!view.isLoading}
+          axisTickCount={2}
+          primaryLabel="Earn MAX"
+          primarySamples={buildEarnMaxApySamples(view)}
+          rangeId="30D"
+        />
       ),
     tabs: EARN_MAX_CHART_TABS,
   };
