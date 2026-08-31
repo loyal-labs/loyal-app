@@ -32,6 +32,9 @@ export const mirrors = [
     repo: "loyal-labs/loyal-mobile",
     kind: "expo-app",
     description: "Generated mirror of loyal-app/mobile",
+    // Operator e2e verifier; hardcodes monorepo-relative package paths that
+    // trip the generated-mirror safety check.
+    excludePaths: ["apps/mobile/scripts/verify-withdraw-latency-e2e.ts"],
   },
   {
     source: "apps/extension",

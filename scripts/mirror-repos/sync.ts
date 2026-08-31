@@ -111,7 +111,12 @@ function generateMirror(mirror: MirrorConfig, destinationRoot: string): void {
     case "telegram-app":
     case "expo-app":
     case "wxt-extension":
-      copyTrackedPrefix(mirror.source, destinationRoot, true);
+      copyTrackedPrefix(
+        mirror.source,
+        destinationRoot,
+        true,
+        mirror.excludePaths
+      );
       break;
     case "source-tree":
     case "rust-cli":
