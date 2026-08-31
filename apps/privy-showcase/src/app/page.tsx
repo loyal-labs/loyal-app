@@ -11,6 +11,7 @@ import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
 } from "@loyal-labs/smart-account-vaults";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -467,6 +468,7 @@ export default function Home() {
         amountRaw,
         mint: CANONICAL_USDC_MINT,
         tokenAccount: boundary.sourceAta,
+        tokenProgramId: TOKEN_PROGRAM_ID,
       },
       yieldRoutingPolicy: {
         account: new PublicKey(setup.policy),
