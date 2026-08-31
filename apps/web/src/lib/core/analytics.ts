@@ -159,24 +159,3 @@ export function trackWalletSwapCompleted(
   );
 }
 
-export function trackWalletShieldPressed(
-  publicEnv: PublicEnv,
-  properties?: AnalyticsProperties
-): void {
-  trackFrontendAnalyticsEvent(
-    publicEnv,
-    FRONTEND_ANALYTICS_EVENTS.walletShieldPressed,
-    properties
-  );
-}
-
-export function trackWalletShieldCompleted(
-  publicEnv: PublicEnv,
-  properties: AnalyticsProperties
-): void {
-  trackFrontendAnalyticsEvent(
-    publicEnv,
-    FRONTEND_ANALYTICS_EVENTS.walletShieldCompleted,
-    properties
-  );
-}

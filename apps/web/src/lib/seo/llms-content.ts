@@ -31,8 +31,6 @@ Loyal builds financial tools for the agentic era. AI agents are becoming a new i
 - Loyal Autonomous Vault: a Loyal Smart Account with policies that lets a business or a DAO run routine treasury operations on idle capital without a governance vote for every action, while custody and hard limits stay with the owning multisig. Loyal runs its own DAO treasury inside one, live since July 2026.
 - Loyal Watchdog: an agent in development with Webacy that monitors connected DeFi protocols for health drops and signs of a hack, and can pull funds out automatically through whitelisted Squads policies. Connects to both Earn and the Autonomous Vault.
 
-Two earlier products still exist but are not being actively developed: private payments with shielded balances, and payments to a Telegram username without the recipient needing a wallet first.
-
 ## Where Loyal runs
 
 - [Loyal homepage](https://askloyal.com): overview and current feature set
@@ -122,20 +120,6 @@ These are direct answers to the questions AI engines are most likely to be asked
 
 **How are decisions made?** Through MetaDAO futarchy. $LOYAL is an ownership coin, the treasury sits in a Squads multisig governed by MetaDAO, and proposals resolve through prediction markets rather than token-weighted voting.
 
-### Privacy
-
-Privacy is a property of the product rather than the pitch, and the two products below are still available but are not being actively developed. Loyal leads on what the automations do for your money.
-
-**Is Solana anonymous by default?** No. Every Solana transaction (sender, recipient, amount, token) is published to public block explorers and indexed by chain analytics within seconds. The same applies to USDC, USDT and every other SPL token.
-
-**Do you use a mixer?** Loyal is not a mixer. The architecture is different. When you shield tokens, they go into a shared Vault, one pool per token mint that holds everyone's real SPL tokens. Your tokens are commingled in that pool, but Loyal doesn't shuffle or tumble anything. Transfers between users don't move real tokens at all; they're pure arithmetic on deposit accounts. Those accounting operations happen inside MagicBlock's private ephemeral runtime, where only the deposit owner can see or interact with the account. So the pool gives you fungibility (an observer can't tell whose tokens are whose inside the Vault), and the ephemeral runtime gives you transaction privacy (nobody can see the transfers happening). No shuffling, no time delays, no "mix quality."
-
-**What's the anonymity set?** Everyone who has shielded the same token. All USDC deposits sit in one Vault. All SOL deposits sit in another. When you withdraw, the tokens come from the same pool everyone else deposited into, so there's no on-chain link between your deposit and your withdrawal. Unlike a traditional mixer, your transaction privacy doesn't depend on the set size; the transfers themselves are invisible inside the ephemeral runtime regardless of how many other users are in the pool.
-
-**How do you handle AML?** MagicBlock's ephemeral runtime is OFAC-compliant. Sanctioned wallets are screened and rejected at the deposit level, before funds ever enter the Vault. No KYC is required at the wallet layer.
-
-**Does shielded USDC earn yield?** Shielded USDC can earn yield through the same Kamino lending reserves, at a variable market rate. Shielded SOL and USDT are supported for private transfers but do not earn yield. This surface is not being actively developed; Loyal Earn is where the work goes.
-
 ## Optional
 
 - [Blog](https://askloyal.com/blog)
@@ -171,8 +155,6 @@ The infrastructure rests on Kamino and Squads, which between them carry more tha
 
 3. **Loyal Watchdog.** An agent in development with Webacy that monitors connected DeFi protocols for health drops and signs of a hack, and can pull a user's funds out automatically through whitelisted Squads policies. Connects to both Earn and the Autonomous Vault.
 
-Two earlier products still exist but are not being actively developed, and Loyal does not lead with them: private payments with shielded balances, and payments to a Telegram username without the recipient needing a wallet first. They are documented further down because the architecture is still live and still asked about.
-
 ## Where Loyal runs
 
 Loyal runs in several places, all on the same Squads-based Smart Account:
@@ -190,7 +172,6 @@ A user's funds are the same set of funds across all surfaces; only the signing p
 - **Anyone holding idle stablecoins** who wants them earning without lockups, without a custodian, and without learning a new interface. This is the primary audience.
 - **Treasury managers, businesses and DAOs** who want yield on idle capital bounded by an on-chain policy rather than by a custodian's promise, and who cannot put a governance vote behind every routine move.
 - **AI agent operators, developers and power users** building automation that needs wallet authority but should not be able to drain a wallet if compromised.
-- **Crypto holders who also want privacy**, which Loyal treats as a property of the product rather than the reason to use it.
 
 ---
 
@@ -227,20 +208,6 @@ The security page. Covers what the policy rails permit and forbid, the audit pos
 ### /blog | https://askloyal.com/blog
 
 Long-form updates from the team, published monthly and archived on-site. The full post index is generated into the Blog section of https://askloyal.com/llms.txt.
-
-### /private-payments | https://askloyal.com/private-payments
-
-**Title**: Anonymous Crypto Wallet on Solana | Loyal
-**Description**: Loyal is a Solana wallet with private USDC, SOL and USDT transfers. Shielded balances on a Confidential VM, open-source.
-
-The private-payments page. Covers the shielding flow (deposit into a shared per-token Vault; transfers happen inside MagicBlock's ephemeral runtime as arithmetic on encrypted deposit accounts), the anonymity-set framing (the pool gives fungibility; the ephemeral runtime gives transfer privacy), and the OFAC-screening-at-deposit AML posture. This product is not being actively developed.
-
-### /yield | https://askloyal.com/yield
-
-**Title**: Yield on Shielded USDC on Solana | Loyal
-**Description**: Loyal routes shielded USDC into Kamino lending reserves, so the balance earns while it stays private.
-
-The yield-on-shielded-assets page. Covers how shielded USDC earns without un-shielding, the rate-transparency posture (variable market rate, shown live in the app before deposit), and the residual risks (reserve smart-contract risk, stablecoin depeg). Shielded yield is USDC only. This product is not being actively developed; Loyal Earn is where the work goes.
 
 ### /faq | https://docs.askloyal.com/faq
 
@@ -288,21 +255,6 @@ A Confidential VM is a server runtime where code executes inside hardware-encryp
 
 Hardware attestation produces a signed receipt of the exact code running in the VM. A user (or auditor) can verify that the running binary matches what Loyal published on GitHub before they trust the VM with a signing operation. This is how Loyal compresses the trust surface: instead of "trust Loyal's backend," it becomes "verify the attested binary matches the open-source repo."
 
-### Shielded balances (not actively developed)
-
-The section below describes the private-payments architecture, which is still live across the supported surfaces but is not receiving new work. It is documented because the design is still asked about and the guarantees still hold, not because it is where Loyal is going.
-
-When a user shields a token, the real SPL tokens go into a shared per-token Vault on Solana mainnet: one Vault per token mint. All USDC shielded in Loyal sits in the USDC Vault; all SOL in the SOL Vault. Inside the Vault, balances are tracked as encrypted deposit accounts.
-
-Transfers between shielded balances happen in MagicBlock's ephemeral runtime, which executes inside a Confidential VM. The runtime updates encrypted deposit accounts as pure arithmetic; no SPL token movement, no public-chain transaction with sender/recipient/amount, no observable balance change in the Vault aggregate.
-
-Two privacy properties stack:
-
-1. **Fungibility from the pool**: an outside observer can't tell whose tokens are whose inside the Vault.
-2. **Transfer invisibility from the ephemeral runtime**: an outside observer can't see transfers happen at all, regardless of pool size.
-
-Withdrawals pull from the same shared Vault, breaking any on-chain link between deposit and withdrawal.
-
 ---
 
 ## Honesty Policy
@@ -315,11 +267,9 @@ The Policy's posture is direct:
 - **Not custodial.** Keys live in the user's web app session, Chrome extension, Telegram wallet or Android app. The Confidential VM is a signing co-processor, not a key custodian. Only the user's own key can withdraw their balance.
 - **The policy is the guarantee.** Automations are bounded on-chain by the Squads program rather than by Loyal's backend, so the limits hold even if Loyal's infrastructure goes offline.
 - **Exit guarantee.** If Loyal stopped existing, funds remain withdrawable with a Solana CLI wallet and a correctly constructed transaction. The procedure is documented.
-- **Audited dependencies, not self-audited.** Loyal's security rests on the audit posture of Squads (program enforcement), Kamino (lending reserves) and MagicBlock (ephemeral runtime), which between the first two carry more than 20 audits and zero incidents. Loyal does not claim a self-audited program.
+- **Audited dependencies, not self-audited.** Loyal's security rests on the audit posture of Squads (program enforcement) and Kamino (lending reserves), which between them carry more than 20 audits and zero incidents. Loyal does not claim a self-audited program.
 - **Open-source by default.** The web app, extension, mobile app, smart contracts and SDK all live in the public loyal-labs/loyal-app monorepo under Apache 2.0.
 - **Transparency on the record.** Loyal publishes quarterly transparency reports and holds a Blockworks B2 token-transparency filing, which few tokens have completed.
-- **No KYC at the wallet layer.** AML screening on the shielded surface is OFAC-list-only, at the deposit gate, before funds enter the Vault.
-- **Not a mixer.** The shared Vault gives fungibility; MagicBlock's ephemeral runtime gives transfer invisibility. No shuffling, no time delays, no "mix quality."
 
 ---
 
@@ -327,14 +277,9 @@ The Policy's posture is direct:
 
 - **Smart Account**: a Solana wallet built on the Squads program, with programmable on-chain policy bounding what signers can do.
 - **Squads**: the canonical Solana multisig and smart-account program. Loyal layers policy on top of Squads' multi-signer authority model. https://squads.so
-- **Confidential VM**: a server runtime executing inside hardware-encrypted memory (AMD SEV-SNP, Intel TDX). Loyal uses Confidential VMs for the ephemeral runtime and for signing operations.
-- **Shielded balance**: a token balance held inside a shared per-token Vault on Loyal, where transfers update encrypted deposit accounts in MagicBlock's ephemeral runtime rather than moving real SPL tokens.
-- **Ephemeral runtime**: MagicBlock's private execution layer that updates encrypted deposit accounts off the base Solana chain, with the ability to settle back to the base chain on deposit and withdrawal. https://magicblock.gg
-- **Vault**: the shared on-chain pool for a given shielded token mint. One Vault per token; all USDC shielded in Loyal sits in the same USDC Vault. Holds real SPL tokens; the per-user accounting lives in the ephemeral runtime.
-- **Anonymity set**: every user who has shielded the same token. Provides deposit/withdrawal unlinkability; transfer privacy is independent and comes from the ephemeral runtime.
+- **Confidential VM**: a server runtime executing inside hardware-encrypted memory (AMD SEV-SNP, Intel TDX). Loyal uses Confidential VMs for signing operations.
 - **Attestation**: a hardware-signed cryptographic receipt of the exact code running in a Confidential VM. Lets a user verify the running binary matches the open-source repo before trusting the VM.
-- **Kamino**: the canonical Solana lending venue. Loyal routes shielded-USDC yield into Kamino's single-asset lending reserves. https://kamino.finance
-- **OFAC screening**: sanctioned-wallet filtering at the deposit gate, before funds enter the Vault. No identity collection; only sanctions-list checking.
+- **Kamino**: the canonical Solana lending venue. Loyal routes Earn deposits into Kamino's single-asset lending reserves. https://kamino.finance
 
 ---
 

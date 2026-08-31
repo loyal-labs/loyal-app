@@ -9,20 +9,8 @@ const footerColumns = [
   {
     links: [
       {
-        href: "https://docs.askloyal.com/sdk/private-transactions/quick-start",
-        label: "Quick Start",
-      },
-      {
         href: "https://docs.askloyal.com/smart-accounts/overview",
         label: "Smart Accounts",
-      },
-      {
-        href: "https://docs.askloyal.com/sdk/private-transactions/how-it-works",
-        label: "Private Transactions",
-      },
-      {
-        href: "https://docs.askloyal.com/sdk/private-transactions/reference",
-        label: "API Reference",
       },
     ],
     title: "Documentation",

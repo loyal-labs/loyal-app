@@ -108,18 +108,13 @@ const agentFaqs: FaqItem[] = [
     question:
       "How does Loyal compare to MetaMask Advanced Permissions or Coinbase Agentic Wallets?",
     answer:
-      "All three solve the same problem (scoped agent access without giving up the wallet) at different layers of the stack. Coinbase Agentic Wallets are wallet infrastructure for Base; MetaMask Advanced Permissions are an EVM standard (ERC-7715) implemented in the MetaMask Smart Accounts Kit. Loyal is a deployed self-custodial agent wallet on Solana with the same intent-based model, built on Squads smart accounts and the @loyal-labs/private-transactions SDK.",
+      "All three solve the same problem (scoped agent access without giving up the wallet) at different layers of the stack. Coinbase Agentic Wallets are wallet infrastructure for Base; MetaMask Advanced Permissions are an EVM standard (ERC-7715) implemented in the MetaMask Smart Accounts Kit. Loyal is a deployed self-custodial agent wallet on Solana with the same intent-based model, built on Squads smart accounts.",
   },
   {
     question:
       "How does Loyal compare to Crossmint, Privy, Turnkey, or Cobo for agent wallets?",
     answer:
-      "Crossmint, Privy, Turnkey, and Cobo are wallet infrastructure for developers: embedded wallets, signer APIs, MPC custody, and policy engines that other teams compose into their own product. Loyal is a self-custodial agent wallet you use directly. Where those platforms sell the building blocks to teams shipping agent products, Loyal ships the assembled product on Solana, with Squads-based Smart Account policies (permission tiers, spending caps, address allowlists) and the @loyal-labs/private-transactions SDK in the box. If you're building a product, those infra platforms may fit. If you want an agent wallet to use, Loyal is one.",
-  },
-  {
-    question: "Does Loyal support MCP?",
-    answer:
-      "Yes via the SDK today. A dedicated loyal-mcp MCP server is on the roadmap. The current path is to wrap @loyal-labs/private-transactions in a thin MCP layer; straightforward TypeScript, a few hundred lines.",
+      "Crossmint, Privy, Turnkey, and Cobo are wallet infrastructure for developers: embedded wallets, signer APIs, MPC custody, and policy engines that other teams compose into their own product. Loyal is a self-custodial agent wallet you use directly. Where those platforms sell the building blocks to teams shipping agent products, Loyal ships the assembled product on Solana, with Squads-based Smart Account policies (permission tiers, spending caps, address allowlists) in the box. If you're building a product, those infra platforms may fit. If you want an agent wallet to use, Loyal is one.",
   },
   {
     question: "Why Solana for AI agents?",
@@ -218,18 +213,6 @@ export default function AgentsPage() {
                 Spotty, Buddy) so you can see at a glance which agent is holding
                 what and which one is allowed to do what. These are defaults; you
                 can rename them and add more.
-                <br />
-                <br />
-                The agent layer is separate from the privacy layer. Loyal also
-                makes USDC and SOL transfers unlinkable via a Confidential VM
-                signer and a shielded vault, covered on the{" "}
-                <Link
-                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
-                  href="/private-payments"
-                >
-                  private transfers
-                </Link>{" "}
-                page.
               </>
             ),
           },
@@ -331,13 +314,6 @@ export default function AgentsPage() {
                   href="/earn"
                 >
                   best-rate optimizer
-                </Link>{" "}
-                or a{" "}
-                <Link
-                  className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
-                  href="/yield"
-                >
-                  shielded-yield reserve
                 </Link>
                 .
               </>
@@ -405,20 +381,6 @@ export default function AgentsPage() {
         closingStatement="The result is a safe wallet for autonomous agent behavior at scale: every constraint is in code, on-chain, with no off-chain authority Loyal or anyone else can override."
       />
 
-      {/* Block 8 — Section-18 (text-left feature row: for developers) */}
-      <TextImageHero
-        title="For developers"
-        body="The agent wallet is open-source and composable. Point your agent at a user's Loyal Smart Account with the @loyal-labs/private-transactions SDK; the Smart Account handles permission tier, spending cap, and allowlist enforcement on-chain."
-        cta={{
-          label: "Read the SDK",
-          href: "https://docs.askloyal.com/sdk/private-transactions/quick-start",
-        }}
-        image={{
-          src: "/marketing/agents/dev-sdk-card.53826a2b.png",
-          alt: "Loyal SDK quick-start for agent transactions",
-        }}
-      />
-
       {/* Block 9 — Section-19 (image-left feature row: get started) */}
       <TextImageHero
         layout="text-right"
@@ -427,7 +389,7 @@ export default function AgentsPage() {
         cta={{ label: "Get started", href: "https://app.askloyal.com" }}
         image={{
           src: "/landing/figma/get-started-extension-wallet.png",
-          alt: "Loyal browser extension wallet showing balance, tokens, and the Shield action",
+          alt: "Loyal browser extension wallet showing balance and tokens",
         }}
       />
 

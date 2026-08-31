@@ -160,7 +160,7 @@ export function WorkspaceFaceliftShell() {
     walletAddress: EARN_MAX_VISIBLE ? earnData.walletAddress : null,
   });
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
-  // Send/Swap/Shield screens — including re-selecting the page it's already on.
+  // Send/Swap screens — including re-selecting the page it's already on.
   const [navigationNonce, setNavigationNonce] = useState(0);
   useEffect(() => {
     const walletAddress = earnData.walletAddress;
@@ -218,7 +218,7 @@ export function WorkspaceFaceliftShell() {
   );
   const flashTimerRef = useRef<number | null>(null);
   // Desktop keyboard nav: e/a/c/s jump to sections, Esc backs out of Earn's
-  // action screens (CryptoPage owns Esc for Send/Swap/Shield). Skipped while
+  // action screens (CryptoPage owns Esc for Send/Swap). Skipped while
   // an input is focused so typing never navigates. Overlays own Esc first:
   // their handlers preventDefault, checked after dispatch via a microtask.
   useEffect(() => {

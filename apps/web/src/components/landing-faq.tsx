@@ -44,12 +44,6 @@ export const LANDING_FAQS: FaqItem[] = [
       "You will be able to bring existing wallets into Loyal flows while keeping clear separation between imported keys and delegated smart-account permissions.",
   },
   {
-    question:
-      "How are private transfers different from normal onchain transfers?",
-    answer:
-      "Normal onchain transfers expose addresses and amounts directly. Loyal private transfers are designed to keep transaction intent and balances shielded while still settling onchain.",
-  },
-  {
     question: "Can I use Loyal across devices and platforms?",
     answer:
       "Yes. Loyal runs in your browser, on the web, and on mobile, so the same account model follows you across devices.",
