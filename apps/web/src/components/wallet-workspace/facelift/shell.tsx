@@ -415,13 +415,18 @@ export function WorkspaceFaceliftShell() {
             />
           ) : activePage === "activity" ? (
             <ActivityPage
+              earnMaxActivity={earnMax.view.activity}
               onSelectPage={handleSelectPage}
               refreshKey={earnData.actions.earnTransactionsRefreshKey}
               settingsPda={earnData.settingsPda}
               walletAddress={earnData.walletAddress}
             />
           ) : EARN_MAX_VISIBLE && activePage === "earnmax" ? (
-            <EarnMaxWorkspace earnData={earnData} earnMax={earnMax} />
+            <EarnMaxWorkspace
+              earnData={earnData}
+              earnMax={earnMax}
+              onViewAllActivity={() => handleSelectPage("activity")}
+            />
           ) : activePage !== "earn" && activePage !== "earnmax" ? (
             <CryptoPage
               navigationNonce={navigationNonce}

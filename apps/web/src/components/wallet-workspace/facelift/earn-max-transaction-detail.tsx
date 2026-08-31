@@ -144,6 +144,91 @@ function DetailCell({ label, value }: { label: string; value: string }) {
   );
 }
 
+function RouteLabel({
+  destination,
+  source,
+}: {
+  destination: string;
+  source: string;
+}) {
+  return (
+    <span className="flex items-center justify-end gap-1">
+      <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
+        {source}
+      </span>
+      <ThemedIcon
+        className="size-4 text-tertiary"
+        src={`${ASSET_BASE}/icon-arrow-right-circle.svg`}
+      />
+      <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
+        {destination}
+      </span>
+    </span>
+  );
+}
+
+export function OperationRow({
+  amountLabel,
+  isSelected = false,
+  isWithdraw,
+  onSelect,
+  subtitle,
+  title,
+}: {
+  amountLabel: string | null;
+  isSelected?: boolean;
+  isWithdraw: boolean;
+  onSelect?: () => void;
+  subtitle: string;
+  title: string;
+}) {
+  const content = (
+    <>
+      <span className="flex items-center py-2 pr-3">
+        <EarnMaxDualIcon />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
+        <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
+          {title}
+        </span>
+        <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
+          {subtitle}
+        </span>
+      </span>
+      <span className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
+        {amountLabel ? (
+          <span className="whitespace-nowrap text-right text-[16px] text-foreground leading-5">
+            {amountLabel}
+          </span>
+        ) : null}
+        <RouteLabel
+          destination={isWithdraw ? "Main" : "Earn MAX"}
+          source={isWithdraw ? "Earn MAX" : "Main"}
+        />
+      </span>
+    </>
+  );
+  // Same interaction contract as the Earn activity rows (TransactionRow):
+  // without a handler the row is a plain cell; with one it hovers/selects
+  // and opens the transaction detail.
+  if (!onSelect) {
+    return (
+      <div className="flex w-full items-center rounded-2xl px-4">{content}</div>
+    );
+  }
+  return (
+    <button
+      className={`flex w-full items-center rounded-2xl px-4 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset ${
+        isSelected ? "bg-accent" : "hover:bg-accent"
+      }`}
+      onClick={onSelect}
+      type="button"
+    >
+      {content}
+    </button>
+  );
+}
+
 // Earn MAX flavor of the Earn transaction detail (same layout contract as
 // transaction-detail-pane.tsx): identity header, amount hero, From → To
 // route, details card, explorer button pinned bottom.

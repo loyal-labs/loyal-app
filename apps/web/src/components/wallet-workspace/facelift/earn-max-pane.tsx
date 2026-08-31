@@ -31,6 +31,7 @@ import {
   earnMaxActivityLabel,
   formatEarnMaxUsdcAmount,
   isEarnMaxWithdrawishAction,
+  OperationRow,
 } from "@/components/wallet-workspace/facelift/earn-max-transaction-detail";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { isEscapeGuardedTarget } from "@/components/wallet-workspace/facelift/keyboard";
@@ -350,90 +351,9 @@ function GroupHeaderWithIcon({
   );
 }
 
-function RouteLabel({
-  destination,
-  source,
-}: {
-  destination: string;
-  source: string;
-}) {
-  return (
-    <span className="flex items-center justify-end gap-1">
-      <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
-        {source}
-      </span>
-      <ThemedIcon
-        className="size-4 text-tertiary"
-        src={`${ASSET_BASE}/icon-arrow-right-circle.svg`}
-      />
-      <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
-        {destination}
-      </span>
-    </span>
-  );
-}
-
-function OperationRow({
-  amountLabel,
-  isSelected = false,
-  isWithdraw,
-  onSelect,
-  subtitle,
-  title,
-}: {
-  amountLabel: string | null;
-  isSelected?: boolean;
-  isWithdraw: boolean;
-  onSelect?: () => void;
-  subtitle: string;
-  title: string;
-}) {
-  const content = (
-    <>
-      <span className="flex items-center py-2 pr-3">
-        <EarnMaxDualIcon />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-        <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
-          {title}
-        </span>
-        <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
-          {subtitle}
-        </span>
-      </span>
-      <span className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
-        {amountLabel ? (
-          <span className="whitespace-nowrap text-right text-[16px] text-foreground leading-5">
-            {amountLabel}
-          </span>
-        ) : null}
-        <RouteLabel
-          destination={isWithdraw ? "Main" : "Earn MAX"}
-          source={isWithdraw ? "Earn MAX" : "Main"}
-        />
-      </span>
-    </>
-  );
-  // Same interaction contract as the Earn activity rows (TransactionRow):
-  // without a handler the row is a plain cell; with one it hovers/selects
-  // and opens the transaction detail.
-  if (!onSelect) {
-    return (
-      <div className="flex w-full items-center rounded-2xl px-4">{content}</div>
-    );
-  }
-  return (
-    <button
-      className={`flex w-full items-center rounded-2xl px-4 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset ${
-        isSelected ? "bg-accent" : "hover:bg-accent"
-      }`}
-      onClick={onSelect}
-      type="button"
-    >
-      {content}
-    </button>
-  );
-}
+// Figma 5429:37504 — Transactions | Positions card with the withdrawal
+// lifecycle (claim / cancel) pinned on top of the confirmed history.
+const TRANSACTIONS_LIMIT = 5;
 
 function minutesLeftLabel(readyBy: string): string {
   const msLeft = new Date(readyBy).getTime() - Date.now();
@@ -443,12 +363,11 @@ function minutesLeftLabel(readyBy: string): string {
   return `~${Math.max(Math.ceil(msLeft / 60_000), 1)} min left`;
 }
 
-// Figma 5429:37504 — Transactions | Positions card with the withdrawal
-// lifecycle (claim / cancel) pinned on top of the confirmed history.
 function EarnMaxActivityCard({
   actions,
   onDeposit,
   onSelectTransaction,
+  onViewAllActivity,
   onWithdraw,
   selectedTransactionId,
   view,
@@ -456,6 +375,7 @@ function EarnMaxActivityCard({
   actions: EarnMaxActions;
   onDeposit: () => void;
   onSelectTransaction: (item: EarnMaxActivityItem) => void;
+  onViewAllActivity: () => void;
   onWithdraw: () => void;
   selectedTransactionId: string | null;
   view: EarnMaxViewModel;
@@ -545,8 +465,10 @@ function EarnMaxActivityCard({
   }, [moveUnderlineToActiveTab]);
 
   const withdrawal = view.withdrawal;
+  // Recent-N card like the Earn activity card — the full feed lives on the
+  // Activity page.
   const groups: { items: EarnMaxActivityItem[]; label: string }[] = [];
-  for (const item of view.activity) {
+  for (const item of view.activity.slice(0, TRANSACTIONS_LIMIT)) {
     const label = item.timestamp
       ? new Date(item.timestamp).toLocaleDateString("en-US", {
           day: "numeric",
@@ -689,7 +611,8 @@ function EarnMaxActivityCard({
                 No Earn MAX transactions yet.
               </p>
             ) : (
-              groups.map((group) => (
+              <>
+                {groups.map((group) => (
                 <div className="flex w-full flex-col" key={group.label}>
                   <div className="flex w-full items-start px-4 pt-1">
                     <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] text-muted-foreground leading-5 tracking-[-0.176px]">
@@ -717,7 +640,15 @@ function EarnMaxActivityCard({
                     />
                   ))}
                 </div>
-              ))
+                ))}
+                <button
+                  className="t-hover flex h-11 w-full items-center justify-center rounded-2xl font-medium text-[14px] text-foreground leading-5 hover:bg-accent"
+                  onClick={onViewAllActivity}
+                  type="button"
+                >
+                  View all activity
+                </button>
+              </>
             )}
           </>
         )}
@@ -733,6 +664,7 @@ function EarnMaxMainPane({
   actions,
   onDeposit,
   onSelectTransaction,
+  onViewAllActivity,
   onWithdraw,
   selectedTransactionId,
   view,
@@ -740,6 +672,7 @@ function EarnMaxMainPane({
   actions: EarnMaxActions;
   onDeposit: () => void;
   onSelectTransaction: (item: EarnMaxActivityItem) => void;
+  onViewAllActivity: () => void;
   onWithdraw: () => void;
   selectedTransactionId: string | null;
   view: EarnMaxViewModel;
@@ -909,6 +842,7 @@ function EarnMaxMainPane({
         actions={actions}
         onDeposit={onDeposit}
         onSelectTransaction={onSelectTransaction}
+        onViewAllActivity={onViewAllActivity}
         onWithdraw={onWithdraw}
         selectedTransactionId={selectedTransactionId}
         view={view}
@@ -922,9 +856,11 @@ function EarnMaxMainPane({
 export function EarnMaxWorkspace({
   earnData,
   earnMax,
+  onViewAllActivity,
 }: {
   earnData: EarnPositionData;
   earnMax: { actions: EarnMaxActions; view: EarnMaxViewModel };
+  onViewAllActivity: () => void;
 }) {
   const { isHydrated, isSignedIn } = useAuthCapability();
   const [screen, setScreen] = useState<"deposit" | "main" | "withdraw">("main");
@@ -1010,6 +946,7 @@ export function EarnMaxWorkspace({
                   current?.id === item.id ? null : item
                 )
               }
+              onViewAllActivity={onViewAllActivity}
               onWithdraw={() => setScreen("withdraw")}
               selectedTransactionId={selectedTransaction?.id ?? null}
               view={view}
