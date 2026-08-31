@@ -355,7 +355,12 @@ const CHAIN_STATES = [
   "confirmed",
   "failed",
 ] as const;
-const PERSISTENCE_STATES = ["not_started", "recorded", "failed"] as const;
+const PERSISTENCE_STATES = [
+  "not_started",
+  "pending",
+  "recorded",
+  "failed",
+] as const;
 const TRANSACTION_VERSIONS = ["legacy", "v0"] as const;
 
 export type LifecycleFlowVariant<
