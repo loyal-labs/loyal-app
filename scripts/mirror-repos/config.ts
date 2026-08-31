@@ -12,6 +12,7 @@ export type MirrorConfig = {
   repo: `loyal-labs/${string}`;
   kind: MirrorKind;
   description: string;
+  excludePaths?: readonly string[];
 };
 
 export const mirrors = [
@@ -44,22 +45,19 @@ export const mirrors = [
     repo: "loyal-labs/loyal-packages",
     kind: "source-tree",
     description: "Generated mirror of loyal-app/packages",
+    excludePaths: ["packages/private-transactions"],
   },
   {
     source: "crates",
     repo: "loyal-labs/loyal-cli",
     kind: "rust-cli",
     description: "Generated mirror of loyal-app/crates",
-  },
-  {
-    source: "programs",
-    repo: "loyal-labs/loyal-contracts",
-    kind: "anchor-programs",
-    description: "Generated mirror of loyal-app/programs",
+    excludePaths: ["crates/private-transfers-cli"],
   },
 ] as const satisfies readonly MirrorConfig[];
 
 export const blockedMirrorRepos = new Set([
+  "loyal-labs/loyal-contracts",
   "loyal-labs/loyal-solana",
   "loyal-labs/loyal-frontend",
   "loyal-labs/loyal-docs",

@@ -280,7 +280,6 @@ function addRustCliWorkspace(root: string): void {
     `[workspace]
 members = [
     "crates/loyal-cli",
-    "crates/private-transfers-cli",
     "crates/smart-accounts-cli",
     "crates/loyal-smart-accounts-rs",
 ]
