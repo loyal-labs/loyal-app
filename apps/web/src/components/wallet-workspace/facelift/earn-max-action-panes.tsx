@@ -465,8 +465,9 @@ export function EarnMaxWithdrawPane({
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-none">
-      <ActionHeader onBack={onBack} title="Withdraw" />
+    <>
+      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-none">
+        <ActionHeader onBack={onBack} title="Withdraw" />
       <div className="flex min-h-0 w-full flex-1 flex-col">
         <div className="flex w-full flex-1 flex-col">
           <AmountField
@@ -568,6 +569,12 @@ export function EarnMaxWithdrawPane({
         }
         onSubmit={() => void handleSubmit()}
       />
-    </section>
+      </section>
+
+      {/* Same vacated-chart-column card the deposit screen shows (the
+        design's withdraw frame carries the identical 400px right panel,
+        node 5433:65287). */}
+      <EarnMaxInfoFaqsCard className="hidden h-full w-[400px] shrink-0 min-[1204px]:flex" />
+    </>
   );
 }
