@@ -20,7 +20,7 @@ import {
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
-import { EarnMaxPage } from "@/components/wallet-workspace/facelift/earn-max-pane";
+import { EarnMaxWorkspace } from "@/components/wallet-workspace/facelift/earn-max-pane";
 import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
@@ -60,12 +60,13 @@ export type WorkspacePage =
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit" | "autoswap";
 
 const PAGE_STORAGE_KEY = "loyal:workspace-page";
-const EARN_MAX_VISIBLE = false;
+const EARN_MAX_VISIBLE = true;
 const WORKSPACE_PAGES: WorkspacePage[] = [
   "crypto",
   "stables",
   "activity",
   "earn",
+  "earnmax",
   "wallet",
 ];
 
@@ -74,6 +75,7 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
   a: "activity",
   c: "crypto",
   e: "earn",
+  m: "earnmax",
   s: "stables",
 };
 
@@ -117,10 +119,15 @@ export function WorkspaceFaceliftShell() {
   useEffect(() => {
     localStorage.setItem(PAGE_STORAGE_KEY, activePage);
   }, [activePage]);
-  // Signing out mid-session snaps back to Earn — the only page that works
-  // without a wallet (its empty pane carries the Connect wallet CTA).
+  // Signing out mid-session snaps back to the Earn products — the only
+  // pages that work without a wallet (their connect panes carry the CTA).
   useEffect(() => {
-    if (isHydrated && !isSignedIn && activePage !== "earn") {
+    if (
+      isHydrated &&
+      !isSignedIn &&
+      activePage !== "earn" &&
+      activePage !== "earnmax"
+    ) {
       setActivePage("earn");
     }
   }, [activePage, isHydrated, isSignedIn]);
@@ -130,6 +137,11 @@ export function WorkspaceFaceliftShell() {
   const isNarrowViewport = useIsNarrowViewport();
   useEffect(() => {
     if (!isNarrowViewport && activePage === "wallet") {
+      setActivePage("earn");
+    }
+    // Earn MAX ships desktop-first (ASK-2242) — narrow viewports snap back
+    // to Earn until the mobile layout lands.
+    if (isNarrowViewport && activePage === "earnmax") {
       setActivePage("earn");
     }
   }, [activePage, isNarrowViewport]);
@@ -197,9 +209,9 @@ export function WorkspaceFaceliftShell() {
     if (!EARN_MAX_VISIBLE && page === "earnmax") {
       return;
     }
-    // Disconnected wallets live on Earn — every other page needs a session,
-    // so tapping one opens the connect-wallet modal instead of navigating.
-    if (!isSignedIn && page !== "earn") {
+    // Disconnected wallets can browse Earn and Earn MAX — every other page
+    // needs a session, so tapping one opens the connect-wallet modal instead.
+    if (!isSignedIn && page !== "earn" && page !== "earnmax") {
       openSignIn();
       return;
     }
@@ -397,7 +409,9 @@ export function WorkspaceFaceliftShell() {
                 setMiddleView("autodeposit");
               }}
               showActivityBadge={hasUnseenActivity}
-              showEarnMax={EARN_MAX_VISIBLE}
+              // Earn MAX is desktop-only for now — the mobile wallet home
+              // hides its tile until the mobile layout ships.
+              showEarnMax={false}
             />
           ) : activePage === "activity" ? (
             <ActivityPage
@@ -407,7 +421,7 @@ export function WorkspaceFaceliftShell() {
               walletAddress={earnData.walletAddress}
             />
           ) : EARN_MAX_VISIBLE && activePage === "earnmax" ? (
-            <EarnMaxPage actions={earnMax.actions} view={earnMax.view} />
+            <EarnMaxWorkspace earnData={earnData} earnMax={earnMax} />
           ) : activePage !== "earn" && activePage !== "earnmax" ? (
             <CryptoPage
               navigationNonce={navigationNonce}

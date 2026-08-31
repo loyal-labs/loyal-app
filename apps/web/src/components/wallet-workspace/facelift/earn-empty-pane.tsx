@@ -24,10 +24,13 @@ export function EarnEmptyPane({
   onDeposit,
   onManageAutoswap,
   onOpenChart,
+  title = "Earn",
 }: {
-  onDeposit: () => void;
+  onDeposit?: () => void;
   onManageAutoswap?: () => void;
-  onOpenChart: () => void;
+  onOpenChart?: () => void;
+  /** "Earn MAX" reuses this pane as its logged-out connect screen. */
+  title?: string;
 }) {
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const { isHydrated, isSignedIn } = useAuthCapability();
@@ -59,7 +62,7 @@ export function EarnEmptyPane({
       <header className="flex w-full items-center p-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
           <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
-            Earn
+            {title}
           </h1>
           {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
           <InfoTooltip
@@ -68,31 +71,19 @@ export function EarnEmptyPane({
             text="Earn yield on your idle USDC"
           />
         </div>
-        {isHydrated && !isSignedIn ? (
-          <a
-            className="t-hover flex h-11 shrink-0 items-center gap-2 rounded-3xl px-4 hover:bg-accent"
-            href="https://askloyal.com"
+        {onOpenChart ? (
+          <button
+            aria-label="Open chart"
+            className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
+            onClick={onOpenChart}
+            type="button"
           >
             <ThemedIcon
-              className="size-6 text-tertiary"
-              src={`${ASSET_BASE}/icon-globe.svg`}
+              className="size-6 text-muted-foreground"
+              src={`${ASSET_BASE}/icon-chart.svg`}
             />
-            <span className="whitespace-nowrap font-medium text-[14px] text-muted-foreground">
-              askloyal.com
-            </span>
-          </a>
+          </button>
         ) : null}
-        <button
-          aria-label="Open chart"
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
-          onClick={onOpenChart}
-          type="button"
-        >
-          <ThemedIcon
-            className="size-6 text-muted-foreground"
-            src={`${ASSET_BASE}/icon-chart.svg`}
-          />
-        </button>
       </header>
 
       <div className="flex w-full flex-1 flex-col items-center gap-9 pt-8">
@@ -101,7 +92,17 @@ export function EarnEmptyPane({
             className="flex flex-wrap content-center items-center justify-center gap-x-1.5 gap-y-0.5 font-bold text-[40px] uppercase leading-none tracking-[-0.4px]"
             style={{ fontFeatureSettings: '"case" 1' }}
           >
-            {headlineWords.map((word, index) => {
+            {/* Figma 5429:36626 — the logged-out connect pane leads with a
+                static line; the APY math headline is for signed-in users
+                (the pane only mounts post-hydration, so no state flash). */}
+            {isHydrated && !isSignedIn ? (
+              <span className="text-center text-foreground">
+                Make your money work smarter
+              </span>
+            ) : null}
+            {isHydrated && !isSignedIn
+              ? null
+              : headlineWords.map((word, index) => {
               const colorClassName = word.emphasized
                 ? "text-foreground"
                 : "text-muted-foreground";
