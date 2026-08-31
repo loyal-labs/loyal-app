@@ -110,6 +110,13 @@ Status/enum-like types:
 - `SmartAccountSignerPermission`
 - `SmartAccountSignerScope`
 
+Earn withdrawal errors:
+
+- `EARN_WITHDRAW_UNDERFILLED_CODE`
+- `EarnWithdrawUnderfilledError`
+
+`EarnWithdrawUnderfilledError` has a stable `code` of `earn_withdraw_underfilled` for callers that need to distinguish an underfilled partial withdrawal from other preparation failures.
+
 Spending-limit helpers:
 
 - `getSpendingLimitPeriodSeconds`
@@ -174,7 +181,11 @@ Anything else is represented as `unknown`, with the program id surfaced when pos
 
 into a single `SmartAccountOverview` payload that is suitable for sidebar/read-model style UI use.
 
-### 4. Proposal creation
+### 4. Earn withdrawals
+
+`prepareEarnUsdcWithdraw()` simulates the withdrawal prefix before returning a prepared operation. For partial withdrawals, if the simulation produces less redeemable liquidity than requested, the client applies a bounded collateral adjustment and re-simulates up to two times. If the result is still underfilled, or the Kamino instruction cannot be adjusted safely, it throws `EarnWithdrawUnderfilledError`; full withdrawals do not use this partial exact-output check.
+
+### 5. Proposal creation
 
 For standard vault-originated proposals:
 
@@ -204,7 +215,7 @@ the package:
 4. Wraps the payload in a generated `PolicyPayload`.
 5. Prepares the policy transaction and proposal creation operations.
 
-### 5. Voting and execution
+### 6. Voting and execution
 
 - `prepareApproveProposal()` wraps proposal approval.
 - `prepareRejectProposal()` wraps proposal rejection.
