@@ -5,7 +5,6 @@ import {
 } from "@loyal-labs/smart-account-vaults";
 import { PublicKey } from "@solana/web3.js";
 
-import { env } from "@/config/env";
 import { track } from "@/lib/analytics/analytics";
 import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
@@ -17,28 +16,14 @@ import {
 } from "@/services/observability";
 
 import { withConnectionRetry } from "./connection-retry";
-import {
-  confirmEarnDeposit,
-  confirmEarnDepositSponsored,
-  fetchEarnDepositPrepareContext,
-  prepareEarnDeposit,
-  type EarnAuthFields,
-  type WirePreparedEarnDeposit,
-} from "./earn-api";
+import { fetchEarnDepositPrepareContext } from "./earn-api";
 import {
   EARN_PRODUCT_DECIMALS,
   tokenProgramForEarnMint,
 } from "./earn-product-mints";
-import { signEarnAuth, withEarnAuth } from "./earn-auth";
-import {
-  signAndSendPreparedOperations,
-  signPreparedOperationsForSponsor,
-} from "./send-prepared";
-import {
-  hydratePreparedOperation,
-  serializePreparedEarnUsdcDeposit,
-  type HydratedPreparedOperation,
-} from "./wire";
+import { signEarnAuth } from "./earn-auth";
+import { signAndSendPreparedOperations } from "./send-prepared";
+import type { HydratedPreparedOperation } from "./wire";
 
 const DEPOSIT_NETWORK_MESSAGE =
   "We couldn't reach the network to prepare the deposit. No funds moved — check your connection and try again.";
@@ -63,20 +48,13 @@ type EarnDepositStages = {
   deposit: HydratedPreparedOperation;
 };
 
-// Shared back half of the self-paid flow: sign every stage in ONE wallet
-// prompt (Seed Vault batches them), send strictly in order (the policy stages
-// must land before the deposit), then record into the web read-model via the
-// confirm call — best-effort with retries, never undoing a confirmed on-chain
-// deposit because the DB write failed (yield routing adopts any deposit whose
-// confirm is still lost after observing the account update).
+// Sign every client-built stage in one wallet prompt and send them strictly
+// in order. Finalized LaserStream account changes project the result; this
+// path never posts a second, client-authored accounting record.
 async function signSendAndConfirmDeposit(args: {
   signer: Signer;
-  prepareAuth: EarnAuthFields;
   amountUsd: number;
   stages: EarnDepositStages;
-  // Echoed to `deposit/confirm` verbatim — the server-prepared wire object or
-  // the device-prepared serialization (identical shapes).
-  wirePreparedDeposit: WirePreparedEarnDeposit;
   flow: LifecycleFlow<"earn.deposit">;
 }): Promise<EarnDepositResult> {
   assertNativeSolRequirement(args.wirePreparedDeposit.nativeSolRequirement);
@@ -99,60 +77,10 @@ async function signSendAndConfirmDeposit(args: {
     chainState: "confirmed",
     executionMode: operations.length > 1 ? "batch" : "single",
   });
-  let cursor = 0;
-  const policy = args.stages.policySetup ? sent[cursor++] : undefined;
-  const setupPolicy = args.stages.policyFinalize ? sent[cursor++] : undefined;
-  const deposit = sent[cursor];
-
-  // Retried because a confirm loss makes the deposit invisible in the app
-  // until yield routing reconciles it (launch night: ~10% of confirms were
-  // lost to RPC-lag rejections; the server now retries its reads too, but
-  // network drops on this call remain). Each attempt is idempotent
-  // server-side.
-  const CONFIRM_ATTEMPTS = 3;
-  let confirmRecorded = false;
-  for (let attempt = 1; attempt <= CONFIRM_ATTEMPTS; attempt += 1) {
-    try {
-      await withEarnAuth(
-        args.signer,
-        args.prepareAuth,
-        "earn-deposit-confirm",
-        (auth) =>
-          confirmEarnDeposit({
-            auth,
-            preparedDeposit: args.wirePreparedDeposit,
-            depositSignature: deposit.signature,
-            confirmedSlot: deposit.confirmedSlot,
-            policySignature: policy?.signature,
-            policyConfirmedSlot: policy?.confirmedSlot,
-            setupPolicySignature: setupPolicy?.signature,
-            setupPolicyConfirmedSlot: setupPolicy?.confirmedSlot,
-          }),
-      );
-      confirmRecorded = true;
-      break;
-    } catch (error) {
-      if (attempt === CONFIRM_ATTEMPTS) {
-        console.warn(
-          "[earn-deposit] confirm failed after retries; yield routing will adopt this deposit",
-          error,
-        );
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
-    }
+  const deposit = sent.at(-1);
+  if (!deposit) {
+    throw new Error("Earn deposit produced no submitted transaction.");
   }
-  args.flow.observe("backend_confirm", {
-    chainState: "confirmed",
-    ...(confirmRecorded
-      ? { persistenceState: "recorded" as const }
-      : {
-          errorCode: "backend_confirmation_failed" as const,
-          persistenceState: "failed" as const,
-          recoveryRequired: true,
-        }),
-  });
-
   // Tracked here (not in the sheets) so every deposit entry point counts once.
   track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
 
@@ -164,9 +92,8 @@ async function signSendAndConfirmDeposit(args: {
 // Earn route policy is "updated" by creating a NEW owner-neutral route+setup
 // pair at the next seed — two signed transactions, one wallet prompt (the
 // Seed Vault batches them). The legacy pair stays on-chain and only strands
-// its rent. No dedicated confirm endpoint: `deposit/confirm` adopts a
-// chain-discovered policy pair (creation signature resolved from chain) when
-// the re-prepared deposit references one the DB doesn't know.
+// its rent. LaserStream discovers the replacement pair from finalized chain
+// updates before it projects the following deposit.
 async function runEarnPolicyUpdate(args: {
   client: ReturnType<typeof createSmartAccountVaultsClient>;
   context: { cluster: string; policySigner: string; settingsPda: string };
@@ -182,32 +109,18 @@ async function runEarnPolicyUpdate(args: {
         settingsPda: new PublicKey(args.context.settingsPda),
         signer: new PublicKey(args.context.policySigner),
         walletAddress: args.signer.publicKey,
-      }),
+      })
   );
   // Route policy create must land before the setup finalize; strict order is
   // what signAndSendPreparedOperations guarantees.
   await signAndSendPreparedOperations({
     connection: getConnection(),
     signer: args.signer,
-    operations: [preparedPolicy.prepared, preparedPolicy.finalizePrepared].filter(
-      (operation) => operation != null,
-    ),
+    operations: [
+      preparedPolicy.prepared,
+      preparedPolicy.finalizePrepared,
+    ].filter((operation) => operation != null),
   });
-}
-
-// Hydrate a server-prepared deposit's stages for the self-paid sign-and-send.
-function hydrateWireStages(
-  preparedDeposit: WirePreparedEarnDeposit,
-): EarnDepositStages {
-  return {
-    policySetup: preparedDeposit.policySetupPrepared
-      ? hydratePreparedOperation(preparedDeposit.policySetupPrepared)
-      : null,
-    policyFinalize: preparedDeposit.policyFinalizePrepared
-      ? hydratePreparedOperation(preparedDeposit.policyFinalizePrepared)
-      : null,
-    deposit: hydratePreparedOperation(preparedDeposit.prepared),
-  };
 }
 
 // Real on-chain Earn deposit into the caller's smart account (same position
@@ -258,109 +171,11 @@ async function runEarnDeposit(
     amountUsd: number;
     mint: string;
   },
-  flow: LifecycleFlow<"earn.deposit">,
+  flow: LifecycleFlow<"earn.deposit">
 ): Promise<EarnDepositResult> {
   const amountRaw = usdToStableRaw(args.amountUsd);
   const walletAddress = args.signer.publicKey;
   const prepareAuth = await signEarnAuth(args.signer, "earn-deposit-prepare");
-
-  // Sponsored flow (flagged): the transactions are compiled with the sponsor
-  // as fee payer, so the server must build them — keep the legacy server
-  // prepare. Sign every stage but send nothing; the sponsored confirm
-  // endpoint sponsor-signs, sends, confirms, and records in one call. Falls
-  // back to the self-paid flow when the backend returns no sponsor (flag off
-  // server-side, older deploy, or sponsor key unconfigured).
-  if (env.earnSponsoredDeposits) {
-    const prepared = await withConnectionRetry(
-      "deposit sponsored prepare",
-      DEPOSIT_NETWORK_MESSAGE,
-      () =>
-        prepareEarnDeposit({
-          auth: prepareAuth,
-          amountRaw,
-          mint: args.mint,
-          sponsored: true,
-          flowId: flow.flowId,
-        }),
-    );
-    const preparedDeposit = prepared.preparedDeposit;
-    if (!preparedDeposit.policySetupPrepared) {
-      flow.setVariant("top_up");
-    }
-    flow.observe("prepare", {
-      policyMode: preparedDeposit.policySetupPrepared ? "create" : "reuse",
-    });
-    // Which sponsor the backend derived from EARN_POLICY_SPONSOR_PK (null =
-    // sponsor not configured → self-paid fallback). Kept as a plain log: the
-    // fee payer of every sponsored tx, essential when debugging sponsor
-    // issues.
-    console.log(
-      "[earn-deposit] sponsorFeePayer:",
-      prepared.sponsorFeePayer ?? null,
-    );
-    if (prepared.sponsorFeePayer) {
-      // Same stage order as the self-paid flow; first-deposit policy stages
-      // are absent for top-ups, so map signed transactions back with a cursor.
-      const signed = await signPreparedOperationsForSponsor({
-        connection: getConnection(),
-        signer: args.signer,
-        feePayer: new PublicKey(prepared.sponsorFeePayer),
-        operations: [
-          preparedDeposit.policySetupPrepared,
-          preparedDeposit.policyFinalizePrepared,
-          preparedDeposit.prepared,
-        ]
-          .filter((stage) => stage != null)
-          .map(hydratePreparedOperation),
-      }).catch((error) => {
-        flow.failFrom("wallet_submit_confirm", error);
-        throw error;
-      });
-      flow.observe("wallet_submit_confirm", {
-        chainState: "submitted",
-        executionMode: signed.length > 1 ? "batch" : "single",
-      });
-      let cursor = 0;
-      const policyTransaction = preparedDeposit.policySetupPrepared
-        ? signed[cursor++]
-        : undefined;
-      const setupPolicyTransaction = preparedDeposit.policyFinalizePrepared
-        ? signed[cursor++]
-        : undefined;
-      const depositTransaction = signed[cursor];
-      const confirmations = await withEarnAuth(
-        args.signer,
-        prepareAuth,
-        "earn-deposit-confirm",
-        (auth) =>
-          confirmEarnDepositSponsored({
-            auth,
-            preparedDeposit,
-            depositTransaction,
-            policyTransaction,
-            setupPolicyTransaction,
-          }),
-      ).catch((error) => {
-        flow.failFrom("backend_confirm", error);
-        throw error;
-      });
-      flow.observe("backend_confirm", {
-        chainState: "confirmed",
-        persistenceState: "recorded",
-      });
-      track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
-      flow.complete("ui_commit");
-      return { depositSignature: confirmations.deposit.signature };
-    }
-    return signSendAndConfirmDeposit({
-      signer: args.signer,
-      prepareAuth,
-      amountUsd: args.amountUsd,
-      stages: hydrateWireStages(preparedDeposit),
-      wirePreparedDeposit: preparedDeposit,
-      flow,
-    });
-  }
 
   const context = await withConnectionRetry(
     "deposit prepare-context",
@@ -371,36 +186,12 @@ async function runEarnDeposit(
         amountRaw,
         mint: args.mint,
         flowId: flow.flowId,
-      }),
+      })
   );
   if (!context) {
-    // Backend predates `prepare-context` — legacy server-side prepare.
-    const prepared = await withConnectionRetry(
-      "deposit server prepare",
-      DEPOSIT_NETWORK_MESSAGE,
-      () =>
-        prepareEarnDeposit({
-          auth: prepareAuth,
-          amountRaw,
-          mint: args.mint,
-          flowId: flow.flowId,
-        }),
+    throw new Error(
+      "This app version requires the read-only Earn context endpoint."
     );
-    const stages = hydrateWireStages(prepared.preparedDeposit);
-    if (!stages.policySetup) {
-      flow.setVariant("top_up");
-    }
-    flow.observe("prepare", {
-      policyMode: stages.policySetup ? "create" : "reuse",
-    });
-    return signSendAndConfirmDeposit({
-      signer: args.signer,
-      prepareAuth,
-      amountUsd: args.amountUsd,
-      stages,
-      wirePreparedDeposit: prepared.preparedDeposit,
-      flow,
-    });
   }
 
   if (context.yieldRoutingPolicy) {
@@ -432,8 +223,8 @@ async function runEarnDeposit(
                 liquidityTokenProgram: new PublicKey(
                   context.target.liquidityTokenProgram ??
                     tokenProgramForEarnMint(
-                      context.target.liquidityMint,
-                    ).toBase58(),
+                      context.target.liquidityMint
+                    ).toBase58()
                 ),
                 market: new PublicKey(context.target.market),
                 reserve: new PublicKey(context.target.reserve),
@@ -452,10 +243,10 @@ async function runEarnDeposit(
                   ? {
                       setupPolicy: {
                         account: new PublicKey(
-                          context.yieldRoutingPolicy.setupPolicy.account,
+                          context.yieldRoutingPolicy.setupPolicy.account
                         ),
                         seed: BigInt(
-                          context.yieldRoutingPolicy.setupPolicy.seed,
+                          context.yieldRoutingPolicy.setupPolicy.seed
                         ),
                       },
                     }
@@ -463,7 +254,7 @@ async function runEarnDeposit(
               },
             }
           : {}),
-      }),
+      })
     );
   let preparedDeposit;
   try {
@@ -486,14 +277,12 @@ async function runEarnDeposit(
   });
   return signSendAndConfirmDeposit({
     signer: args.signer,
-    prepareAuth,
     amountUsd: args.amountUsd,
     stages: {
       policySetup: preparedDeposit.policySetupPrepared ?? null,
       policyFinalize: preparedDeposit.policyFinalizePrepared ?? null,
       deposit: preparedDeposit.prepared,
     },
-    wirePreparedDeposit: serializePreparedEarnUsdcDeposit(preparedDeposit),
     flow,
   });
 }
