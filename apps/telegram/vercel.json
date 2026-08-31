@@ -16,14 +16,6 @@
       "schedule": "0 6 * * *"
     },
     {
-      "path": "/api/cron/private-transfer-analytics",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/push-shielded-transfers",
-      "schedule": "1-59/2 * * * *"
-    },
-    {
       "path": "/api/cron/helius-webhook-resync",
       "schedule": "0 4 * * *"
     }

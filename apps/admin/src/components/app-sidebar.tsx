@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   AppWindowIcon,
-  ArrowLeftRightIcon,
   BellRingIcon,
   BookOpenIcon,
   CircleDollarSignIcon,
@@ -59,7 +58,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Solana",
     items: [
-      { href: "/transfers", icon: ArrowLeftRightIcon, label: "Transfers" },
       { exact: true, href: "/earn", icon: CircleDollarSignIcon, label: "Earn" },
       { href: "/earn/rebalance", icon: RouteIcon, label: "Rebalance" },
       {

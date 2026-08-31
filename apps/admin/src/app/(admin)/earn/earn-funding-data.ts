@@ -632,8 +632,8 @@ async function loadSponsorshipSpendRows(
   }
 }
 
-// Gasless claim/verification transactions; rows are backfilled by the app's
-// private-transfer-analytics cron.
+// Gasless claim/verification transactions; historical rows from the sunset
+// private-transfer stack (the backfill cron has been removed).
 async function loadGaslessClaimSpendRows(
   addresses: string[],
   window: SpendWindow

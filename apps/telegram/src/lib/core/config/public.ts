@@ -27,9 +27,6 @@ export const publicEnv = {
       normalizeOptionalValue(process.env.NEXT_PUBLIC_SOLANA_ENV)
     );
   },
-  get gasPublicKey(): string | undefined {
-    return normalizeOptionalValue(process.env.NEXT_PUBLIC_GAS_PUBLIC_KEY);
-  },
   get useMockSummaries(): boolean {
     return isStrictTrue(
       normalizeOptionalValue(process.env.NEXT_PUBLIC_USE_MOCK_SUMMARIES)
