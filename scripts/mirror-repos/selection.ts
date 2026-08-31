@@ -69,18 +69,6 @@ export function selectMirrorsForChangedPaths(
       continue;
     }
 
-    if (
-      hasPathPrefix(filePath, "tests") ||
-      hasPathPrefix(filePath, "target/idl") ||
-      hasPathPrefix(filePath, "target/types") ||
-      filePath === "Anchor.toml" ||
-      filePath === "package.json" ||
-      filePath === "tsconfig.json"
-    ) {
-      addMirrorByRepo(selected, "loyal-labs/loyal-contracts");
-      continue;
-    }
-
     for (const mirror of mirrors) {
       if (hasPathPrefix(filePath, mirror.source)) {
         selected.add(mirror);

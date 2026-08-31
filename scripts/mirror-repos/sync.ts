@@ -66,9 +66,17 @@ function copyTrackedFile(sourceFile: string, destinationFile: string): void {
 function copyTrackedPrefix(
   prefix: string,
   destinationRoot: string,
-  stripPrefix: boolean
+  stripPrefix: boolean,
+  excludePaths: readonly string[] = []
 ): void {
   for (const file of listTrackedFiles(prefix)) {
+    if (
+      excludePaths.some(
+        (excluded) => file === excluded || file.startsWith(`${excluded}/`)
+      )
+    ) {
+      continue;
+    }
     const relativePath = stripPrefix ? path.relative(prefix, file) : file;
     copyTrackedFile(file, path.join(destinationRoot, relativePath));
   }
@@ -164,7 +172,12 @@ function generateMirror(mirror: MirrorConfig, destinationRoot: string): void {
       break;
     case "source-tree":
     case "rust-cli":
-      copyTrackedPrefix(mirror.source, destinationRoot, false);
+      copyTrackedPrefix(
+        mirror.source,
+        destinationRoot,
+        false,
+        mirror.excludePaths
+      );
       break;
     case "anchor-programs":
       copyTrackedPrefix("programs", destinationRoot, false);

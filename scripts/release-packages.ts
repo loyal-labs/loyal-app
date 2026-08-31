@@ -20,13 +20,16 @@ const publishablePackageDirs = [
   "packages/llm-server",
   "packages/solana-rpc",
   "packages/solana-wallet",
-  "packages/private-transactions",
   "packages/loyal-smart-accounts-core",
   "packages/loyal-smart-accounts",
   "packages/solana-instruction-decoder",
   "packages/smart-account-vaults",
   "packages/wallet-core",
 ] as const;
+
+// ASK-2239: sunset packages that must never be published to npm again, but
+// whose versions must stay resolvable for dependents' workspace: rewrites.
+const unpublishablePackageDirs = ["packages/private-transactions"] as const;
 
 type PackageJson = {
   name: string;
@@ -169,13 +172,6 @@ function copyPackageForPublish(
 }
 
 function ensureBuildOutput(info: PackageInfo): void {
-  if (info.packageJson.name === "@loyal-labs/private-transactions") {
-    if (!existsSync(path.join(info.dir, "dist/index.js"))) {
-      throw new Error(`${info.packageJson.name} is missing dist/index.js`);
-    }
-    return;
-  }
-
   if (!existsSync(path.join(info.dir, "dist"))) {
     throw new Error(
       `${info.packageJson.name} is missing dist/. Run package builds before publishing.`
@@ -187,7 +183,9 @@ function main(): void {
   const dryRun = process.argv.includes("--dry-run");
   const packages = publishablePackageDirs.map(readPackageInfo);
   const versionsByName = new Map(
-    packages.map((info) => [info.packageJson.name, info.packageJson.version])
+    [...packages, ...unpublishablePackageDirs.map(readPackageInfo)].map(
+      (info) => [info.packageJson.name, info.packageJson.version]
+    )
   );
 
   for (const info of packages) {
