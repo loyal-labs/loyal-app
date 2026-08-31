@@ -23,6 +23,8 @@ import {
 
 const EARN_POSITION_CACHE_VERSION = 6;
 const EARN_POSITION_REFRESH_DEBOUNCE_MS = 350;
+const EARN_POSITION_INITIAL_LOAD_MAX_ATTEMPTS = 2;
+const EARN_POSITION_INITIAL_LOAD_RETRY_DELAY_MS = 2_000;
 const EARN_POSITION_RECONCILE_MIN_DELTA_RAW = BigInt(10_000);
 const EARN_POSITION_RECONCILE_ENDPOINT =
   "/api/smart-accounts/yield-optimization/position/reconcile";
@@ -228,6 +230,28 @@ function getEarnPositionSourceSignature(
     )
     .sort()
     .join("|");
+}
+
+export function resolveFailedEarnPositionLoad(args: {
+  attempt: number;
+  cachedPosition: ActiveEarnPosition | null;
+  confirmedPosition: ActiveEarnPosition | null | undefined;
+  currentPosition: ActiveEarnPosition | null;
+}):
+  | { kind: "confirmed"; position: ActiveEarnPosition }
+  | { kind: "preserve-existing" }
+  | { kind: "retry" }
+  | { kind: "unresolved" } {
+  if (args.confirmedPosition) {
+    return { kind: "confirmed", position: args.confirmedPosition };
+  }
+  if (args.cachedPosition ?? args.currentPosition) {
+    return { kind: "preserve-existing" };
+  }
+  if (args.attempt + 1 < EARN_POSITION_INITIAL_LOAD_MAX_ATTEMPTS) {
+    return { kind: "retry" };
+  }
+  return { kind: "unresolved" };
 }
 
 function shouldRequestPositionReconciliation(args: {
@@ -738,7 +762,19 @@ export function useActiveEarnPosition({
     setIsLoading(true);
 
     let cancelled = false;
-    const loadLivePosition = async () => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleUnexpectedLoadError = (error: unknown) => {
+      if (cancelled || activePositionScopeRef.current !== positionScope) {
+        return;
+      }
+      console.warn(
+        "[earn-position] failed to load live active position",
+        error
+      );
+      setHasResolved(Boolean(cached ?? positionRef.current));
+      setIsLoading(false);
+    };
+    const loadLivePosition = async (attempt = 0) => {
       const confirmedPositionPromise = fetchConfirmedEarnPosition().catch(
         (error) => {
           console.warn(
@@ -749,7 +785,47 @@ export function useActiveEarnPosition({
         }
       );
       const rpcBasePosition = cached ?? positionRef.current;
-      const next = await readRpcPosition(rpcBasePosition);
+      let next: RpcPositionRead | null;
+      try {
+        next = await readRpcPosition(rpcBasePosition);
+      } catch (error) {
+        const confirmedPosition = await confirmedPositionPromise;
+        if (cancelled || activePositionScopeRef.current !== positionScope) {
+          return;
+        }
+        console.warn(
+          "[earn-position] failed to load live active position",
+          error
+        );
+        const resolution = resolveFailedEarnPositionLoad({
+          attempt,
+          cachedPosition: cached,
+          confirmedPosition,
+          currentPosition: positionRef.current,
+        });
+        if (resolution.kind === "confirmed") {
+          commitConfirmedPosition(resolution.position);
+          return;
+        }
+        if (resolution.kind === "preserve-existing") {
+          setHasResolved(true);
+          setIsLoading(false);
+          return;
+        }
+        setHasResolved(false);
+        if (resolution.kind === "retry") {
+          setIsLoading(true);
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            void loadLivePosition(attempt + 1).catch(
+              handleUnexpectedLoadError
+            );
+          }, EARN_POSITION_INITIAL_LOAD_RETRY_DELAY_MS);
+          return;
+        }
+        setIsLoading(false);
+        return;
+      }
       if (cancelled || activePositionScopeRef.current !== positionScope) {
         return;
       }
@@ -799,20 +875,13 @@ export function useActiveEarnPosition({
       setIsLoading(false);
     };
 
-    loadLivePosition().catch((error) => {
-      if (cancelled || activePositionScopeRef.current !== positionScope) {
-        return;
-      }
-      console.warn(
-        "[earn-position] failed to load live active position",
-        error
-      );
-      setHasResolved(true);
-      setIsLoading(false);
-    });
+    void loadLivePosition().catch(handleUnexpectedLoadError);
 
     return () => {
       cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
     };
   }, [
     canUseCache,

@@ -15,9 +15,7 @@ import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
-import {
-  findEarnCleanupVaultState,
-} from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { findEarnCleanupVaultState } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Phase two of a full mobile withdrawal. The backend only resolves a fresh,
 // post-withdraw chain context; the device builds and signs the cleanup with
@@ -164,9 +162,9 @@ export async function POST(request: Request) {
     }
 
     const connection = getConnection(solanaEnv);
-    // The client obtained this slot from its confirmed withdrawal. The zero
-    // proof below is authoritative, so cleanup must not wait for LaserStream
-    // to insert the corresponding withdrawal row first.
+    // The client supplies the slot returned by confirmation of its final
+    // withdrawal transaction. The zero-balance proof is fenced at that chain
+    // slot; no API-created withdrawal row is needed as an anchor.
     const minContextSlot = requestedMinContextSlot;
 
     let proof: Awaited<ReturnType<typeof verifyEarnFullExitZeroBalances>>;

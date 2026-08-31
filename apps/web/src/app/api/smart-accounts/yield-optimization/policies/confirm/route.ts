@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  getKaminoUsdcEarnTargetForCluster,
   normalizeLoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
@@ -13,7 +12,8 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
-import { type ConfirmedYieldRoutePolicyInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { assertVerifiedSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
+import type { ConfirmedYieldRoutePolicyInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_POLICY_VAULT_INDEX = 1;
 const CONFIRMED_SIGNATURE_STATUS_ATTEMPTS = 12;
@@ -54,10 +54,10 @@ function toSafePolicySeed(policySeed: bigint): number {
   return Number(policySeed);
 }
 
-function createCanonicalPolicyInput(
+async function createCanonicalPolicyInput(
   requestInput: ConfirmedYieldRoutePolicyInput,
   stage: "route_policy" | "setup_policy"
-): ConfirmedYieldRoutePolicyInput {
+): Promise<ConfirmedYieldRoutePolicyInput> {
   const cluster = normalizeLoyalCluster(requestInput.cluster);
   const normalizedRequestInput = { ...requestInput, cluster };
   const settings = new PublicKey(requestInput.settings);
@@ -74,19 +74,24 @@ function createCanonicalPolicyInput(
     settingsPda: settings,
     accountIndex: EARN_POLICY_VAULT_INDEX,
   })[0];
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
+  const earnTarget = await assertVerifiedSafeUsdcEarnReserveMetadata({
+    cluster,
+    liquidityMint: requestInput.liquidityMint,
+    market: requestInput.market,
+    targetReserve: requestInput.targetReserve,
+  });
   const canonicalInput = {
     ...normalizedRequestInput,
     cluster,
-    liquidityMint: earnTarget.liquidityMint.toBase58(),
-    market: earnTarget.market.toBase58(),
+    liquidityMint: earnTarget.liquidityMint,
+    market: earnTarget.market,
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
     setupPolicyAccount: expectedSetupPolicyAccount.toBase58(),
     setupPolicyId: expectedSetupPolicySeed,
     setupPolicySeed: expectedSetupPolicySeed,
-    targetReserve: earnTarget.reserve.toBase58(),
+    targetReserve: earnTarget.targetReserve,
     vaultIndex: EARN_POLICY_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };
@@ -290,7 +295,7 @@ export async function POST(request: Request) {
 
   try {
     input = {
-      ...createCanonicalPolicyInput(input, input.stage),
+      ...(await createCanonicalPolicyInput(input, input.stage)),
       stage: input.stage,
     };
   } catch (error) {

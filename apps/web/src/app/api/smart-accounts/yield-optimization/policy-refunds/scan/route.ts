@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
@@ -45,15 +46,20 @@ export async function POST(request: Request) {
 
   try {
     const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
+    const serverEnv = getServerEnv();
     const response = await scanEarnPolicyRefunds({
       connection: getConnection(solanaEnv),
-      programId: new PublicKey(getServerEnv().loyalSmartAccounts.programId),
+      programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
       settingsPda: principal.settingsPda,
       solanaEnv,
       walletAddress: principal.walletAddress,
     });
 
-    return NextResponse.json(response);
+    return NextResponse.json({
+      ...response,
+      cluster: resolveLoyalClusterForSolanaEnv(solanaEnv),
+      programId: serverEnv.loyalSmartAccounts.programId,
+    });
   } catch (error) {
     console.error("[earn-policy-refunds-scan] failed", {
       errorMessage: error instanceof Error ? error.message : String(error),
