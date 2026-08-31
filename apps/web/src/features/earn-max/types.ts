@@ -2,6 +2,8 @@ export type EarnMaxCoverage = "complete" | "history_incomplete";
 
 export type EarnMaxActivityItem = {
   action: string;
+  /** Largest positive token delta of the operation, raw USDC units. */
+  amountRaw: string | null;
   id: string;
   signature: string | null;
   status: string;

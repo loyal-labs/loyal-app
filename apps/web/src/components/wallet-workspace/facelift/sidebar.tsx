@@ -423,7 +423,9 @@ export function FaceliftSidebar({
       )}
 
       {isSignedOutNav ? (
-        <nav className="flex w-full flex-1 flex-col gap-1 py-2">
+        <nav className="flex w-full flex-col py-2">
+          {/* Figma 5429:36643 — same 60px cell metrics as the signed-in rows
+              (44px icon in a py-2 wrapper), single line: label + APY badge. */}
           <button
             className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
               activePage === "earn" ? "bg-accent" : "hover:bg-accent"
@@ -431,13 +433,15 @@ export function FaceliftSidebar({
             onClick={() => onSelectPage("earn")}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="mr-3 size-11 shrink-0"
-              src={`${ASSET_BASE}/earn-icon.svg`}
-            />
+            <span className="flex items-center py-2 pr-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-11 shrink-0"
+                src={`${ASSET_BASE}/earn-icon.svg`}
+              />
+            </span>
             <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
               <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
                 Earn
@@ -461,13 +465,15 @@ export function FaceliftSidebar({
             onClick={() => onSelectPage("earnmax")}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="mr-3 size-11 shrink-0"
-              src={`${ASSET_BASE}/earn-max-icon.svg`}
-            />
+            <span className="flex items-center py-2 pr-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-11 shrink-0"
+                src={`${ASSET_BASE}/earn-max-icon.svg`}
+              />
+            </span>
             <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
               <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
                 Earn MAX
@@ -481,7 +487,7 @@ export function FaceliftSidebar({
           </button>
         </nav>
       ) : (
-      <nav className="flex w-full flex-1 flex-col py-2">
+      <nav className="flex w-full flex-col py-2">
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "earn" ? "bg-accent" : "hover:bg-accent"
@@ -656,6 +662,8 @@ export function FaceliftSidebar({
       </nav>
       )}
 
+      {/* Figma 5429:36693 / 5429:37228 — the link list sits directly under
+          the product cells; the spacer below pushes the wallet row down. */}
       <div className="flex w-full flex-col py-2">
         {SIDEBAR_LINKS.map((link) => (
           <a
@@ -678,10 +686,11 @@ export function FaceliftSidebar({
         ))}
       </div>
 
+      <div aria-hidden="true" className="w-full min-h-0 flex-1" />
+
       {/* Figma 4768:102489 — bottom rail: wallet chip left, Receive +
           Settings right; the wallet menu now grows upward from the chip.
-          Signed out it collapses to a single Connect-account trigger with
-          the og sidebar's Main Account image. */}
+          Signed out it shows the Connect wallet chip + theme toggle. */}
       {isHydrated && !isSignedIn ? (
         <div className="flex w-full shrink-0 items-center">
           <button

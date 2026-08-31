@@ -5,12 +5,19 @@ import {
   Clock3,
   Infinity as InfinityIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   ScrambledPopDigits,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import {
   EarnMaxDepositPane,
   EarnMaxDualIcon,
@@ -19,6 +26,12 @@ import {
   formatEarnMaxApyLabel,
 } from "@/components/wallet-workspace/facelift/earn-max-action-panes";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
+import {
+  EarnMaxTransactionDetailPane,
+  earnMaxActivityLabel,
+  formatEarnMaxUsdcAmount,
+  isEarnMaxWithdrawishAction,
+} from "@/components/wallet-workspace/facelift/earn-max-transaction-detail";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { isEscapeGuardedTarget } from "@/components/wallet-workspace/facelift/keyboard";
 import {
@@ -49,11 +62,7 @@ const MOCK_TOTAL_USERS = "8,046";
 const MOCK_AUM_BARS = [8, 73, 119, 157, 193, 227, 240];
 
 function usdcRawLabel(amountRaw: string): string {
-  const value = Number(amountRaw) / 1_000_000;
-  return `${value.toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  })} USDC`;
+  return `${formatEarnMaxUsdcAmount(amountRaw)} USDC`;
 }
 
 function GrayInfinityIcon() {
@@ -366,17 +375,21 @@ function RouteLabel({
 
 function OperationRow({
   amountLabel,
+  isSelected = false,
   isWithdraw,
+  onSelect,
   subtitle,
   title,
 }: {
   amountLabel: string | null;
+  isSelected?: boolean;
   isWithdraw: boolean;
+  onSelect?: () => void;
   subtitle: string;
   title: string;
 }) {
-  return (
-    <div className="flex w-full items-center rounded-2xl px-4">
+  const content = (
+    <>
       <span className="flex items-center py-2 pr-3">
         <EarnMaxDualIcon />
       </span>
@@ -399,31 +412,26 @@ function OperationRow({
           source={isWithdraw ? "Earn MAX" : "Main"}
         />
       </span>
-    </div>
+    </>
   );
-}
-
-const ACTIVITY_LABELS: Record<string, string> = {
-  cancel: "Cancel withdrawal",
-  claim: "Claim",
-  close: "Close",
-  deposit: "Deposit",
-  install: "Create & Deposit",
-  withdraw_request: "Withdraw",
-};
-
-function activityLabel(item: EarnMaxActivityItem): string {
+  // Same interaction contract as the Earn activity rows (TransactionRow):
+  // without a handler the row is a plain cell; with one it hovers/selects
+  // and opens the transaction detail.
+  if (!onSelect) {
+    return (
+      <div className="flex w-full items-center rounded-2xl px-4">{content}</div>
+    );
+  }
   return (
-    ACTIVITY_LABELS[item.action] ??
-    item.action.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase())
-  );
-}
-
-function isWithdrawishAction(action: string): boolean {
-  return (
-    action.includes("withdraw") ||
-    action.includes("claim") ||
-    action.includes("close")
+    <button
+      className={`flex w-full items-center rounded-2xl px-4 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset ${
+        isSelected ? "bg-accent" : "hover:bg-accent"
+      }`}
+      onClick={onSelect}
+      type="button"
+    >
+      {content}
+    </button>
   );
 }
 
@@ -439,12 +447,103 @@ function minutesLeftLabel(readyBy: string): string {
 // lifecycle (claim / cancel) pinned on top of the confirmed history.
 function EarnMaxActivityCard({
   actions,
+  onDeposit,
+  onSelectTransaction,
+  onWithdraw,
+  selectedTransactionId,
   view,
 }: {
   actions: EarnMaxActions;
+  onDeposit: () => void;
+  onSelectTransaction: (item: EarnMaxActivityItem) => void;
+  onWithdraw: () => void;
+  selectedTransactionId: string | null;
   view: EarnMaxViewModel;
 }) {
-  const [tab, setTab] = useState<"positions" | "transactions">("transactions");
+  const [tab, setTab] = useState<"Positions" | "Transactions">(
+    "Transactions"
+  );
+
+  // Same tab mechanics as EarnActivityCard: the content height is measured
+  // at click and tweened on the t-resize clock, and the red underline slides
+  // between tabs (transitions.dev tabs sliding).
+  const tabContentRef = useRef<HTMLDivElement>(null);
+  const outgoingHeightRef = useRef<number | null>(null);
+  const resizeTimerRef = useRef<number | null>(null);
+  const selectTab = (next: "Positions" | "Transactions") => {
+    if (next !== tab) {
+      outgoingHeightRef.current = tabContentRef.current?.offsetHeight ?? null;
+      setTab(next);
+    }
+  };
+  useLayoutEffect(() => {
+    const el = tabContentRef.current;
+    const fromHeight = outgoingHeightRef.current;
+    outgoingHeightRef.current = null;
+    if (!el || fromHeight === null) {
+      return;
+    }
+    el.style.height = "";
+    const toHeight = el.offsetHeight;
+    if (fromHeight === toHeight) {
+      return;
+    }
+    if (resizeTimerRef.current !== null) {
+      window.clearTimeout(resizeTimerRef.current);
+    }
+    el.style.height = `${fromHeight}px`;
+    void el.offsetHeight;
+    el.style.height = `${toHeight}px`;
+    const dur = readCssDurationMs("--resize-dur", 300);
+    resizeTimerRef.current = window.setTimeout(() => {
+      resizeTimerRef.current = null;
+      el.style.height = "";
+    }, dur);
+  }, [tab]);
+  useEffect(
+    () => () => {
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+      }
+    },
+    []
+  );
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const underlineRef = useRef<HTMLSpanElement>(null);
+  const hasPaintedTabs = useRef(false);
+  const moveUnderlineToActiveTab = useCallback((animate: boolean) => {
+    const bar = tabBarRef.current;
+    const underline = underlineRef.current;
+    const active = bar?.querySelector<HTMLButtonElement>(
+      '[aria-selected="true"]'
+    );
+    if (!(bar && underline && active)) {
+      return;
+    }
+    const write = () => {
+      underline.style.transform = `translateX(${active.offsetLeft + 12}px)`;
+      underline.style.width = `${active.offsetWidth - 24}px`;
+    };
+    if (animate) {
+      write();
+      return;
+    }
+    const previousTransition = underline.style.transition;
+    underline.style.transition = "none";
+    write();
+    void underline.offsetWidth;
+    underline.style.transition = previousTransition;
+  }, []);
+  useLayoutEffect(() => {
+    moveUnderlineToActiveTab(hasPaintedTabs.current);
+    hasPaintedTabs.current = true;
+  }, [tab, moveUnderlineToActiveTab]);
+  useEffect(() => {
+    const handleResize = () => moveUnderlineToActiveTab(false);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [moveUnderlineToActiveTab]);
+
   const withdrawal = view.withdrawal;
   const groups: { items: EarnMaxActivityItem[]; label: string }[] = [];
   for (const item of view.activity) {
@@ -463,32 +562,42 @@ function EarnMaxActivityCard({
   }
   const balance = splitUsdBalance(view.balanceUsd);
   return (
-    <div className="flex w-full flex-col rounded-3xl bg-card max-[795px]:rounded-none">
-      <div className="flex w-full items-center px-2 pt-2">
-        {(["transactions", "positions"] as const).map((key) => (
-          <button
-            className="relative flex h-11 items-center justify-center rounded-2xl px-4"
-            key={key}
-            onClick={() => setTab(key)}
-            type="button"
-          >
-            <span
-              className={`font-medium text-[16px] leading-5 tracking-[-0.176px] ${
-                tab === key ? "text-foreground" : "text-muted-foreground"
+    <div className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-none">
+      <div
+        className="relative flex w-full items-center px-2 pt-2"
+        ref={tabBarRef}
+        role="tablist"
+      >
+        <span
+          aria-hidden="true"
+          className="t-tabs-underline"
+          ref={underlineRef}
+        />
+        {(["Transactions", "Positions"] as const).map((key) => {
+          const isActive = tab === key;
+          return (
+            <button
+              aria-selected={isActive}
+              className={`t-hover relative flex h-11 items-center justify-center px-4 font-medium text-[16px] leading-5 tracking-[-0.176px] ${
+                isActive
+                  ? "text-foreground"
+                  : "rounded-3xl text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
+              key={key}
+              onClick={() => selectTab(key)}
+              role="tab"
+              type="button"
             >
-              {key === "transactions" ? "Transactions" : "Positions"}
-            </span>
-            {tab === key ? (
-              <span className="absolute inset-x-3 bottom-0 h-[3px] rounded-t-[4px] bg-primary" />
-            ) : null}
-          </button>
-        ))}
+              {key}
+            </button>
+          );
+        })}
       </div>
+      <div className="t-resize w-full overflow-clip" ref={tabContentRef}>
       <div className="flex w-full flex-col px-2 pb-2">
-        {tab === "positions" ? (
+        {tab === "Positions" ? (
           view.balanceUsd > 0 ? (
-            <div className="flex w-full items-center rounded-2xl px-4">
+            <div className="group flex w-full items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-accent">
               <span className="flex items-center py-2 pr-3">
                 <EarnMaxDualIcon />
               </span>
@@ -503,9 +612,17 @@ function EarnMaxActivityCard({
                   USDC
                 </span>
               </span>
-              <span className="whitespace-nowrap py-[11px] pl-3 text-right font-medium text-[16px] text-foreground leading-5">
+              <span className="whitespace-nowrap py-[11px] pl-3 text-right font-medium text-[16px] text-foreground leading-5 group-hover:hidden">
                 {balance.balanceWhole}
                 <span className="text-tertiary">{balance.balanceFraction}</span>
+              </span>
+              <span className="hidden items-center gap-2 py-3 pl-3 group-hover:flex">
+                <SmallPill
+                  label="Withdraw"
+                  onClick={onWithdraw}
+                  variant="light"
+                />
+                <SmallPill label="Deposit" onClick={onDeposit} variant="dark" />
               </span>
             </div>
           ) : (
@@ -581,9 +698,13 @@ function EarnMaxActivityCard({
                   </div>
                   {group.items.map((item) => (
                     <OperationRow
-                      amountLabel={null}
-                      isWithdraw={isWithdrawishAction(item.action)}
+                      amountLabel={
+                        item.amountRaw ? usdcRawLabel(item.amountRaw) : null
+                      }
+                      isSelected={selectedTransactionId === item.id}
+                      isWithdraw={isEarnMaxWithdrawishAction(item.action)}
                       key={item.id}
+                      onSelect={() => onSelectTransaction(item)}
                       subtitle={
                         item.timestamp
                           ? new Date(item.timestamp).toLocaleTimeString([], {
@@ -592,7 +713,7 @@ function EarnMaxActivityCard({
                             })
                           : "Confirming"
                       }
-                      title={activityLabel(item)}
+                      title={earnMaxActivityLabel(item)}
                     />
                   ))}
                 </div>
@@ -600,6 +721,7 @@ function EarnMaxActivityCard({
             )}
           </>
         )}
+      </div>
       </div>
     </div>
   );
@@ -610,12 +732,16 @@ function EarnMaxActivityCard({
 function EarnMaxMainPane({
   actions,
   onDeposit,
+  onSelectTransaction,
   onWithdraw,
+  selectedTransactionId,
   view,
 }: {
   actions: EarnMaxActions;
   onDeposit: () => void;
+  onSelectTransaction: (item: EarnMaxActivityItem) => void;
   onWithdraw: () => void;
+  selectedTransactionId: string | null;
   view: EarnMaxViewModel;
 }) {
   const { isBalanceHidden } = useBalanceVisibility();
@@ -779,7 +905,14 @@ function EarnMaxMainPane({
           ) : null}
         </div>
       </div>
-      <EarnMaxActivityCard actions={actions} view={view} />
+      <EarnMaxActivityCard
+        actions={actions}
+        onDeposit={onDeposit}
+        onSelectTransaction={onSelectTransaction}
+        onWithdraw={onWithdraw}
+        selectedTransactionId={selectedTransactionId}
+        view={view}
+      />
     </section>
   );
 }
@@ -795,14 +928,29 @@ export function EarnMaxWorkspace({
 }) {
   const { isHydrated, isSignedIn } = useAuthCapability();
   const [screen, setScreen] = useState<"deposit" | "main" | "withdraw">("main");
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<EarnMaxActivityItem | null>(null);
+  // Keep the closing detail populated until its exit animation finishes
+  // (same trick the shell uses for the Earn transaction detail).
+  const lastTransactionRef = useRef<EarnMaxActivityItem | null>(null);
+  if (selectedTransaction) {
+    lastTransactionRef.current = selectedTransaction;
+  }
+  const transactionDetail = selectedTransaction ?? lastTransactionRef.current;
   useEffect(() => {
     if (isHydrated && !isSignedIn && screen !== "main") {
       setScreen("main");
     }
   }, [isHydrated, isSignedIn, screen]);
-  // Esc backs out of the action screens (same contract as the Earn page).
   useEffect(() => {
-    if (screen === "main") {
+    if ((screen !== "main" || !isSignedIn) && selectedTransaction) {
+      setSelectedTransaction(null);
+    }
+  }, [isSignedIn, screen, selectedTransaction]);
+  // Esc closes the transaction detail first, then backs out of the action
+  // screens (same contract as the Earn page).
+  useEffect(() => {
+    if (screen === "main" && !selectedTransaction) {
       return;
     }
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -810,14 +958,19 @@ export function EarnMaxWorkspace({
         return;
       }
       queueMicrotask(() => {
-        if (!event.defaultPrevented) {
+        if (event.defaultPrevented) {
+          return;
+        }
+        if (selectedTransaction) {
+          setSelectedTransaction(null);
+        } else {
           setScreen("main");
         }
       });
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [screen]);
+  }, [screen, selectedTransaction]);
 
   const { actions, view } = earnMax;
   return (
@@ -852,7 +1005,13 @@ export function EarnMaxWorkspace({
             <EarnMaxMainPane
               actions={actions}
               onDeposit={() => setScreen("deposit")}
+              onSelectTransaction={(item) =>
+                setSelectedTransaction((current) =>
+                  current?.id === item.id ? null : item
+                )
+              }
               onWithdraw={() => setScreen("withdraw")}
+              selectedTransactionId={selectedTransaction?.id ?? null}
               view={view}
             />
           </PaneReveal>
@@ -860,6 +1019,16 @@ export function EarnMaxWorkspace({
       </MiddlePaneSlide>
       {screen !== "main" ? null : isHydrated && !isSignedIn ? (
         <EarnMaxMockRail />
+      ) : selectedTransaction && transactionDetail ? (
+        <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">
+          <PaneReveal key={transactionDetail.id}>
+            <EarnMaxTransactionDetailPane
+              item={transactionDetail}
+              onClose={() => setSelectedTransaction(null)}
+              walletAddress={earnData.walletAddress ?? null}
+            />
+          </PaneReveal>
+        </aside>
       ) : (
         <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 min-[1204px]:flex">
           <EarnMaxChartCard view={view} />
