@@ -6463,11 +6463,16 @@ export function useSmartAccountSidebarData(
           const submittedSignature = getSubmittedTransactionSignature(error);
           const latestSubmittedBatchTransaction =
             latestSubmittedBatchTransactionRef.current;
-          const submittedStage =
-            submittedSignature &&
-            latestSubmittedBatchTransaction?.signature === submittedSignature
+          const latestSubmittedStageIndex = latestSubmittedBatchTransaction
+            ? batchStages.findIndex(
+                ({ stage }) => stage === latestSubmittedBatchTransaction.stage
+              )
+            : -1;
+          const submittedStage = submittedSignature
+            ? latestSubmittedBatchTransaction?.signature === submittedSignature
               ? latestSubmittedBatchTransaction.stage
-              : null;
+              : batchStages[latestSubmittedStageIndex + 1]?.stage ?? null
+            : null;
           return {
             success: false,
             ...(submittedSignature ? { signature: submittedSignature } : {}),
