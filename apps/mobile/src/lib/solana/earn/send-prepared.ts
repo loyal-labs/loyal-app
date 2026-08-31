@@ -263,9 +263,9 @@ export type SendPreparedMode = "confirm-each" | "send-all-before-confirm";
 // `sendPreparedBatchWithWallet`: "send-all-before-confirm" broadcasts every
 // signed tx in order BEFORE waiting on any confirmation, so a later tx doesn't
 // spend the shared blockhash window queued behind an earlier tx's
-// confirmation. Only safe when the txs don't depend on each other's state
-// (e.g. the autodeposit policy + delegation pair) — deposit/withdraw steps
-// build on the previous tx's state and must stay on "confirm-each".
+// confirmation. Only safe when every transaction is valid against the same
+// starting state. Autodeposit policy/delegation and deposit/withdraw stages
+// build on prior transactions and must stay on "confirm-each".
 export async function signAndSendPreparedOperations(args: {
   connection: Connection;
   signer: Signer;
