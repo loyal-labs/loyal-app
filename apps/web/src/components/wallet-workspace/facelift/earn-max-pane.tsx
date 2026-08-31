@@ -19,6 +19,7 @@ import {
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
   ScrambledPopDigits,
+  ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
@@ -42,6 +43,7 @@ import {
   isEarnMaxWithdrawishAction,
   OperationRow,
 } from "@/components/wallet-workspace/facelift/earn-max-transaction-detail";
+import { GroupHeader } from "@/components/wallet-workspace/facelift/earn-activity-card";
 import {
   EarnedBarsChart,
   type EarnedChartBar,
@@ -53,6 +55,10 @@ import {
   PaneReveal,
 } from "@/components/wallet-workspace/facelift/pane-transitions";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import {
+  StaggerLine,
+  StaggerReveal,
+} from "@/components/wallet-workspace/facelift/stagger-reveal";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import {
@@ -418,7 +424,6 @@ function minutesLeftLabel(readyBy: string): string {
 
 function EarnMaxActivityCard({
   actions,
-  onDeposit,
   onSelectTransaction,
   onViewAllActivity,
   onWithdraw,
@@ -426,13 +431,13 @@ function EarnMaxActivityCard({
   view,
 }: {
   actions: EarnMaxActions;
-  onDeposit: () => void;
   onSelectTransaction: (item: EarnMaxActivityItem) => void;
   onViewAllActivity: () => void;
   onWithdraw: () => void;
   selectedTransactionId: string | null;
   view: EarnMaxViewModel;
 }) {
+  const { isBalanceHidden } = useBalanceVisibility();
   const [tab, setTab] = useState<"Positions" | "Transactions">(
     "Transactions"
   );
@@ -572,138 +577,171 @@ function EarnMaxActivityCard({
       <div className="flex w-full flex-col px-2 pb-2">
         {tab === "Positions" ? (
           view.balanceUsd > 0 ? (
-            <div className="group flex w-full items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-accent">
-              <span className="flex items-center py-2 pr-3">
-                <EarnMaxDualIcon />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                <span className="flex items-center gap-1">
-                  <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
-                    {EARN_MAX_STRATEGY_NAME}
-                  </span>
-                  <ApyBadge label={formatEarnMaxApyLabel(view.forecastApyBps)} />
-                </span>
-                <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
-                  USDC
-                </span>
-              </span>
-              <span className="whitespace-nowrap py-[11px] pl-3 text-right font-medium text-[16px] text-foreground leading-5 group-hover:hidden">
-                {balance.balanceWhole}
-                <span className="text-tertiary">{balance.balanceFraction}</span>
-              </span>
-              <span className="hidden items-center gap-2 py-3 pl-3 group-hover:flex">
-                <SmallPill
-                  label="Withdraw"
-                  onClick={onWithdraw}
-                  variant="light"
-                />
-                <SmallPill label="Deposit" onClick={onDeposit} variant="dark" />
-              </span>
-            </div>
-          ) : (
-            <p className="w-full py-6 text-center text-[14px] text-muted-foreground">
-              No open positions yet.
-            </p>
-          )
-        ) : (
-          <>
-            {withdrawal?.canClaim ? (
-              <>
-                <GroupHeaderWithIcon icon="check" label="Ready to claim" />
-                <div className="flex w-full flex-col rounded-2xl">
-                  <OperationRow
-                    amountLabel={usdcRawLabel(withdrawal.amountRaw)}
-                    isWithdraw
-                    subtitle="Ready"
-                    title="Withdraw"
-                  />
-                  <div className="flex w-full items-start gap-2 px-4 pt-1 pb-2">
-                    <SmallPill
-                      disabled={view.isBusy}
-                      label="Claim withdrawal"
-                      onClick={() => void actions.claim()}
-                      variant="dark"
-                    />
-                    {withdrawal.canCancel ? (
-                      <SmallPill
-                        disabled={view.isBusy}
-                        label="Cancel"
-                        onClick={() => void actions.cancelWithdrawal()}
-                        variant="light"
-                      />
-                    ) : null}
+            // Same row contract as the Earn Positions tab: 60px cell, amount
+            // under the label, Withdraw pill on the delayed hover reveal.
+            <StaggerReveal className="flex w-full flex-col">
+              <StaggerLine index={0}>
+                <div className="group t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent">
+                  <div className="flex items-center py-2 pr-3">
+                    <EarnMaxDualIcon />
                   </div>
-                </div>
-              </>
-            ) : null}
-            {withdrawal && !withdrawal.canClaim && withdrawal.status !== "claimed" ? (
-              <>
-                <GroupHeaderWithIcon icon="clock" label="Pending" />
-                <div className="flex w-full flex-col rounded-2xl">
-                  <OperationRow
-                    amountLabel={usdcRawLabel(withdrawal.amountRaw)}
-                    isWithdraw
-                    subtitle={minutesLeftLabel(withdrawal.readyBy)}
-                    title="Withdraw"
-                  />
-                  {withdrawal.canCancel ? (
-                    <div className="flex w-full items-start gap-2 px-4 pt-1 pb-2">
-                      <SmallPill
-                        disabled={view.isBusy}
-                        label="Cancel"
-                        onClick={() => void actions.cancelWithdrawal()}
-                        variant="light"
+                  <div className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
+                    <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
+                      {EARN_MAX_STRATEGY_NAME} USDC
+                    </span>
+                    <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
+                      <ScrambleText
+                        isHidden={isBalanceHidden}
+                        text={balance.balanceWhole}
                       />
-                    </div>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-            {groups.length === 0 && !withdrawal ? (
-              <p className="w-full py-6 text-center text-[14px] text-muted-foreground">
-                No Earn MAX transactions yet.
-              </p>
-            ) : (
-              <>
-                {groups.map((group) => (
-                <div className="flex w-full flex-col" key={group.label}>
-                  <div className="flex w-full items-start px-4 pt-1">
-                    <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] text-muted-foreground leading-5 tracking-[-0.176px]">
-                      {group.label}
+                      <span className="text-tertiary">
+                        <ScrambleText
+                          isHidden={isBalanceHidden}
+                          text={balance.balanceFraction}
+                        />
+                      </span>
                     </p>
                   </div>
-                  {group.items.map((item) => (
-                    <OperationRow
-                      amountLabel={
-                        item.amountRaw ? usdcRawLabel(item.amountRaw) : null
-                      }
-                      isSelected={selectedTransactionId === item.id}
-                      isWithdraw={isEarnMaxWithdrawishAction(item.action)}
-                      key={item.id}
-                      onSelect={() => onSelectTransaction(item)}
-                      subtitle={
-                        item.timestamp
-                          ? new Date(item.timestamp).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "Confirming"
-                      }
-                      title={earnMaxActivityLabel(item)}
+                  {/* Reveal rides a short delay so quick pointer passes don't
+                      flash the pill; un-hover drops the delay and hides at
+                      once. */}
+                  <div className="pointer-events-none flex pl-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
+                    <SmallPill
+                      label="Withdraw"
+                      onClick={onWithdraw}
+                      variant="light"
                     />
-                  ))}
+                  </div>
                 </div>
-                ))}
-                <button
-                  className="t-hover flex h-11 w-full items-center justify-center rounded-2xl font-medium text-[14px] text-foreground leading-5 hover:bg-accent"
-                  onClick={onViewAllActivity}
-                  type="button"
-                >
-                  View all activity
-                </button>
-              </>
-            )}
-          </>
+              </StaggerLine>
+            </StaggerReveal>
+          ) : (
+            <p className="px-4 py-3 text-[13px] text-muted-foreground leading-4">
+              No positions.
+            </p>
+          )
+        ) : view.isLoading && groups.length === 0 && !withdrawal ? (
+          // Same pulse skeletons the Earn activity card boots with.
+          <div className="t-skel-rows flex flex-col gap-2 px-4 py-3">
+            {[0, 1, 2].map((index) => (
+              <div className="h-[60px] w-full rounded-2xl bg-accent" key={index} />
+            ))}
+          </div>
+        ) : (
+          <StaggerReveal className="flex w-full flex-col">
+            {(() => {
+              let lineIndex = 0;
+              return (
+                <>
+                  {withdrawal?.canClaim ? (
+                    <StaggerLine index={lineIndex++}>
+                      <GroupHeaderWithIcon icon="check" label="Ready to claim" />
+                      <div className="flex w-full flex-col rounded-2xl">
+                        <OperationRow
+                          amountLabel={usdcRawLabel(withdrawal.amountRaw)}
+                          isWithdraw
+                          subtitle="Ready"
+                          title="Withdraw"
+                        />
+                        <div className="flex w-full items-start gap-2 px-4 pt-1 pb-2">
+                          <SmallPill
+                            disabled={view.isBusy}
+                            label="Claim withdrawal"
+                            onClick={() => void actions.claim()}
+                            variant="dark"
+                          />
+                          {withdrawal.canCancel ? (
+                            <SmallPill
+                              disabled={view.isBusy}
+                              label="Cancel"
+                              onClick={() => void actions.cancelWithdrawal()}
+                              variant="light"
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    </StaggerLine>
+                  ) : null}
+                  {withdrawal &&
+                  !withdrawal.canClaim &&
+                  withdrawal.status !== "claimed" ? (
+                    <StaggerLine index={lineIndex++}>
+                      <GroupHeaderWithIcon icon="clock" label="Pending" />
+                      <div className="flex w-full flex-col rounded-2xl">
+                        <OperationRow
+                          amountLabel={usdcRawLabel(withdrawal.amountRaw)}
+                          isWithdraw
+                          subtitle={minutesLeftLabel(withdrawal.readyBy)}
+                          title="Withdraw"
+                        />
+                        {withdrawal.canCancel ? (
+                          <div className="flex w-full items-start gap-2 px-4 pt-1 pb-2">
+                            <SmallPill
+                              disabled={view.isBusy}
+                              label="Cancel"
+                              onClick={() => void actions.cancelWithdrawal()}
+                              variant="light"
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </StaggerLine>
+                  ) : null}
+                  {groups.length === 0 && !withdrawal ? (
+                    <p className="px-4 py-3 text-[13px] text-muted-foreground leading-4">
+                      No transactions yet.
+                    </p>
+                  ) : (
+                    <>
+                      {groups.map((group) => (
+                        <div className="flex w-full flex-col" key={group.label}>
+                          <StaggerLine index={lineIndex++}>
+                            <GroupHeader label={group.label} />
+                          </StaggerLine>
+                          {group.items.map((item) => (
+                            <StaggerLine index={lineIndex++} key={item.id}>
+                              <OperationRow
+                                amountLabel={
+                                  item.amountRaw
+                                    ? usdcRawLabel(item.amountRaw)
+                                    : null
+                                }
+                                isSelected={selectedTransactionId === item.id}
+                                isWithdraw={isEarnMaxWithdrawishAction(
+                                  item.action
+                                )}
+                                onSelect={() => onSelectTransaction(item)}
+                                subtitle={
+                                  item.timestamp
+                                    ? new Date(
+                                        item.timestamp
+                                      ).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })
+                                    : "Confirming"
+                                }
+                                title={earnMaxActivityLabel(item)}
+                              />
+                            </StaggerLine>
+                          ))}
+                        </div>
+                      ))}
+                      <StaggerLine index={lineIndex}>
+                        <button
+                          className="t-hover flex h-11 w-full items-center justify-center rounded-2xl font-medium text-[14px] text-foreground leading-5 hover:bg-accent"
+                          onClick={onViewAllActivity}
+                          type="button"
+                        >
+                          View all activity
+                        </button>
+                      </StaggerLine>
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </StaggerReveal>
         )}
       </div>
       </div>
@@ -818,9 +856,11 @@ function EarnMaxMainPane({
           </div>
         </div>
         <div className="flex w-full flex-col p-2 pt-0">
-          {/* Hovering the strategy row swaps its value for the row-scoped
-              Withdraw/Deposit pills (Figma 5465:82773). */}
-          <div className="group flex w-full items-center rounded-2xl px-4 hover:bg-accent">
+          {/* Hover swaps the value for the row-scoped Withdraw/Deposit
+              pills (Figma 5465:82773) — same delayed reveal as the stables
+              rows: quick pointer passes don't flash the buttons, un-hover
+              drops the delay and hides immediately. */}
+          <div className="group flex w-full items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-accent">
             <span className="flex items-center py-2">
               <GrayInfinityIcon />
             </span>
@@ -830,31 +870,36 @@ function EarnMaxMainPane({
               </span>
               <ApyBadge label={formatEarnMaxApyLabel(view.forecastApyBps)} />
             </span>
-            <span className="flex flex-col items-end gap-0.5 py-[11px] pl-3 group-hover:hidden">
-              <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
-                <ScrambledPopDigits
-                  isHidden={isBalanceHidden}
-                  segments={[
-                    { text: balance.balanceWhole },
-                    { color: "var(--tertiary)", text: balance.balanceFraction },
-                  ]}
-                />
-              </span>
-              {earnedLabel ? (
-                <span className="whitespace-nowrap text-[13px] text-positive leading-4">
-                  {earnedLabel}
+            <div className="relative flex shrink-0 items-center justify-end pl-3">
+              <div className="group-hover:pointer-events-none flex flex-col items-end justify-center gap-0.5 py-[11px] transition-opacity duration-150 group-hover:opacity-0">
+                <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
+                  <ScrambledPopDigits
+                    isHidden={isBalanceHidden}
+                    segments={[
+                      { text: balance.balanceWhole },
+                      {
+                        color: "var(--tertiary)",
+                        text: balance.balanceFraction,
+                      },
+                    ]}
+                  />
                 </span>
-              ) : null}
-            </span>
-            <span className="hidden items-center gap-2 py-3 pl-3 group-hover:flex">
-              <SmallPill
-                disabled={!canWithdraw}
-                label="Withdraw"
-                onClick={onWithdraw}
-                variant="light"
-              />
-              <SmallPill label="Deposit" onClick={onDeposit} variant="dark" />
-            </span>
+                {earnedLabel ? (
+                  <span className="whitespace-nowrap text-[13px] text-positive leading-4">
+                    {earnedLabel}
+                  </span>
+                ) : null}
+              </div>
+              <div className="pointer-events-none absolute right-0 flex items-center gap-2 rounded-[40px] bg-secondary opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
+                <SmallPill
+                  disabled={!canWithdraw}
+                  label="Withdraw"
+                  onClick={onWithdraw}
+                  variant="light"
+                />
+                <SmallPill label="Deposit" onClick={onDeposit} variant="dark" />
+              </div>
+            </div>
           </div>
           <div className="flex w-full items-center rounded-2xl px-4 opacity-40">
             <span className="flex items-center py-2">
@@ -893,7 +938,6 @@ function EarnMaxMainPane({
       </div>
       <EarnMaxActivityCard
         actions={actions}
-        onDeposit={onDeposit}
         onSelectTransaction={onSelectTransaction}
         onViewAllActivity={onViewAllActivity}
         onWithdraw={onWithdraw}
