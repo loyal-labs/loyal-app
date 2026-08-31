@@ -18,7 +18,10 @@ Keep shell variable expansion inside the `sh -c` subprocess so `op run` injects 
 
 ## Project Overview
 
-Solana Telegram Transactions enables users to deposit SOL for any Telegram username, which can later be claimed by the verified account owner. It integrates Solana smart contracts with a Telegram mini-app interface.
+Loyal is a Solana wallet product family: the askloyal.com web app (wallet, swap, Earn), a mobile app, a browser extension, an internal admin dashboard, and a Telegram bot for community summaries. The legacy Telegram mini-app is sunset and serves only a wallet-key export page.
+# failed: overview still described the sunset private-transfer product after ASK-2239 removed it (2026-08-31)
+# outcome: rewritten to match the shipped apps
+# recurred: 1
 
 ## Working Agreements
 
@@ -106,36 +109,6 @@ bun run build              # Production build (Next.js)
 bun lint                   # Next.js lint
 ```
 
-### Smart Contracts (run from root)
-
-```bash
-anchor build               # Compile programs
-anchor deploy --provider.cluster devnet     # Deploy to devnet
-anchor deploy --provider.cluster localnet   # Deploy to localnet
-```
-
-### Testing Smart Contracts
-
-Requires 3 terminals running simultaneously:
-
-```bash
-# Terminal 1: Start validator
-mb-test-validator --reset
-
-# Terminal 2: Start ephemeral validator
-RUST_LOG=info ephemeral-validator \
-    --accounts-lifecycle ephemeral \
-    --remote-cluster development \
-    --remote-url http://127.0.0.1:8899 \
-    --remote-ws-url ws://127.0.0.1:8900 \
-    --rpc-port 7799
-
-# Terminal 3: Run tests
-EPHEMERAL_PROVIDER_ENDPOINT="http://localhost:7799" \
-EPHEMERAL_WS_ENDPOINT="ws://localhost:7800" \
-anchor test --provider.cluster localnet --skip-local-validator --skip-build --skip-deploy
-```
-
 ## Test Design Guardrails
 
 Default to no new TypeScript unit tests. Prefer typecheck, lint, focused
@@ -218,25 +191,15 @@ bun run frontend:build     # build loyal web frontend from repo root
 
 ### Directory Structure
 
-| Path                             | Purpose                                                                                                                                                                           |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/programs`                      | Anchor smart contracts. `telegram-private-transfer` handles deposit/claim/refund SOL transfers; `telegram-verification` handles on-chain Ed25519 Telegram signature verification. |
-| `/apps/telegram`                 | Next.js 15 Telegram mini-app frontend and API routes.                                                                                                                             |
-| `/apps/web`                      | Next.js 15 Loyal web frontend.                                                                                                                                                    |
-| `/apps/mobile`                   | Expo React Native mobile app.                                                                                                                                                     |
-| `/apps/admin`                    | Next.js 15 internal admin dashboard.                                                                                                                                              |
-| `/packages`                      | Internal shared workspace packages such as `db-core`, `db-adapter-neon`, `auth-core`, and `shared`.                                                                               |
-| `/packages/private-transactions` | Publishable `@loyal-labs/private-transactions` NPM package.                                                                                                                       |
-| `/apps/userbot`                  | Telegram userbot worker service.                                                                                                                                                  |
-| `/tests`                         | Anchor test suite.                                                                                                                                                                |
-| `/docs` and `/user-docs`         | Internal engineering docs and Mintlify-hosted user-facing docs.                                                                                                                   |
-
-### Program Addresses
-
-| Program                     | Address                                        |
-| --------------------------- | ---------------------------------------------- |
-| `telegram-private-transfer` | `97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV` |
-| `telegram-verification`     | `9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz` |
+| Path                     | Purpose                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| `/apps/telegram`         | Next.js 15 Telegram mini-app frontend and API routes.                                               |
+| `/apps/web`              | Next.js 15 Loyal web frontend.                                                                      |
+| `/apps/mobile`           | Expo React Native mobile app.                                                                       |
+| `/apps/admin`            | Next.js 15 internal admin dashboard.                                                                |
+| `/packages`              | Internal shared workspace packages such as `db-core`, `db-adapter-neon`, `auth-core`, and `shared`. |
+| `/apps/userbot`          | Telegram userbot worker service.                                                                    |
+| `/docs` and `/user-docs` | Internal engineering docs and Mintlify-hosted user-facing docs.                                     |
 
 ### Vertical Slice Architecture (Current Implementation + Required Direction)
 
@@ -339,8 +302,6 @@ For Vercel monorepo deploys, the admin Root Directory is `apps/admin` (see
 
 ### Key Patterns
 
-Deposit accounts and vaults use Program Derived Addresses with seeds
-`"deposit_v2"`, `"username_deposit_v2"`, `"vault"`, and `"tg_session_v2"`.
 User keypairs belong in Telegram Cloud Storage, never `localStorage`.
 `NEXT_PUBLIC_SOLANA_ENV` selects the RPC environment (`mainnet`, `devnet`, or
 `localnet`).
@@ -687,7 +648,6 @@ as `apps/web`.
 | Tool            | Version or rule                                                       |
 | --------------- | --------------------------------------------------------------------- |
 | Package manager | Bun preferred                                                         |
-| Anchor          | 0.32.1                                                                |
 | Solana          | 2.1.0                                                                 |
 | ESLint          | Enforces alphabetical imports with `eslint-plugin-simple-import-sort` |
 

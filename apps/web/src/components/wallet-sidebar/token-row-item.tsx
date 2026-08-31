@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, DollarSign, RefreshCw, Zap } from "lucide-react";
+import { ArrowUpRight, DollarSign, RefreshCw } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
@@ -166,37 +166,6 @@ export function TokenRowItem({
           >
             {token.name ?? token.symbol}
           </span>
-          {typeof token.apyBps === "number" && token.apyBps > 0 && (
-            <span
-              style={{
-                alignItems: "center",
-                background: "rgba(52, 199, 89, 0.12)",
-                borderRadius: "9999px",
-                color: "#2EA043",
-                display: "inline-flex",
-                flexShrink: 0,
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "11px",
-                fontWeight: 600,
-                gap: "2px",
-                letterSpacing: "-0.1px",
-                lineHeight: "14px",
-                padding: "2px 6px",
-              }}
-            >
-              <Zap
-                fill="currentColor"
-                size={10}
-                strokeWidth={2.5}
-                style={{ display: "block" }}
-              />
-              {(token.apyBps / 100).toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-              % APY
-            </span>
-          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <span

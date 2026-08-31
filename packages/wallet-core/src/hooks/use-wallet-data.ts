@@ -1,5 +1,4 @@
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { computePortfolioTotals } from "@loyal-labs/solana-wallet";
 import type {
   PortfolioPosition,
   PortfolioSnapshot,
@@ -9,10 +8,6 @@ import type {
 import type { PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  getCachedKaminoLendingApyBps,
-  getCachedKaminoShieldedBalanceQuote,
-} from "../lib/kamino-apy";
 import { getTokenIconUrl } from "../lib/token-icon";
 import type { ActivityRow, TokenRow, TransactionDetail } from "../types/wallet";
 
@@ -41,8 +36,6 @@ export type WalletDesktopData = {
 
 const EMPTY_POSITIONS: PortfolioPosition[] = [];
 const LOYL_MINT = "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta";
-const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const USDC_MINT_DEVNET = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 const LOYL_ICON_URL =
   "https://avatars.githubusercontent.com/u/210601628?s=200&v=4";
@@ -147,9 +140,7 @@ function getActivityDisplay(
         counterparty: "Swap",
       };
     }
-    case "token_transfer":
-    case "secure":
-    case "unshield": {
+    case "token_transfer": {
       const position = resolvePositionByMint(positions, activity.token.mint);
       return {
         symbol: position?.asset.symbol ?? "TOKEN",
@@ -163,11 +154,7 @@ function getActivityDisplay(
             : null,
         counterparty:
           activity.counterparty ??
-          (activity.type === "secure"
-            ? "Secure"
-            : activity.type === "unshield"
-            ? "Unshield"
-            : activity.direction === "in"
+          (activity.direction === "in"
             ? "Unknown sender"
             : "Unknown recipient"),
       };
@@ -239,9 +226,7 @@ function getActivityUsdDelta(
           : 0;
       return toUsd - fromUsd;
     }
-    case "token_transfer":
-    case "secure":
-    case "unshield": {
+    case "token_transfer": {
       const pos = resolvePositionByMint(positions, activity.token.mint);
       if (typeof pos?.priceUsd === "number") {
         return sign * parseFloat(activity.token.amount) * pos.priceUsd;
@@ -278,34 +263,16 @@ function mapActivityToRowAndDetail(
   const display = getActivityDisplay(activity, positions, solPriceUsd);
   const isReceived = activity.direction === "in";
   const timestamp = formatTimestamp(activity.timestamp);
-  const isShieldType =
-    activity.type === "secure" || activity.type === "unshield";
-  const amount = isShieldType
-    ? `${display.amount} ${display.symbol}`
-    : `${isReceived ? "+" : "-"}${display.amount} ${display.symbol}`;
-
-  const rowType: ActivityRow["type"] =
-    activity.type === "secure"
-      ? "shielded"
-      : activity.type === "unshield"
-      ? "unshielded"
-      : isReceived
-      ? "received"
-      : "sent";
+  const amount = `${isReceived ? "+" : "-"}${display.amount} ${display.symbol}`;
 
   const row: ActivityRow = {
     id: activity.signature,
-    type: rowType,
+    type: isReceived ? "received" : "sent",
     counterparty: display.counterparty,
     amount,
     timestamp: timestamp.time,
     date: timestamp.date,
-    icon:
-      activity.type === "secure"
-        ? "/hero-new/Shield.png"
-        : activity.type === "unshield"
-        ? "/hero-new/Unshield.svg"
-        : display.icon,
+    icon: display.icon,
     rawTimestamp: activity.timestamp ?? undefined,
   };
 
@@ -334,109 +301,6 @@ function mapPositionToTokenRow(position: PortfolioPosition): TokenRow {
     amount: formatTokenBalance(position.publicBalance),
     value: formatUsd(position.publicValueUsd),
     icon: resolveTokenIcon(position),
-  };
-}
-
-function mapPositionToSecuredTokenRow(position: PortfolioPosition): TokenRow {
-  return {
-    id: `${position.asset.mint}-secured`,
-    symbol: position.asset.symbol,
-    name: position.asset.name,
-    price: formatUsd(position.priceUsd),
-    amount: formatTokenBalance(position.securedBalance),
-    value: formatUsd(position.securedValueUsd),
-    icon: resolveTokenIcon(position),
-    isSecured: true,
-  };
-}
-
-function resolveTrackedKaminoUsdcMint(solanaEnv: SolanaEnv): string | null {
-  if (solanaEnv === "mainnet") return USDC_MINT;
-  if (solanaEnv === "devnet") return USDC_MINT_DEVNET;
-  return null;
-}
-
-function removeUnquotedKaminoShieldedLiquidity(
-  snapshot: PortfolioSnapshot,
-  trackedMint: string
-): PortfolioSnapshot {
-  const position = snapshot.positions.find(
-    (candidate) => candidate.asset.mint === trackedMint
-  );
-  if (!position || position.securedBalance <= 0) return snapshot;
-
-  const nextPosition: PortfolioPosition = {
-    ...position,
-    securedBalance: 0,
-    totalBalance: position.publicBalance,
-    securedValueUsd: null,
-    totalValueUsd: position.publicValueUsd,
-  };
-  const nextPositions = snapshot.positions.map((candidate) =>
-    candidate.asset.mint === trackedMint ? nextPosition : candidate
-  );
-
-  return {
-    ...snapshot,
-    positions: nextPositions,
-    totals: computePortfolioTotals(
-      nextPositions,
-      snapshot.totals.effectiveSolPriceUsd
-    ),
-  };
-}
-
-async function enrichKaminoShieldedLiquidity(
-  snapshot: PortfolioSnapshot,
-  solanaEnv: SolanaEnv
-): Promise<PortfolioSnapshot> {
-  const trackedMint = resolveTrackedKaminoUsdcMint(solanaEnv);
-  if (!trackedMint) return snapshot;
-
-  const position = snapshot.positions.find(
-    (candidate) => candidate.asset.mint === trackedMint
-  );
-  if (!position || position.securedBalance <= 0) return snapshot;
-
-  const scale = Math.pow(10, position.asset.decimals);
-  const collateralSharesAmountRaw = BigInt(
-    Math.round(position.securedBalance * scale)
-  );
-  if (collateralSharesAmountRaw <= BigInt(0)) return snapshot;
-
-  const quote = await getCachedKaminoShieldedBalanceQuote({
-    solanaEnv,
-    mint: trackedMint,
-    collateralSharesAmountRaw,
-  });
-  if (!quote) {
-    return removeUnquotedKaminoShieldedLiquidity(snapshot, trackedMint);
-  }
-
-  const liquidityBalance = Number(quote.redeemableLiquidityAmountRaw) / scale;
-  const securedValueUsd =
-    position.priceUsd === null ? null : liquidityBalance * position.priceUsd;
-  const nextPosition: PortfolioPosition = {
-    ...position,
-    securedBalance: liquidityBalance,
-    totalBalance: position.publicBalance + liquidityBalance,
-    securedValueUsd,
-    totalValueUsd:
-      position.publicValueUsd === null || securedValueUsd === null
-        ? position.publicValueUsd ?? securedValueUsd
-        : position.publicValueUsd + securedValueUsd,
-  };
-  const nextPositions = snapshot.positions.map((candidate) =>
-    candidate.asset.mint === trackedMint ? nextPosition : candidate
-  );
-
-  return {
-    ...snapshot,
-    positions: nextPositions,
-    totals: computePortfolioTotals(
-      nextPositions,
-      snapshot.totals.effectiveSolPriceUsd
-    ),
   };
 }
 
@@ -512,13 +376,9 @@ export function useWalletData(params: {
       client.getPortfolio(publicKey),
       client.getActivity(publicKey, { limit: 25 }),
     ])
-      .then(async ([nextPortfolio, history]) => {
-        const enrichedPortfolio = await enrichKaminoShieldedLiquidity(
-          nextPortfolio,
-          solanaEnv
-        );
+      .then(([nextPortfolio, history]) => {
         if (cancelled) return;
-        setPortfolioSnapshot(enrichedPortfolio);
+        setPortfolioSnapshot(nextPortfolio);
         setActivities(history.activities);
         setIsLoading(false);
       })
@@ -530,7 +390,7 @@ export function useWalletData(params: {
     return () => {
       cancelled = true;
     };
-  }, [client, connected, publicKey, solanaEnv]);
+  }, [client, connected, publicKey]);
 
   useEffect(() => {
     if (!(connected && publicKey)) return;
@@ -543,11 +403,7 @@ export function useWalletData(params: {
       .subscribePortfolio(
         publicKey,
         (snapshot) => {
-          void enrichKaminoShieldedLiquidity(snapshot, solanaEnv).then(
-            (enrichedSnapshot) => {
-              if (!closed) setPortfolioSnapshot(enrichedSnapshot);
-            }
-          );
+          if (!closed) setPortfolioSnapshot(snapshot);
         },
         { emitInitial: false }
       )
@@ -597,7 +453,7 @@ export function useWalletData(params: {
       if (unsubscribePortfolio) void unsubscribePortfolio();
       if (unsubscribeActivity) void unsubscribeActivity();
     };
-  }, [client, connected, publicKey, solanaEnv]);
+  }, [client, connected, publicKey]);
 
   // Fetch LOYAL token price from Jupiter for the always-visible placeholder row
   const [loylPriceUsd, setLoylPriceUsd] = useState<number | null>(null);
@@ -632,134 +488,48 @@ export function useWalletData(params: {
       if (position.publicBalance > 0) {
         rows.push(mapPositionToTokenRow(position));
       }
-      if (position.securedBalance > 0) {
-        rows.push(mapPositionToSecuredTokenRow(position));
-      }
     }
 
     // Only LOYAL is pinned regardless of balance (3rd position / index 2);
     // every other token appears solely when it has a non-zero balance, so real
-    // holdings fill the top instead of zero SOL/USDC placeholders. Never splice
-    // between a public/secured pair of the same mint.
-    const findPairSafeInsertion = (desiredIndex: number): number => {
-      let index = Math.min(Math.max(desiredIndex, 0), rows.length);
-      while (
-        index > 0 &&
-        index < rows.length &&
-        rows[index - 1].isSecured !== true &&
-        rows[index].isSecured === true &&
-        rows[index].id?.replace(/-secured$/, "") === rows[index - 1].id
-      ) {
-        index += 1;
-      }
-      return index;
-    };
-
+    // holdings fill the top instead of zero SOL/USDC placeholders.
+    const targetIndex = Math.min(2, rows.length);
     const existingLoylIndex = rows.findIndex((r) => r.id === LOYL_MINT);
     if (existingLoylIndex >= 0) {
-      // Already present (has a public balance) — move it to a pair-safe slot
-      // near index 2.
-      const targetIndex = findPairSafeInsertion(2);
       if (existingLoylIndex !== targetIndex) {
         const [loylRow] = rows.splice(existingLoylIndex, 1);
-        rows.splice(findPairSafeInsertion(2), 0, loylRow);
+        rows.splice(Math.min(2, rows.length), 0, loylRow);
       }
     } else {
       const loylPosition = positions.find((p) => p.asset.mint === LOYL_MINT);
-      // If LOYAL is held only as shielded, the secured row already represents
-      // it — don't add an empty public placeholder.
-      const loylHasOnlyShielded =
-        loylPosition !== undefined &&
-        loylPosition.publicBalance === 0 &&
-        loylPosition.securedBalance > 0;
-      if (!loylHasOnlyShielded) {
-        const loylRow: TokenRow = loylPosition
-          ? mapPositionToTokenRow(loylPosition)
-          : {
-              id: LOYL_MINT,
-              symbol: "LOYAL",
-              name: "Loyal",
-              price: formatUsd(loylPriceUsd),
-              amount: "0",
-              value: "$0.00",
-              icon: LOYL_ICON_URL,
-            };
-        rows.splice(findPairSafeInsertion(2), 0, loylRow);
-      }
+      const loylRow: TokenRow = loylPosition
+        ? mapPositionToTokenRow(loylPosition)
+        : {
+            id: LOYL_MINT,
+            symbol: "LOYAL",
+            name: "Loyal",
+            price: formatUsd(loylPriceUsd),
+            amount: "0",
+            value: "$0.00",
+            icon: LOYL_ICON_URL,
+          };
+      rows.splice(targetIndex, 0, loylRow);
     }
 
     return rows;
   }, [positions, loylPriceUsd]);
 
-  // Enrich secured rows with Kamino APY
-  const [apyByMint, setApyByMint] = useState<Record<string, number | null>>({});
-  useEffect(() => {
-    const securedMints = allTokenRows
-      .filter((r) => r.isSecured && r.id)
-      .map((r) => r.id!.replace(/-secured$/, ""));
-    if (securedMints.length === 0) return;
-
-    let cancelled = false;
-    Promise.all(
-      securedMints.map(async (mint) => {
-        const apyBps = await getCachedKaminoLendingApyBps({
-          solanaEnv,
-          mint,
-        });
-        return [mint, apyBps] as const;
-      })
-    ).then((results) => {
-      if (cancelled) return;
-      const next: Record<string, number | null> = {};
-      for (const [mint, apyBps] of results) {
-        if (apyBps !== null) next[mint] = apyBps;
-      }
-      if (Object.keys(next).length > 0) setApyByMint(next);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [allTokenRows, solanaEnv]);
-
-  const enrichedTokenRows = useMemo(() => {
-    if (Object.keys(apyByMint).length === 0) return allTokenRows;
-    return allTokenRows.map((row) => {
-      if (!row.isSecured || !row.id) return row;
-      const mint = row.id.replace(/-secured$/, "");
-      const apyBps = apyByMint[mint];
-      return apyBps != null ? { ...row, apyBps } : row;
-    });
-  }, [allTokenRows, apyByMint]);
-
   const activityData = useMemo(() => {
     const details: Record<string, TransactionDetail> = {};
-    const SHIELD_PLUMBING_ACTIONS = new Set([
-      "initialize_deposit",
-      "create_permission",
-      "delegate",
-      "undelegate",
-      "initialize_username_deposit",
-      "create_username_permission",
-      "delegate_username_deposit",
-      "undelegate_username_deposit",
-    ]);
-    const rows = activities
-      .filter(
-        (a) =>
-          !(
-            a.type === "program_action" && SHIELD_PLUMBING_ACTIONS.has(a.action)
-          )
-      )
-      .map((activity) => {
-        const mapped = mapActivityToRowAndDetail(
-          activity,
-          positions,
-          totals.effectiveSolPriceUsd
-        );
-        details[mapped.row.id] = mapped.detail;
-        return mapped.row;
-      });
+    const rows = activities.map((activity) => {
+      const mapped = mapActivityToRowAndDetail(
+        activity,
+        positions,
+        totals.effectiveSolPriceUsd
+      );
+      details[mapped.row.id] = mapped.detail;
+      return mapped.row;
+    });
     return { rows, details };
   }, [activities, positions, totals.effectiveSolPriceUsd]);
 
@@ -847,8 +617,8 @@ export function useWalletData(params: {
             maximumFractionDigits: 5,
           })} SOL`,
     walletLabel,
-    tokenRows: enrichedTokenRows.slice(0, 3),
-    allTokenRows: enrichedTokenRows,
+    tokenRows: allTokenRows.slice(0, 3),
+    allTokenRows,
     activityRows: mergedActivityData.rows.slice(0, 5),
     allActivityRows: mergedActivityData.rows,
     transactionDetails: mergedActivityData.details,

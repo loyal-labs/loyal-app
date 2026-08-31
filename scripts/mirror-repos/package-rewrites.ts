@@ -17,7 +17,6 @@ const packageDirs = [
   "packages/wallet-core",
   "packages/loyal-smart-accounts-core",
   "packages/loyal-smart-accounts",
-  "packages/private-transactions",
 ] as const;
 
 const dependencySections = [

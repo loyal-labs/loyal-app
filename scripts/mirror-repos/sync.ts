@@ -82,9 +82,6 @@ function copyTrackedPrefix(
   }
 }
 
-function copyRootFile(file: string, destinationRoot: string): void {
-  copyTrackedFile(file, path.join(destinationRoot, file));
-}
 
 function writeMirrorSource(
   mirror: MirrorConfig,
@@ -103,60 +100,6 @@ This repository is generated from \`loyal-labs/loyal-app\`.
 Do not edit this repository directly. Changes should land in \`loyal-app\`.
 `
   );
-}
-
-function generateContractsPackageJson(destinationRoot: string): void {
-  const rootPackage = readJsonFile<{
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-  }>("package.json");
-  const rootDependencyVersions = {
-    ...rootPackage.dependencies,
-    ...rootPackage.devDependencies,
-    bs58: "^6.0.0",
-  };
-
-  const dependencyNames = [
-    "@coral-xyz/anchor",
-    "@magicblock-labs/ephemeral-rollups-sdk",
-    "@solana/spl-token",
-    "@solana/web3.js",
-    "bs58",
-    "tweetnacl",
-  ];
-  const devDependencyNames = [
-    "@types/bn.js",
-    "@types/chai",
-    "@types/mocha",
-    "chai",
-    "mocha",
-    "ts-mocha",
-    "typescript",
-  ];
-
-  const pick = (names: string[], source?: Record<string, string>) =>
-    Object.fromEntries(
-      names.map((name) => {
-        const version = source?.[name];
-        if (!version) {
-          throw new Error(`Root package.json is missing ${name}`);
-        }
-        return [name, version];
-      })
-    );
-
-  writeJsonFile(path.join(destinationRoot, "package.json"), {
-    private: true,
-    type: "module",
-    packageManager: "bun@1.3.11",
-    scripts: {
-      test: "bun run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts",
-      test_private_transfer:
-        "bun run ts-mocha -p ./tsconfig.json -t 1000000 tests/telegram-private-transfer.ts",
-    },
-    dependencies: pick(dependencyNames, rootDependencyVersions),
-    devDependencies: pick(devDependencyNames, rootDependencyVersions),
-  });
 }
 
 function generateMirror(mirror: MirrorConfig, destinationRoot: string): void {
@@ -178,15 +121,6 @@ function generateMirror(mirror: MirrorConfig, destinationRoot: string): void {
         false,
         mirror.excludePaths
       );
-      break;
-    case "anchor-programs":
-      copyTrackedPrefix("programs", destinationRoot, false);
-      copyTrackedPrefix("tests", destinationRoot, false);
-      copyTrackedPrefix("target/idl", destinationRoot, false);
-      copyTrackedPrefix("target/types", destinationRoot, false);
-      copyRootFile("Anchor.toml", destinationRoot);
-      copyRootFile("tsconfig.json", destinationRoot);
-      generateContractsPackageJson(destinationRoot);
       break;
   }
 

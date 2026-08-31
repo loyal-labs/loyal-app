@@ -29,11 +29,16 @@ import {
   getSolanaEndpoints,
   resolveSolanaEnv,
 } from "../packages/solana-rpc/src/index.ts";
-import {
-  KLEND_PROGRAM_ID,
-  USDC_MINT_DEVNET,
-  USDC_MINT_MAINNET,
-} from "../packages/private-transactions/src/constants.ts";
+
+const USDC_MINT_DEVNET = new PublicKey(
+  "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+);
+const USDC_MINT_MAINNET = new PublicKey(
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+);
+const KLEND_PROGRAM_ID = new PublicKey(
+  "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
+);
 
 const KLEND_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR = Uint8Array.from([
   169, 201, 30, 126, 6, 205, 102, 68,

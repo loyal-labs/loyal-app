@@ -10,7 +10,6 @@ export type { SolDustInput, TokenDustInput } from "./domain/dust-filter";
 export {
   buildPortfolioSnapshot,
   computePortfolioTotals,
-  flattenPortfolioPositions,
 } from "./domain/portfolio";
 export { createHeliusAssetProvider } from "./providers/default-asset-provider";
 export { createRpcActivityProvider } from "./providers/default-activity-provider";
@@ -27,15 +26,10 @@ export type {
   GetActivityOptions,
   GetPortfolioOptions,
   InvalidateCachesOptions,
-  PortfolioHolding,
   PortfolioPosition,
   PortfolioSnapshot,
   PortfolioTotals,
   ProgramActionType,
-  ResolvedAssetEntry,
-  SecureBalanceMap,
-  SecureBalanceProvider,
-  SecureBalanceProviderArgs,
   SolanaWalletDataClient,
   SubscribeActivityOptions,
   SubscribePortfolioOptions,
@@ -43,7 +37,6 @@ export type {
   WalletActivityStatus,
   WalletDataLogger,
   WalletProgramActionActivity,
-  WalletSecureActivity,
   WalletSolTransferActivity,
   WalletSwapActivity,
   WalletTokenAmount,

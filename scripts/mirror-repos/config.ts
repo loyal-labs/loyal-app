@@ -4,8 +4,7 @@ export type MirrorKind =
   | "expo-app"
   | "wxt-extension"
   | "source-tree"
-  | "rust-cli"
-  | "anchor-programs";
+  | "rust-cli";
 
 export type MirrorConfig = {
   source: string;

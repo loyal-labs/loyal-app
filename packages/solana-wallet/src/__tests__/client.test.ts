@@ -6,7 +6,7 @@ import { createSolanaWalletDataClient } from "../client";
 import type { ActivityProvider, AssetProvider } from "../types";
 
 describe("createSolanaWalletDataClient", () => {
-  test("caches portfolio snapshots and merges secure balances", async () => {
+  test("caches portfolio snapshots", async () => {
     let assetCalls = 0;
     const assetProvider: AssetProvider = {
       getBalance: async () => 123,
@@ -57,8 +57,6 @@ describe("createSolanaWalletDataClient", () => {
       env: "devnet",
       assetProvider,
       activityProvider,
-      secureBalanceProvider: async () =>
-        new Map([[USDC_MINT, BigInt(500_000)]]),
     });
 
     const first = await client.getPortfolio(WALLET_ADDRESS);
@@ -69,110 +67,8 @@ describe("createSolanaWalletDataClient", () => {
       (position) => position.asset.mint === USDC_MINT
     );
     expect(firstUsdc?.publicBalance).toBe(2);
-    expect(firstUsdc?.securedBalance).toBe(0.5);
-    expect(firstUsdc?.totalBalance).toBe(2.5);
-    expect(second.totals.totalUsd).toBe(102.5);
-  });
-
-  test("surfaces shielded-only mints by resolving descriptors via the asset provider", async () => {
-    let resolveAssetsCalls: string[][] = [];
-    const assetProvider: AssetProvider = {
-      getBalance: async () => 0,
-      getAssetSnapshot: async () => ({
-        owner: WALLET_ADDRESS,
-        nativeBalanceLamports: 1_000_000_000,
-        fetchedAt: Date.now(),
-        assets: [
-          {
-            asset: {
-              mint: "So11111111111111111111111111111111111111112",
-              symbol: "SOL",
-              name: "Solana",
-              decimals: 9,
-              imageUrl: null,
-              isNative: true,
-            },
-            balance: 1,
-            priceUsd: 100,
-            valueUsd: 100,
-          },
-        ],
-      }),
-      resolveAssets: async (mints) => {
-        resolveAssetsCalls.push(mints);
-        return mints
-          .filter((mint) => mint === USDC_MINT)
-          .map((mint) => ({
-            descriptor: {
-              mint,
-              symbol: "USDC",
-              name: "USD Coin",
-              decimals: 6,
-              imageUrl: "https://cdn.example.com/usdc.png",
-              isNative: false,
-            },
-            priceUsd: 0.9988,
-          }));
-      },
-      subscribeAssetChanges: async () => async () => undefined,
-    };
-    const activityProvider: ActivityProvider = {
-      getActivity: async () => ({ activities: [], nextCursor: undefined }),
-      subscribeActivity: async () => async () => undefined,
-    };
-
-    const client = createSolanaWalletDataClient({
-      env: "devnet",
-      assetProvider,
-      activityProvider,
-      secureBalanceProvider: async () =>
-        new Map([[USDC_MINT, BigInt(750_000)]]),
-    });
-
-    const snapshot = await client.getPortfolio(WALLET_ADDRESS);
-    const usdc = snapshot.positions.find((p) => p.asset.mint === USDC_MINT);
-
-    expect(resolveAssetsCalls).toHaveLength(1);
-    expect(resolveAssetsCalls[0]).toContain(USDC_MINT);
-    expect(usdc?.publicBalance).toBe(0);
-    expect(usdc?.securedBalance).toBe(0.75);
-    expect(usdc?.totalBalance).toBe(0.75);
-    expect(usdc?.priceUsd).toBe(0.9988);
-    // Secured value should reflect resolved price, not stay null/0.
-    expect(usdc?.securedValueUsd).toBeCloseTo(0.7491, 4);
-  });
-
-  test("falls back to placeholder when asset provider has no resolveAssets", async () => {
-    const assetProvider: AssetProvider = {
-      getBalance: async () => 0,
-      getAssetSnapshot: async () => ({
-        owner: WALLET_ADDRESS,
-        nativeBalanceLamports: 0,
-        fetchedAt: Date.now(),
-        assets: [],
-      }),
-      subscribeAssetChanges: async () => async () => undefined,
-    };
-    const activityProvider: ActivityProvider = {
-      getActivity: async () => ({ activities: [], nextCursor: undefined }),
-      subscribeActivity: async () => async () => undefined,
-    };
-
-    const client = createSolanaWalletDataClient({
-      env: "devnet",
-      assetProvider,
-      activityProvider,
-      secureBalanceProvider: async () => new Map([[USDC_MINT, BigInt(42)]]),
-    });
-
-    const snapshot = await client.getPortfolio(WALLET_ADDRESS);
-    const usdc = snapshot.positions.find((p) => p.asset.mint === USDC_MINT);
-
-    expect(usdc).toBeDefined();
-    expect(usdc?.publicBalance).toBe(0);
-    // Placeholder descriptor uses decimals=0, so the raw balance shows through.
-    expect(usdc?.asset.decimals).toBe(0);
-    expect(usdc?.securedBalance).toBe(42);
+    expect(firstUsdc?.totalBalance).toBe(2);
+    expect(second.totals.totalUsd).toBe(102);
   });
 
   test("rejects invalid addresses", async () => {

@@ -23,7 +23,6 @@ Environment access is centralized in:
 | Variable | Used By | Description |
 |----------|---------|-------------|
 | `NEXT_PUBLIC_SERVER_HOST` | `core/api.ts` | Base URL for API endpoints |
-| `DEPLOYMENT_PK` | `solana/wallet/gasless-keypair.server.ts` | Gasless payer keypair (required for gasless claim flow) |
 | `NEXT_PUBLIC_GAS_PUBLIC_KEY` | `solana/wallet/` | Public key for gasless payer |
 | `AX_SUMMARY_MODEL_DEFAULT` | `core/config/server.ts` | Default Ax summary model (fallback: `SUMMARY_AX_MODEL`, then `z-ai/glm-4.7`) |
 | `AX_SUMMARY_MAX_ATTEMPTS` | `core/config/server.ts` | Max bounded attempts for Ax summary generation (default: `3`) |

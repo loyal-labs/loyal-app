@@ -1,4 +1,0 @@
-[install]
-# Supply-chain guard (ASK-1486): never resolve package versions published
-# less than 7 days ago, so freshly compromised releases age out before install.
-minimumReleaseAge = 604800 # seconds

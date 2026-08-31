@@ -27,10 +27,6 @@ const publishablePackageDirs = [
   "packages/wallet-core",
 ] as const;
 
-// ASK-2239: sunset packages that must never be published to npm again, but
-// whose versions must stay resolvable for dependents' workspace: rewrites.
-const unpublishablePackageDirs = ["packages/private-transactions"] as const;
-
 type PackageJson = {
   name: string;
   version: string;
@@ -183,7 +179,7 @@ function main(): void {
   const dryRun = process.argv.includes("--dry-run");
   const packages = publishablePackageDirs.map(readPackageInfo);
   const versionsByName = new Map(
-    [...packages, ...unpublishablePackageDirs.map(readPackageInfo)].map(
+    packages.map(
       (info) => [info.packageJson.name, info.packageJson.version]
     )
   );

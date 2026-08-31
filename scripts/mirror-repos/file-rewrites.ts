@@ -152,33 +152,11 @@ function rewriteMobile(root: string, versions: Map<string, string>): void {
   removeIfExists(path.join(root, "CLAUDE.md"));
 
   const metroConfig = `// mobile/metro.config.js
-const fs = require("fs");
-const path = require("path");
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativewind } = require("nativewind/metro");
 
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
-
-const privateTransactionsEntryCandidates = [
-  path.resolve(
-    __dirname,
-    "node_modules/@loyal-labs/private-transactions/dist/index.js",
-  ),
-  path.resolve(
-    __dirname,
-    "node_modules/@loyal-labs/private-transactions/index.ts",
-  ),
-];
-const privateTransactionsEntry = privateTransactionsEntryCandidates.find((candidate) =>
-  fs.existsSync(candidate),
-);
-
-if (!privateTransactionsEntry) {
-  throw new Error(
-    "Unable to resolve @loyal-labs/private-transactions entry file from Metro config.",
-  );
-}
 
 // SVG transformer
 config.transformer.babelTransformerPath = require.resolve(
@@ -197,13 +175,6 @@ const nativewindConfig = withNativewind(config, {
 
 const nativewindResolveRequest = nativewindConfig.resolver.resolveRequest;
 nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "@loyal-labs/private-transactions") {
-    return {
-      type: "sourceFile",
-      filePath: privateTransactionsEntry,
-    };
-  }
-
   if (moduleName === "node:crypto") {
     return { type: "empty" };
   }
@@ -249,7 +220,6 @@ function rewriteExtension(root: string, versions: Map<string, string>): void {
   addInternalDependencies(
     path.join(root, "package.json"),
     [
-      "@loyal-labs/private-transactions",
       "@loyal-labs/shared",
       "@loyal-labs/solana-rpc",
       "@loyal-labs/solana-wallet",
@@ -260,7 +230,7 @@ function rewriteExtension(root: string, versions: Map<string, string>): void {
 
   replaceRequired(
     path.join(root, "wxt.config.ts"),
-    `\n  alias: {\n    "@loyal-labs/wallet-core": new URL(\n      "../../packages/wallet-core/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-rpc": new URL(\n      "../../packages/solana-rpc/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-wallet": new URL(\n      "../../packages/solana-wallet/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/shared": new URL("../../packages/shared/src", import.meta.url)\n      .pathname,\n    "@loyal-labs/private-transactions": new URL(\n      "../../packages/private-transactions/dist/index.js",\n      import.meta.url\n    ).pathname,\n  },\n`,
+    `\n  alias: {\n    "@loyal-labs/wallet-core": new URL(\n      "../../packages/wallet-core/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-rpc": new URL(\n      "../../packages/solana-rpc/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-wallet": new URL(\n      "../../packages/solana-wallet/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/shared": new URL("../../packages/shared/src", import.meta.url)\n      .pathname,\n  },\n`,
     "\n"
   );
 }
@@ -298,28 +268,6 @@ codegen-units = 1
   );
 }
 
-function addContractsWorkspace(root: string): void {
-  writeText(
-    path.join(root, "Cargo.toml"),
-    `[workspace]
-members = [
-    "programs/telegram-private-transfer",
-    "programs/telegram-verification",
-]
-resolver = "2"
-
-[profile.release]
-overflow-checks = true
-lto = "fat"
-codegen-units = 1
-
-[profile.release.build-override]
-opt-level = 3
-incremental = false
-codegen-units = 1
-`
-  );
-}
 
 export function applyMirrorRewrites(
   mirror: MirrorConfig,
@@ -347,9 +295,6 @@ export function applyMirrorRewrites(
       break;
     case "rust-cli":
       addRustCliWorkspace(root);
-      break;
-    case "anchor-programs":
-      addContractsWorkspace(root);
       break;
   }
 }

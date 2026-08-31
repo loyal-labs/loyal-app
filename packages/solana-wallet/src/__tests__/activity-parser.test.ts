@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   nativeSwapFixture,
-  programActionFixture,
-  secureFixture,
   solTransferFixture,
   swapFixture,
   tokenTransferFixture,
@@ -69,34 +67,5 @@ describe("normalizeParsedTransaction", () => {
     expect(activity?.toToken?.mint).toBe(
       "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     );
-  });
-
-  test("normalizes secure and unshield instructions", () => {
-    const secure = normalizeParsedTransaction({
-      tx: secureFixture(true),
-      signature: "secure-signature",
-      walletAddress: WALLET_ADDRESS,
-    });
-    const unshield = normalizeParsedTransaction({
-      tx: secureFixture(false),
-      signature: "unshield-signature",
-      walletAddress: WALLET_ADDRESS,
-    });
-
-    expect(secure?.type).toBe("secure");
-    expect(secure?.direction).toBe("out");
-    expect(unshield?.type).toBe("unshield");
-    expect(unshield?.direction).toBe("in");
-  });
-
-  test("normalizes program actions", () => {
-    const activity = normalizeParsedTransaction({
-      tx: programActionFixture(),
-      signature: "program-signature",
-      walletAddress: WALLET_ADDRESS,
-    });
-
-    expect(activity?.type).toBe("program_action");
-    expect(activity?.action).toBe("store");
   });
 });
