@@ -4,8 +4,6 @@ import {
   ArrowDown,
   ArrowLeftRight,
   ArrowUp,
-  Shield,
-  ShieldOff,
   X,
 } from "lucide-react-native";
 import {
@@ -114,8 +112,6 @@ export function MoreActionsSheet({
   onSend,
   onReceive,
   onSwap,
-  onShield,
-  onUnshield,
 }: {
   open: boolean;
   onClose: () => void;
@@ -123,8 +119,6 @@ export function MoreActionsSheet({
   onSend?: () => void;
   onReceive?: () => void;
   onSwap?: () => void;
-  onShield?: () => void;
-  onUnshield?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: screenW, height: screenH } = useWindowDimensions();
@@ -183,22 +177,6 @@ export function MoreActionsSheet({
 
   // Design order, top -> bottom. Only render the actions the screen supplies.
   const actions: QuestAction[] = [];
-  if (onUnshield) {
-    actions.push({
-      key: "unshield",
-      label: "Unshield",
-      icon: <ShieldOff size={28} color="#000" strokeWidth={2} opacity={ICON_OPACITY} />,
-      run: onUnshield,
-    });
-  }
-  if (onShield) {
-    actions.push({
-      key: "shield",
-      label: "Shield",
-      icon: <Shield size={28} color="#000" strokeWidth={2} opacity={ICON_OPACITY} />,
-      run: onShield,
-    });
-  }
   if (onSwap) {
     actions.push({
       key: "swap",

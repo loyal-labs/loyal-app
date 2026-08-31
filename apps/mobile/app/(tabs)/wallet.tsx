@@ -20,10 +20,8 @@ import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
-// import { BannerCard } from "@/components/wallet/BannerCard";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
-import { ShieldSheet } from "@/components/wallet/ShieldSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { shouldShowWalletTopUp } from "@/components/wallet/wallet-screen-helpers";
 import {
@@ -43,7 +41,6 @@ import {
 import { WalletCategoryGrid } from "@/features/wallet-categories/ui/WalletCategoryGrid";
 import { useEarnForecast } from "@/hooks/wallet/useEarnForecast";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
-import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -66,7 +63,6 @@ import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { getEarnProductAssets } from "@/lib/solana/earn/earn-product-mints";
 import { getSolanaEnv, onSolanaEnvChange } from "@/lib/solana/rpc/connection";
 import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
-import type { ShieldDirection } from "@/lib/solana/shielding";
 import {
   getCachedBalanceBg,
   setCachedBalanceBg,
@@ -89,8 +85,6 @@ export default function WalletScreen() {
 
   const { tokenHoldings, refreshTokenHoldings } =
     useTokenHoldings(walletAddress);
-  const { earnings: kaminoEarnings, refresh: refreshKaminoEarnings } =
-    useKaminoEarnings();
   const {
     position: earnPosition,
     policyMissing: earnPolicyMissing,
@@ -139,7 +133,7 @@ export default function WalletScreen() {
   // wallet screen mid tab-transition.)
   const [chartReplayKey, setChartReplayKey] = useState(0);
 
-  // Shared cache of /api/mobile/tokens/:mint for the mints the send/swap/shield
+  // Shared cache of /api/mobile/tokens/:mint for the mints the send/swap
   // pickers can surface — the held tokens plus the SOL/LOYAL/USDC prefills so
   // they never render raw token-list SVGs or the "Token" symbol fallback.
   const tokenDetailMints = useMemo(() => {
@@ -172,14 +166,7 @@ export default function WalletScreen() {
     });
   }, [requestRefresh]);
 
-  // Include shielded SOL in displayed balance
-  const securedSolHolding = tokenHoldings.find(
-    (h) => h.isSecured && h.mint === "So11111111111111111111111111111111111111112",
-  );
-  const securedSolLamports = securedSolHolding
-    ? Math.floor(securedSolHolding.balance * 1e9)
-    : 0;
-  const totalSolLamports = (solBalanceLamports ?? 0) + securedSolLamports;
+  const totalSolLamports = solBalanceLamports ?? 0;
   const totalPortfolioUsd = useMemo(() => {
     let total = 0;
     let hasValuation = false;
@@ -268,12 +255,9 @@ export default function WalletScreen() {
   const [sendWithScanner, setSendWithScanner] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
-  const [isShieldOpen, setIsShieldOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
   const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
-  const [shieldDirection, setShieldDirection] =
-    useState<ShieldDirection>("shield");
   const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
   const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [balanceBg, setBalanceBg] = useState<string | null>(() => {
@@ -335,16 +319,6 @@ export default function WalletScreen() {
   const handleSwapComplete = useCallback(() => {
     void requestRefresh("mutation");
   }, [requestRefresh]);
-
-  const handleShieldComplete = useCallback(() => {
-    void requestRefresh("mutation");
-    void refreshKaminoEarnings();
-  }, [requestRefresh, refreshKaminoEarnings]);
-
-  const handleOpenShield = useCallback((direction: ShieldDirection) => {
-    setShieldDirection(direction);
-    setIsShieldOpen(true);
-  }, []);
 
   const handleBgSelect = useCallback((bg: string | null) => {
     setBalanceBg(bg);
@@ -425,16 +399,14 @@ export default function WalletScreen() {
             isLoading={isLoading || networkLoading}
             walletError={walletError}
             onRetry={retryWalletInit}
-            earnings={kaminoEarnings}
             showTopUpAction={showTopUpAction}
             onTopUpPress={() => setIsReceiveOpen(true)}
             balanceBg={balanceBg}
             onOpenBgPicker={() => setIsBgPickerOpen(true)}
           />
 
-          {/* Portfolio overview — Earn / Stablecoins / Crypto. The promo banner
-              is commented out for now. Cells flex to fill the screen height
-              between balance and actions. */}
+          {/* Portfolio overview — Earn / Stablecoins / Crypto. Cells flex to
+              fill the screen height between balance and actions. */}
           <View style={{ flex: 1, marginTop: 16 }}>
             <WalletCategoryGrid
               earnUsd={earnUsd}
@@ -444,14 +416,6 @@ export default function WalletScreen() {
               chartReplayKey={chartReplayKey}
               stablecoinsUsd={stablecoinsUsd}
               cryptoUsd={cryptoUsd}
-              // banner={
-              //   <BannerCard
-              //     onShield={() => {
-              //       track(PORTFOLIO_EVENTS.openShield, { source: "banner" });
-              //       handleOpenShield("shield");
-              //     }}
-              //   />
-              // }
               onPressEarn={() => router.navigate(buildEarnHref())}
               onPressDeposit={() => setIsDepositOpen(true)}
               onPressStablecoins={(rect) =>
@@ -535,16 +499,6 @@ export default function WalletScreen() {
         onSwapComplete={handleSwapComplete}
       />
 
-      <ShieldSheet
-        open={isShieldOpen}
-        onClose={() => setIsShieldOpen(false)}
-        walletAddress={walletAddress}
-        tokenHoldings={tokenHoldings}
-        tokenDetailsByMint={tokenDetailsByMint}
-        onShieldComplete={handleShieldComplete}
-        initialDirection={shieldDirection}
-      />
-
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
@@ -560,14 +514,6 @@ export default function WalletScreen() {
         onSwap={() => {
           track(PORTFOLIO_EVENTS.openSwap);
           setIsSwapOpen(true);
-        }}
-        onShield={() => {
-          track(PORTFOLIO_EVENTS.openShield);
-          handleOpenShield("shield");
-        }}
-        onUnshield={() => {
-          track(PORTFOLIO_EVENTS.openUnshield);
-          handleOpenShield("unshield");
         }}
       />
 

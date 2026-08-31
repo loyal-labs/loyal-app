@@ -1,4 +1,4 @@
-import { ArrowUpRight, DollarSign, RefreshCw, Shield, ShieldOff, Zap } from "lucide-react";
+import { ArrowUpRight, DollarSign, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import type { TokenRow } from "@loyal-labs/wallet-core/types";
@@ -6,8 +6,6 @@ import type { TokenRow } from "@loyal-labs/wallet-core/types";
 export type TokenRowActions = {
   onSend?: (token: TokenRow) => void;
   onSwap?: (token: TokenRow) => void;
-  onShield?: (token: TokenRow) => void;
-  onUnshield?: (token: TokenRow) => void;
   onBuy?: (token: TokenRow) => void;
 };
 
@@ -106,15 +104,6 @@ export function TokenRowItem({
               width={48}
             />
           </div>
-          {token.isSecured && (
-            <img
-              alt="Secured"
-              height={24}
-              src="/hero-new/Shield.png"
-              style={{ position: "absolute", bottom: -2, right: -2 }}
-              width={24}
-            />
-          )}
         </div>
       </div>
       <div
@@ -147,37 +136,6 @@ export function TokenRowItem({
           >
             {token.symbol}
           </span>
-          {typeof token.apyBps === "number" && token.apyBps > 0 && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "2px",
-                padding: "2px 6px",
-                borderRadius: "9999px",
-                background: "rgba(52, 199, 89, 0.12)",
-                color: "#2EA043",
-                fontFamily: "var(--font-geist-sans), sans-serif",
-                fontSize: "11px",
-                fontWeight: 600,
-                lineHeight: "14px",
-                letterSpacing: "-0.1px",
-                flexShrink: 0,
-              }}
-            >
-              <Zap
-                size={10}
-                strokeWidth={2.5}
-                fill="currentColor"
-                style={{ display: "block" }}
-              />
-              {(token.apyBps / 100).toLocaleString("en-US", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-              % APY
-            </span>
-          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <span
@@ -307,20 +265,6 @@ export function TokenRowItem({
                 icon={RefreshCw}
                 onClick={(e) => { e.stopPropagation(); actions.onSwap!(token); }}
                 title="Swap"
-              />
-            )}
-            {actions.onShield && (
-              <ActionIcon
-                icon={Shield}
-                onClick={(e) => { e.stopPropagation(); actions.onShield!(token); }}
-                title="Shield"
-              />
-            )}
-            {actions.onUnshield && (
-              <ActionIcon
-                icon={ShieldOff}
-                onClick={(e) => { e.stopPropagation(); actions.onUnshield!(token); }}
-                title="Unshield"
               />
             )}
             {actions.onBuy && (

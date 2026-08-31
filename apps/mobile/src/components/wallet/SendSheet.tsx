@@ -14,9 +14,7 @@ import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import {
-  AlertCircle,
   ArrowLeft,
-  Check,
   ChevronDown,
   ScanLine,
   Search,
@@ -49,10 +47,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
 import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
-import { useShield } from "@/hooks/wallet/useShield";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
 import { track } from "@/lib/analytics/analytics";
-import { getSendMethod, SEND_EVENTS } from "@/lib/analytics/send-events";
+import { SEND_EVENTS } from "@/lib/analytics/send-events";
 import {
   MAX_RECENT_RECIPIENTS,
   NATIVE_SOL_MINT,
@@ -63,10 +60,6 @@ import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import { formatSenderAddress } from "@/lib/solana/wallet/formatters";
-import {
-  sendPrivateTransferToTelegramUsername,
-  sendPrivateTransferToWallet,
-} from "@/lib/solana/wallet/private-send";
 import { sendSolTransaction, sendSplTokenTransaction } from "@/lib/solana/wallet/wallet-details";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
@@ -78,8 +71,6 @@ import SendErrorDog from "../../../assets/images/wallet/send_error_dog.svg";
 import SendSpinnerIcon from "../../../assets/images/wallet/send_spinner_80.svg";
 import SendSuccessDog from "../../../assets/images/wallet/send_success_dog.svg";
 
-const shieldBadge = require("../../../assets/images/shield-badge.png");
-
 // Basic Solana address validation (base58, 32-44 chars)
 const isValidSolanaAddress = (address: string): boolean => {
   const base58Regex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -90,16 +81,6 @@ const isValidSolanaAddress = (address: string): boolean => {
   } catch {
     return false;
   }
-};
-
-const isValidTelegramUsername = (value: string): boolean => {
-  if (!value.startsWith("@")) return false;
-  const usernameWithoutAt = value.slice(1);
-  return (
-    /^[a-zA-Z0-9_]+$/.test(usernameWithoutAt) &&
-    usernameWithoutAt.length >= 5 &&
-    usernameWithoutAt.length <= 32
-  );
 };
 
 // Truncate addresses as 2fKB...Nhtj (matches the activity feed's formatting).
@@ -201,7 +182,7 @@ function getFriendlyError(raw: string): string {
 type SendStep = "recipient" | "form" | "confirm" | "result";
 
 type RecentRecipient = {
-  /** Full Solana address or @telegram username. */
+  /** Full Solana address. */
   address: string;
   /** Number of past outgoing sends to this recipient. */
   sendCount: number;
@@ -256,12 +237,7 @@ type SendAsset = {
   balance: number;
   priceUsd: number | null;
   imageUrl: string | null;
-  isSecured: boolean;
 };
-
-function buildSendAssetKey(mint: string, isSecured: boolean): string {
-  return `${mint}:${isSecured ? "shielded" : "public"}`;
-}
 
 const SOL_ADDRESS_CANDIDATE_REGEX = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 
@@ -317,15 +293,7 @@ function toRawAmount(amount: number, decimals: number): bigint {
   return BigInt(scaled);
 }
 
-const DIRECT_SEND_FEE_TX_COUNT = 1;
-const PRIVATE_SEND_FEE_TX_COUNT = 3;
-
-function getSendFeeReserveSol(params: { isTelegramRecipient: boolean }): number {
-  return (
-    (params.isTelegramRecipient ? PRIVATE_SEND_FEE_TX_COUNT : DIRECT_SEND_FEE_TX_COUNT) *
-    SOLANA_FEE_SOL
-  );
-}
+const SEND_FEE_RESERVE_SOL = SOLANA_FEE_SOL;
 
 function buildSendAssets(
   tokenHoldings: TokenHolding[],
@@ -338,8 +306,7 @@ function buildSendAssets(
   );
 
   for (const holding of eligibleHoldings) {
-    const isSecured = Boolean(holding.isSecured);
-    const key = buildSendAssetKey(holding.mint, isSecured);
+    const key = holding.mint;
     const existing = assetsByKey.get(key);
     const candidate: SendAsset = {
       key,
@@ -350,7 +317,6 @@ function buildSendAssets(
       balance: holding.balance,
       priceUsd: holding.priceUsd,
       imageUrl: holding.imageUrl,
-      isSecured,
     };
 
     if (!existing || candidate.balance > existing.balance) {
@@ -358,13 +324,12 @@ function buildSendAssets(
     }
   }
 
-  // Native SOL public balance comes from the wallet balance, not holdings.
+  // Native SOL balance comes from the wallet balance, not holdings.
   const solBalance = solBalanceLamports ? solBalanceLamports / LAMPORTS_PER_SOL : 0;
   if (solBalance > 0) {
-    const publicSolKey = buildSendAssetKey(NATIVE_SOL_MINT, false);
-    const existingSol = assetsByKey.get(publicSolKey);
-    assetsByKey.set(publicSolKey, {
-      key: publicSolKey,
+    const existingSol = assetsByKey.get(NATIVE_SOL_MINT);
+    assetsByKey.set(NATIVE_SOL_MINT, {
+      key: NATIVE_SOL_MINT,
       mint: NATIVE_SOL_MINT,
       symbol: existingSol?.symbol || "SOL",
       name: existingSol?.name || "Solana",
@@ -372,7 +337,6 @@ function buildSendAssets(
       balance: solBalance,
       priceUsd: existingSol?.priceUsd ?? solPriceUsd,
       imageUrl: existingSol?.imageUrl ?? null,
-      isSecured: false,
     });
   }
 
@@ -380,8 +344,7 @@ function buildSendAssets(
     const aUsd = (a.priceUsd ?? 0) * a.balance;
     const bUsd = (b.priceUsd ?? 0) * b.balance;
     if (bUsd !== aUsd) return bUsd - aUsd;
-    if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
-    return a.isSecured ? 1 : -1;
+    return a.symbol.localeCompare(b.symbol);
   });
 }
 
@@ -390,15 +353,11 @@ function resolveInitialSendKey(
   initialMint?: string,
 ): string {
   if (initialMint) {
-    const publicMatch = sendAssets.find(
-      (asset) => asset.mint === initialMint && !asset.isSecured,
-    );
-    if (publicMatch) return publicMatch.key;
     const anyMatch = sendAssets.find((asset) => asset.mint === initialMint);
     if (anyMatch) return anyMatch.key;
   }
 
-  return sendAssets[0]?.key ?? buildSendAssetKey(NATIVE_SOL_MINT, false);
+  return sendAssets[0]?.key ?? NATIVE_SOL_MINT;
 }
 
 export function SendSheet({
@@ -424,26 +383,14 @@ export function SendSheet({
   const [step, setStep] = useState<SendStep>("recipient");
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [showTokenPicker, setShowTokenPicker] = useState(false);
-  const [selectedAssetKey, setSelectedAssetKey] = useState<string>(
-    buildSendAssetKey(NATIVE_SOL_MINT, false),
-  );
+  const [selectedAssetKey, setSelectedAssetKey] = useState<string>(NATIVE_SOL_MINT);
   const [recipient, setRecipient] = useState("");
   const [scanError, setScanError] = useState<string | null>(null);
   const [amountStr, setAmountStr] = useState("");
   const [currencyMode, setCurrencyMode] = useState<"TOKEN" | "USD">("TOKEN");
-  const [isPrivate, setIsPrivate] = useState(false);
-  // Acknowledgment of the "self-custodial wallets only" warning shown before a
-  // private transfer to a wallet address. Reset on each entry to the confirm
-  // step so the user re-acknowledges per transfer.
-  const [privacyAck, setPrivacyAck] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
-  const [sendStage, setSendStage] = useState<
-    "idle" | "unshielding" | "sending"
-  >("idle");
-
-  const { executeUnshield } = useShield();
 
   // Recent recipients are derived from wallet activity. Gate the fetch on
   // `open` (pass null while closed) so screens that don't otherwise load
@@ -483,22 +430,9 @@ export function SendSheet({
         : 0;
 
   const recipientTrimmed = recipient.trim();
-  const isWalletRecipient = isValidSolanaAddress(recipientTrimmed);
-  const isTelegramRecipient = isValidTelegramUsername(recipientTrimmed);
-  const isValidRecipient = isWalletRecipient || isTelegramRecipient;
+  const isValidRecipient = isValidSolanaAddress(recipientTrimmed);
   const recipientSummaryLabel = formatRecipientLabel(recipientTrimmed);
-  // Telegram recipients are always private. Wallet recipients honor the
-  // user toggle. Selecting a shielded source from the picker doesn't
-  // imply private — that just controls which balance gets debited.
-  const effectivePrivate = isTelegramRecipient || isPrivate;
-  // A private transfer to a typed wallet address requires the recipient to
-  // control the keys and claim it, so warn before sending — funds sent to an
-  // exchange deposit address or a smart contract may be lost. Telegram
-  // recipients claim in-app, so the warning doesn't apply to them.
-  const showPrivacyWarning = effectivePrivate && isWalletRecipient;
-  const sendFeeReserveSol = getSendFeeReserveSol({
-    isTelegramRecipient: effectivePrivate,
-  });
+  const sendFeeReserveSol = SEND_FEE_RESERVE_SOL;
   const maxSpendableInToken =
     selectedAsset?.mint === NATIVE_SOL_MINT
       ? Math.max(0, balanceInToken - sendFeeReserveSol)
@@ -541,8 +475,6 @@ export function SendSheet({
       setScanError(null);
       setAmountStr("");
       setCurrencyMode("TOKEN");
-      setIsPrivate(false);
-      setSendStage("idle");
       setSendError(null);
       setTxSignature(null);
       setIsSending(false);
@@ -573,28 +505,6 @@ export function SendSheet({
         throw new Error("No available token balance");
       }
 
-      // A private send (toggle on, or any telegram recipient) drains the
-      // user's ephemeral/shielded balance natively — no separate unshield
-      // step needed. A public send from a shielded source must unshield
-      // first to materialize the funds in the public token account.
-      const requiresExplicitUnshield =
-        selectedAsset.isSecured && !effectivePrivate;
-
-      if (requiresExplicitUnshield) {
-        setSendStage("unshielding");
-        const unshieldResult = await executeUnshield({
-          tokenSymbol: selectedAsset.symbol,
-          amount: amountInToken,
-          tokenMint: selectedAsset.mint,
-          tokenDecimals: selectedAsset.decimals,
-        });
-        if (!unshieldResult.success) {
-          throw new Error(unshieldResult.error ?? "Unshield failed");
-        }
-      }
-
-      setSendStage("sending");
-
       if (!signer) {
         throw new Error("Wallet signer is not available");
       }
@@ -602,23 +512,7 @@ export function SendSheet({
       // directly — no extra decoded-transaction approval modal. (Seed Vault
       // wallets still get their own native biometric prompt.)
       let sig: string;
-      if (effectivePrivate) {
-        sig = isTelegramRecipient
-          ? await sendPrivateTransferToTelegramUsername({
-              username: recipientTrimmed,
-              tokenMint: selectedAsset.mint,
-              amount: amountInToken,
-              decimals: selectedAsset.decimals,
-              signer,
-            })
-          : await sendPrivateTransferToWallet({
-              destination: recipientTrimmed,
-              tokenMint: selectedAsset.mint,
-              amount: amountInToken,
-              decimals: selectedAsset.decimals,
-              signer,
-            });
-      } else if (selectedAsset.mint === NATIVE_SOL_MINT) {
+      if (selectedAsset.mint === NATIVE_SOL_MINT) {
         sig = await sendSolTransaction(
           recipientTrimmed,
           Math.floor(amountInToken * LAMPORTS_PER_SOL),
@@ -637,45 +531,27 @@ export function SendSheet({
       setTxSignature(sig);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       track(SEND_EVENTS.sendFunds, {
-        method: getSendMethod(recipientTrimmed),
-        is_private: effectivePrivate,
-        from_shielded: selectedAsset.isSecured,
+        method: "wallet_address",
       });
       onSendComplete?.();
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "Transaction failed";
-      // If the unshield landed but the subsequent send failed, the funds
-      // are sitting public on the user's wallet now. Tell them rather
-      // than leaving silent state.
-      const stageAtFailure = sendStage;
-      const friendly = getFriendlyError(msg);
-      const recovery =
-        stageAtFailure === "sending" && selectedAsset?.isSecured && !effectivePrivate
-          ? `${friendly} Your ${selectedAsset.symbol} is now unshielded — retry the send to complete it.`
-          : friendly;
-      setSendError(recovery);
+      setSendError(getFriendlyError(msg));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       track(SEND_EVENTS.sendFundsFailed, {
-        method: getSendMethod(recipientTrimmed),
-        is_private: effectivePrivate,
-        from_shielded: selectedAsset?.isSecured,
+        method: "wallet_address",
       });
     } finally {
       setIsSending(false);
-      setSendStage("idle");
     }
   }, [
     isFormValid,
     isSending,
     selectedAsset,
-    isTelegramRecipient,
-    effectivePrivate,
-    executeUnshield,
     recipientTrimmed,
     amountInToken,
     onSendComplete,
-    sendStage,
     signer,
   ]);
 
@@ -763,16 +639,9 @@ export function SendSheet({
       setShowTokenPicker(false);
       setAmountStr("");
       setCurrencyMode("TOKEN");
-      // Picking a shielded balance preserves privacy intent — flip the
-      // toggle on. User can still turn it off to do an unshield-then-public
-      // send.
-      const picked = sendAssets.find((asset) => asset.key === key);
-      if (picked?.isSecured) {
-        setIsPrivate(true);
-      }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     },
-    [sendAssets],
+    [],
   );
 
   const handlePercentage = useCallback(
@@ -902,7 +771,6 @@ export function SendSheet({
             isFormValid={isFormValid}
             onNext={() => {
               Keyboard.dismiss();
-              setPrivacyAck(false);
               setStep("confirm");
             }}
             inputRef={amountInputRef}
@@ -933,9 +801,6 @@ export function SendSheet({
             feeSol={sendFeeReserveSol}
             solPriceUsd={solPriceUsd}
             isSending={isSending}
-            showPrivacyWarning={showPrivacyWarning}
-            privacyAck={privacyAck}
-            onTogglePrivacyAck={() => setPrivacyAck((value) => !value)}
             onBack={() => setStep("form")}
             onConfirm={handleSend}
           />
@@ -1547,18 +1412,6 @@ function AmountStep({
                   source={{ uri: assetIcon }}
                   style={{ width: 40, height: 40, borderRadius: 20 }}
                 />
-                {selectedAsset?.isSecured ? (
-                  <Image
-                    source={shieldBadge}
-                    style={{
-                      position: "absolute",
-                      bottom: -2,
-                      right: -2,
-                      width: 14,
-                      height: 14,
-                    }}
-                  />
-                ) : null}
               </View>
               <View
                 style={{
@@ -1760,18 +1613,6 @@ function AssetPickerStep({
                     borderColor: "rgba(0,0,0,0.08)",
                   }}
                 />
-                {asset.isSecured ? (
-                  <Image
-                    source={shieldBadge}
-                    style={{
-                      position: "absolute",
-                      bottom: -2,
-                      right: -2,
-                      width: 16,
-                      height: 16,
-                    }}
-                  />
-                ) : null}
               </View>
             </View>
             <View className="flex-1" style={{ paddingVertical: 8, gap: 2 }}>
@@ -2094,9 +1935,6 @@ function ConfirmStep({
   feeSol,
   solPriceUsd,
   isSending,
-  showPrivacyWarning,
-  privacyAck,
-  onTogglePrivacyAck,
   onBack,
   onConfirm,
 }: {
@@ -2108,9 +1946,6 @@ function ConfirmStep({
   feeSol: number;
   solPriceUsd: number | null;
   isSending: boolean;
-  showPrivacyWarning: boolean;
-  privacyAck: boolean;
-  onTogglePrivacyAck: () => void;
   onBack: () => void;
   onConfirm: () => void;
 }) {
@@ -2137,9 +1972,7 @@ function ConfirmStep({
     ? totalToken * (solPriceUsd ?? 0)
     : amountInUsd;
 
-  // For a private transfer to a wallet address the user must tick the warning
-  // before sending; otherwise only the in-flight guard applies.
-  const confirmDisabled = isSending || (showPrivacyWarning && !privacyAck);
+  const confirmDisabled = isSending;
 
   return (
     <View className="w-full" style={{ flex: 1 }}>
@@ -2194,18 +2027,6 @@ function ConfirmStep({
             source={{ uri: assetIcon }}
             style={{ width: 64, height: 64, borderRadius: 32 }}
           />
-          {selectedAsset?.isSecured ? (
-            <Image
-              source={shieldBadge}
-              style={{
-                position: "absolute",
-                bottom: -2,
-                right: -2,
-                width: 20,
-                height: 20,
-              }}
-            />
-          ) : null}
         </View>
       </View>
 
@@ -2274,59 +2095,6 @@ function ConfirmStep({
           />
         </View>
 
-        {showPrivacyWarning ? (
-          <View
-            className="rounded-2xl p-4"
-            style={{ backgroundColor: "rgba(249, 54, 60, 0.1)", marginTop: 16 }}
-          >
-            <View className="mb-2 flex-row items-center gap-2">
-              <AlertCircle size={18} color="#f9363c" strokeWidth={2} />
-              <Text className="text-[14px] font-semibold text-black">
-                Private transfer — self-custodial wallets only
-              </Text>
-            </View>
-            <Text className="text-[13px] leading-5 text-neutral-700">
-              • Only works to a self-custodial wallet you control (Phantom,
-              Solflare, etc.)
-            </Text>
-            <Text className="mt-1 text-[13px] leading-5 text-neutral-700">
-              • Do <Text className="font-semibold text-black">NOT</Text> send to a
-              centralized exchange
-            </Text>
-            <Text className="mt-1 text-[13px] leading-5 text-neutral-700">
-              • Do <Text className="font-semibold text-black">NOT</Text> send to a
-              smart contract
-            </Text>
-            <Text className="mt-2 text-[12px] leading-4 text-neutral-500">
-              The recipient must be able to claim the transfer. Funds sent to an
-              exchange or a contract may be lost.
-            </Text>
-
-            <Pressable
-              onPress={onTogglePrivacyAck}
-              className="mt-3 flex-row items-center gap-2"
-              hitSlop={8}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: privacyAck }}
-            >
-              <View
-                className="h-5 w-5 items-center justify-center rounded-md"
-                style={{
-                  backgroundColor: privacyAck ? "#f9363c" : "transparent",
-                  borderWidth: privacyAck ? 0 : 1.5,
-                  borderColor: "rgba(249, 54, 60, 0.5)",
-                }}
-              >
-                {privacyAck ? (
-                  <Check size={14} color="#fff" strokeWidth={3} />
-                ) : null}
-              </View>
-              <Text className="text-[14px] font-medium text-black">
-                I understand
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
       </BottomSheetScrollView>
 
       {/* Confirm CTA */}

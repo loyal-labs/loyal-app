@@ -8,11 +8,6 @@ export const KNOWN_PROGRAMS: Record<string, string> = {
   JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4: "Jupiter v6",
   whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc: "Orca Whirlpool",
   KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD: "Kamino Lend",
-  "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV": "Loyal Private Transfer",
-  "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz": "Loyal Telegram Verification",
-  DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh: "MagicBlock Delegation",
-  ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1: "MagicBlock Permission",
-  Magic11111111111111111111111111111111111111: "MagicBlock Magic",
 };
 
 export function truncateAddress(address: string): string {

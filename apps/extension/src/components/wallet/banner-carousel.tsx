@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import bannerFollowImg from "~/assets/banner-follow.png";
-import bannerEarnImg from "~/assets/banner-earn.png";
 
 // ---------------------------------------------------------------------------
 // Types & config
@@ -128,19 +127,8 @@ function BannerCard({ banner }: { banner: Banner }) {
 // Carousel
 // ---------------------------------------------------------------------------
 
-export function BannerCarousel({
-  onShieldUsdc,
-}: {
-  onShieldUsdc: () => void;
-}) {
+export function BannerCarousel() {
   const banners: Banner[] = [
-    {
-      id: "earn",
-      title: "Shield Assets and Earn up to 5.21% APY",
-      cta: "Shield Now",
-      image: bannerEarnImg,
-      onClick: onShieldUsdc,
-    },
     {
       id: "follow",
       title: "Follow Loyal on X",

@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   Settings,
-  Shield,
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
@@ -120,7 +119,6 @@ export function PortfolioContent({
   onSend,
   onReceive,
   onSwap,
-  onShield,
   onSettings,
   tokenRows,
   transactionDetails,
@@ -128,7 +126,6 @@ export function PortfolioContent({
   walletLabel,
   getTokenActions,
   onTokenDetail,
-  onShieldUsdc,
   totalTokenCount,
   totalActivityCount,
 }: {
@@ -144,7 +141,6 @@ export function PortfolioContent({
   onSend: () => void;
   onReceive: () => void;
   onSwap: () => void;
-  onShield: () => void;
   onSettings: () => void;
   tokenRows: TokenRow[];
   transactionDetails: Record<string, TransactionDetail>;
@@ -152,7 +148,6 @@ export function PortfolioContent({
   walletLabel: string;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
-  onShieldUsdc?: () => void;
   totalTokenCount?: number;
   totalActivityCount?: number;
 }) {
@@ -518,7 +513,6 @@ export function PortfolioContent({
             { label: "Send", Icon: ArrowUpRight, action: onSend },
             { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
             { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
-            { label: "Shield", Icon: Shield, action: onShield },
           ] as const
         ).map(({ label, Icon, action }) => (
           <button
@@ -603,11 +597,9 @@ export function PortfolioContent({
         }}
       >
         {/* Banners */}
-        {onShieldUsdc && (
-          <div style={{ padding: "4px 0 8px" }}>
-            <BannerCarousel onShieldUsdc={onShieldUsdc} />
-          </div>
-        )}
+        <div style={{ padding: "4px 0 8px" }}>
+          <BannerCarousel />
+        </div>
 
         {/* Tokens section */}
         <div

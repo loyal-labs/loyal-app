@@ -15,11 +15,9 @@ import {
   TriangleAlert,
   Wallet,
 } from "lucide-react";
-import shieldAnimationData from "~/assets/shield-animation.json";
 import confettiAnimationData from "~/assets/confetti.json";
 import type {
   SubView,
-  SwapMode,
   SwapToken,
   TokenRow,
 } from "@loyal-labs/wallet-core/types";
@@ -41,7 +39,6 @@ import type { TokenRowActions } from "./token-row-item";
 import { SendContent } from "./send-content";
 import { ReceiveContent } from "./receive-content";
 import { SwapContent } from "./swap-content";
-import { ShieldContent, SwapShieldTabs } from "./shield-content";
 
 import { AllTokensView } from "./all-tokens-view";
 import { AllActivityView } from "./all-activity-view";
@@ -91,13 +88,12 @@ const TABS = [
   { id: "send", label: "Send", Icon: ArrowUpRight },
   { id: "receive", label: "Receive", Icon: ArrowDownLeft },
   { id: "swap", label: "Swap", Icon: ArrowLeftRight },
-  { id: "shield", label: "Shield", Icon: Shield },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
 function getBaseTokenId(id?: string | null): string | null {
-  return id ? id.replace(/-secured$/, "") : null;
+  return id ?? null;
 }
 
 function parseTokenRowNumber(value: string): number {
@@ -121,7 +117,6 @@ function getSwapTokenFromRow(
       ...match,
       price: match.price || rowPrice,
       balance: rowBalance,
-      isSecured: token.isSecured,
     };
   }
 
@@ -131,7 +126,6 @@ function getSwapTokenFromRow(
     icon: token.icon,
     price: rowPrice,
     balance: rowBalance,
-    isSecured: token.isSecured,
   };
 }
 
@@ -199,24 +193,6 @@ function getActiveLayer(subView: SubView): number {
 // ---------------------------------------------------------------------------
 // Shared UI atoms
 // ---------------------------------------------------------------------------
-
-function ShieldAnimation({ size = 64 }: { size?: number }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const anim = lottie.loadAnimation({
-      container: containerRef.current,
-      renderer: "svg",
-      loop: false,
-      autoplay: true,
-      animationData: shieldAnimationData,
-    });
-    return () => anim.destroy();
-  }, []);
-
-  return <div ref={containerRef} style={{ width: size, height: size }} />;
-}
 
 function ConfettiOverlay({ onComplete }: { onComplete?: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1203,7 +1179,7 @@ function WalletInterface() {
     useWalletContext();
   const solanaEnv = network as import("@loyal-labs/solana-rpc").SolanaEnv;
   const walletPubkey = signer?.publicKey ?? null;
-  const walletDataClient = useExtensionWalletDataClient(solanaEnv, signer);
+  const walletDataClient = useExtensionWalletDataClient(solanaEnv);
   const walletData = useWalletData({
     publicKey: walletPubkey,
     connected: !!signer,
@@ -1214,11 +1190,9 @@ function WalletInterface() {
   // Navigation state
   const [activeTab, setActiveTab] = useState<TabId>("portfolio");
   const [subView, setSubView] = useState<SubView>(null);
-  const [swapMode, setSwapMode] = useState<SwapMode>("swap");
   const [fromToken, setFromToken] = useState<SwapToken>(SOL_TOKEN);
   const [toToken, setToToken] = useState<SwapToken>(LOYL_TOKEN);
   const [sendToken, setSendToken] = useState<SwapToken>(SOL_TOKEN);
-  const [shieldToken, setShieldToken] = useState<SwapToken>(SOL_TOKEN);
   const [showSettings, setShowSettings] = useState(false);
   const [activeDappApprovalNonce, setActiveDappApprovalNonce] = useState<
     string | null
@@ -1297,17 +1271,10 @@ function WalletInterface() {
       send: PORTFOLIO_EVENTS.openSend,
       receive: PORTFOLIO_EVENTS.openReceive,
       swap: PORTFOLIO_EVENTS.openSwap,
-      shield: PORTFOLIO_EVENTS.openShield,
     };
     const event = eventMap[tab];
     if (event) track(event);
     setActiveTab(tab);
-    setSubView(null);
-  }, []);
-
-  const handleSwapModeChange = useCallback((mode: SwapMode) => {
-    setSwapMode(mode);
-    setActiveTab(mode === "shield" ? "shield" : "swap");
     setSubView(null);
   }, []);
 
@@ -1354,7 +1321,6 @@ function WalletInterface() {
     allActivityRows,
     transactionDetails,
     positions,
-    addLocalActivity,
   } = walletData;
 
   // Enrich token rows with 24h price change from CoinGecko
@@ -1377,8 +1343,7 @@ function WalletInterface() {
     if (Object.keys(priceChanges).length === 0) return allTokenRows;
     return allTokenRows.map((row) => {
       if (!row.id) return row;
-      const mint = row.id.replace(/-secured$/, "");
-      const change = priceChanges[mint];
+      const change = priceChanges[row.id];
       return change !== undefined ? { ...row, priceChange24h: change } : row;
     });
   }, [allTokenRows, priceChanges]);
@@ -1387,8 +1352,7 @@ function WalletInterface() {
     if (Object.keys(priceChanges).length === 0) return tokenRows;
     return tokenRows.map((row) => {
       if (!row.id) return row;
-      const mint = row.id.replace(/-secured$/, "");
-      const change = priceChanges[mint];
+      const change = priceChanges[row.id];
       return change !== undefined ? { ...row, priceChange24h: change } : row;
     });
   }, [tokenRows, priceChanges]);
@@ -1401,47 +1365,6 @@ function WalletInterface() {
     price: p.priceUsd ?? 0,
     balance: p.totalBalance,
   }));
-
-  // Shield token list — one entry per balance variant (liquid + shielded).
-  // Direction is derived from the selected token's `isSecured` flag.
-  const shieldTokens = useMemo<SwapToken[]>(
-    () =>
-      positions.flatMap((p) => {
-        const base = {
-          mint: p.asset.mint,
-          symbol: p.asset.symbol,
-          icon: p.asset.imageUrl || getTokenIconUrl(p.asset.symbol),
-          price: p.priceUsd ?? 0,
-        };
-        const entries: SwapToken[] = [];
-        if (p.publicBalance > 0 || p.securedBalance <= 0) {
-          entries.push({ ...base, balance: p.publicBalance, isSecured: false });
-        }
-        if (p.securedBalance > 0) {
-          entries.push({ ...base, balance: p.securedBalance, isSecured: true });
-        }
-        return entries;
-      }),
-    [positions]
-  );
-
-  useEffect(() => {
-    if (shieldTokens.length === 0) return;
-
-    setShieldToken((current) => {
-      const exactMatch = shieldTokens.find(
-        (token) =>
-          token.mint === current.mint &&
-          Boolean(token.isSecured) === Boolean(current.isSecured)
-      );
-      if (exactMatch) return exactMatch;
-
-      const sameMint = current.mint
-        ? shieldTokens.find((token) => token.mint === current.mint)
-        : undefined;
-      return sameMint ?? shieldTokens[0]!;
-    });
-  }, [shieldTokens]);
 
   // Merge user's held tokens with popular tokens for swap target selection
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens();
@@ -1465,9 +1388,6 @@ function WalletInterface() {
       const nextFrom = swapTokens[0];
       setFromToken(nextFrom);
       setSendToken(nextFrom);
-      if (shieldTokens.length > 0) {
-        setShieldToken(shieldTokens[0]);
-      }
       const loyalTarget =
         swapTokens.find((t) => t.mint === LOYL_TOKEN.mint) ?? LOYL_TOKEN;
       // Never default to a self-swap when the top holding is already LOYAL.
@@ -1485,7 +1405,6 @@ function WalletInterface() {
       setToToken(
         getDefaultSwapTarget(sourceToken, swapTokens, swapTargetTokens)
       );
-      setSwapMode("swap");
       handleTabChange("swap");
     },
     [handleTabChange, swapTargetTokens, swapTokens]
@@ -1494,37 +1413,11 @@ function WalletInterface() {
   const getTokenActions = useCallback(
     (token: TokenRow): TokenRowActions | undefined => {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
-      const isSecured = token.isSecured === true;
-      const tokenMint = getBaseTokenId(token.id);
-
-      const pickShieldTokenVariant = (wantSecured: boolean) => {
-        if (!tokenMint) return;
-        const match = shieldTokens.find(
-          (t) => t.mint === tokenMint && t.isSecured === wantSecured
-        );
-        if (match) setShieldToken(match);
-      };
-
-      if (isSecured) {
-        return {
-          onSend: () => handleTabChange("send"),
-          onUnshield: () => {
-            pickShieldTokenVariant(true);
-            setSwapMode("shield");
-            handleTabChange("shield");
-          },
-        };
-      }
 
       const actions: TokenRowActions = {
         onSend: () => handleTabChange("send"),
         onSwap: (row) =>
           openSwapFromToken(getSwapTokenFromRow(row, swapTokens)),
-        onShield: () => {
-          pickShieldTokenVariant(false);
-          setSwapMode("shield");
-          handleTabChange("shield");
-        },
       };
 
       if (isLoyal) {
@@ -1539,7 +1432,7 @@ function WalletInterface() {
 
       return actions;
     },
-    [handleTabChange, openSwapFromToken, setSwapMode, shieldTokens, swapTokens]
+    [handleTabChange, openSwapFromToken, swapTokens]
   );
 
   // Tab content with real components (uses displayTab for cross-fade)
@@ -1558,14 +1451,7 @@ function WalletInterface() {
             onNavigate={handleNavigate}
             onSend={() => handleTabChange("send")}
             onReceive={() => handleTabChange("receive")}
-            onSwap={() => {
-              setSwapMode("swap");
-              handleTabChange("swap");
-            }}
-            onShield={() => {
-              setSwapMode("shield");
-              handleTabChange("shield");
-            }}
+            onSwap={() => handleTabChange("swap")}
             onSettings={() => setShowSettings(true)}
             tokenRows={enrichedPortfolioRows}
             transactionDetails={transactionDetails}
@@ -1575,14 +1461,6 @@ function WalletInterface() {
             onTokenDetail={(token) =>
               handleNavigate({ type: "tokenDetail", token, from: "portfolio" })
             }
-            onShieldUsdc={() => {
-              const usdc = shieldTokens.find(
-                (t) => t.symbol === "USDC" && !t.isSecured
-              );
-              if (usdc) setShieldToken(usdc);
-              setSwapMode("shield");
-              handleTabChange("shield");
-            }}
             totalTokenCount={enrichedTokenRows.length}
             totalActivityCount={allActivityRows.length}
           />
@@ -1594,7 +1472,6 @@ function WalletInterface() {
             onClose={handleClose}
             onNavigate={handleNavigate}
             onDone={handleDone}
-            addLocalActivity={addLocalActivity}
           />
         );
       case "receive":
@@ -1611,19 +1488,6 @@ function WalletInterface() {
             onClose={handleClose}
             onNavigate={handleNavigate}
             onDone={handleDone}
-            swapMode={swapMode}
-            onSwapModeChange={handleSwapModeChange}
-          />
-        );
-      case "shield":
-        return (
-          <ShieldContent
-            token={shieldToken}
-            onClose={handleClose}
-            onNavigate={handleNavigate}
-            onDone={handleDone}
-            swapMode={swapMode}
-            onSwapModeChange={handleSwapModeChange}
           />
         );
     }
@@ -1665,7 +1529,6 @@ function WalletInterface() {
 
     if (subView.type === "tokenDetail") {
       const t = subView.token;
-      const actions = getTokenActions(t);
       const asSwapToken = getSwapTokenFromRow(t, swapTokens);
       return (
         <TokenDetailView
@@ -1681,22 +1544,10 @@ function WalletInterface() {
             handleTabChange("receive");
             setSubView(null);
           }}
-          onSwap={
-            t.isSecured
-              ? undefined
-              : () => {
-                  openSwapFromToken(asSwapToken);
-                  setSubView(null);
-                }
-          }
-          onShield={
-            actions?.onShield || actions?.onUnshield
-              ? () => {
-                  actions.onShield?.(t) ?? actions.onUnshield?.(t);
-                  setSubView(null);
-                }
-              : undefined
-          }
+          onSwap={() => {
+            openSwapFromToken(asSwapToken);
+            setSubView(null);
+          }}
         />
       );
     }
@@ -1742,22 +1593,6 @@ function WalletInterface() {
           onBack={goBack}
           onClose={handleClose}
           tokens={swapTokens}
-        />
-      );
-    }
-
-    if (subView.type === "shieldTokenSelect") {
-      return (
-        <TokenSelectView
-          title="Select token"
-          currentToken={shieldToken}
-          onSelect={(token) => {
-            setShieldToken(token);
-            setSubView(null);
-          }}
-          onBack={goBack}
-          onClose={handleClose}
-          tokens={shieldTokens}
         />
       );
     }

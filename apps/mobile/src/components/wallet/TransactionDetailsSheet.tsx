@@ -76,23 +76,8 @@ export const TransactionDetailsSheet = forwardRef<
 
   const isIncoming = transaction.type === "incoming";
   const isSwap = transaction.transferType === "swap";
-  const isSecure = transaction.transferType === "secure";
-  const isUnshield = transaction.transferType === "unshield";
 
-  let title: string;
-  if (isSwap) {
-    title = "Swap";
-  } else if (isSecure) {
-    title = "Shielded";
-  } else if (isUnshield) {
-    title = "Unshielded";
-  } else if (transaction.transferType === "store") {
-    title = "Store Data";
-  } else if (transaction.transferType === "verify_telegram_init_data") {
-    title = "Verify Data";
-  } else {
-    title = isIncoming ? "Received" : "Sent";
-  }
+  const title = isSwap ? "Swap" : isIncoming ? "Received" : "Sent";
 
   const amountDisplay = (() => {
     if (transaction.tokenAmount && transaction.tokenMint) {

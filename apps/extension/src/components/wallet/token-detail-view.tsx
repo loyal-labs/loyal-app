@@ -136,7 +136,6 @@ export function TokenDetailView({
   onSend,
   onReceive,
   onSwap,
-  onShield,
 }: {
   token: TokenRow;
   onBack: () => void;
@@ -144,14 +143,13 @@ export function TokenDetailView({
   onSend?: () => void;
   onReceive?: () => void;
   onSwap?: () => void;
-  onShield?: () => void;
 }) {
   const [detail, setDetail] = useState<TokenDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
 
-  const mint = token.id?.replace(/-secured$/, "") ?? null;
+  const mint = token.id ?? null;
 
   const loadDetail = useCallback(async () => {
     if (!mint) {
@@ -345,11 +343,9 @@ export function TokenDetailView({
 
           {/* Action buttons */}
           <ActionButtons
-            token={token}
             onSend={onSend}
             onReceive={onReceive}
             onSwap={onSwap}
-            onShield={onShield}
           />
 
           {/* Position card */}
@@ -431,11 +427,9 @@ export function TokenDetailView({
 
           {/* Action buttons */}
           <ActionButtons
-            token={token}
             onSend={onSend}
             onReceive={onReceive}
             onSwap={onSwap}
-            onShield={onShield}
           />
 
           {/* Chart */}
@@ -673,17 +667,13 @@ export function TokenDetailView({
 // ---------------------------------------------------------------------------
 
 function ActionButtons({
-  token,
   onSend,
   onReceive,
   onSwap,
-  onShield,
 }: {
-  token: TokenRow;
   onSend?: () => void;
   onReceive?: () => void;
   onSwap?: () => void;
-  onShield?: () => void;
 }) {
   return (
     <div
@@ -698,7 +688,6 @@ function ActionButtons({
           onSend && { label: "Send", Icon: ArrowUpRight, action: onSend },
           onReceive && { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
           onSwap && { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
-          onShield && { label: token.isSecured ? "Unshield" : "Shield", Icon: Shield, action: onShield },
         ].filter(Boolean) as { label: string; Icon: typeof ArrowUpRight; action: () => void }[]
       ).map(({ label, Icon, action }) => (
         <button
@@ -776,42 +765,8 @@ function BalanceCard({ token }: { token: TokenRow }) {
         <span style={{ ...valueStyle, fontSize: "18px", fontWeight: 600 }}>
           {token.amount} {token.symbol}
         </span>
-        {token.isSecured && (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "3px",
-              fontFamily: FONT,
-              fontSize: "11px",
-              fontWeight: 500,
-              color: COLOR_GREEN,
-              background: "rgba(52, 199, 89, 0.1)",
-              borderRadius: "6px",
-              padding: "2px 6px",
-            }}
-          >
-            <Shield size={10} />
-            Shielded
-          </span>
-        )}
       </div>
       <span style={{ ...labelStyle, fontSize: "14px" }}>{token.value}</span>
-      {typeof token.apyBps === "number" && token.apyBps > 0 && (
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "3px",
-            fontFamily: FONT,
-            fontSize: "12px",
-            fontWeight: 500,
-            color: COLOR_GREEN,
-          }}
-        >
-          Earning {(token.apyBps / 100).toFixed(2)}% APY
-        </span>
-      )}
     </div>
   );
 }

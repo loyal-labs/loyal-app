@@ -20,11 +20,7 @@ export function TransactionDetailView({
 }) {
   const [copied, setCopied] = useState(false);
   const isSent = detail.activity.type === "sent";
-  const isShielded = detail.activity.type === "shielded";
-  const isUnshielded = detail.activity.type === "unshielded";
-  const isPrivate = detail.isPrivate || detail.activity.isPrivate;
-  const isShieldType = isShielded || isUnshielded;
-  const title = isShielded ? "Shielded" : isUnshielded ? "Unshielded" : isSent ? "Sent" : "Received";
+  const title = isSent ? "Sent" : "Received";
   // Strip the +/− prefix for the large display
   const rawAmount = detail.activity.amount.replace(/^[+\u2212-]/, "");
   const parts = rawAmount.split(" ");
@@ -90,10 +86,10 @@ export function TransactionDetailView({
                 style={{
                   fontSize: "40px",
                   lineHeight: "48px",
-                  color: isSent || isShieldType ? "#000" : "#34C759",
+                  color: isSent ? "#000" : "#34C759",
                 }}
               >
-                {isShieldType ? "" : isSent ? "\u2212" : "+"}{amountNum}
+                {isSent ? "\u2212" : "+"}{amountNum}
               </span>
               <span
                 style={{
@@ -183,7 +179,7 @@ export function TransactionDetailView({
                   display: "block",
                 }}
               >
-                {isShielded ? "Moved to" : isUnshielded ? "Moved from" : isSent ? "Recipient" : "Sender"}
+                {isSent ? "Recipient" : "Sender"}
               </span>
               <span
                 style={{
@@ -196,7 +192,7 @@ export function TransactionDetailView({
                   marginTop: "2px",
                 }}
               >
-                {isShielded ? "Secure balance" : isUnshielded ? "Secure balance" : truncateAddress(detail.activity.counterparty)}
+                {truncateAddress(detail.activity.counterparty)}
               </span>
             </div>
 
@@ -246,55 +242,53 @@ export function TransactionDetailView({
           }}
         >
           {/* View in explorer */}
-          {!isPrivate && (
-            <div
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <button
+              className="tx-action-btn"
+              onClick={() =>
+                window.open(
+                  `https://explorer.solana.com/tx/${detail.activity.id}`,
+                  "_blank",
+                  "noopener,noreferrer"
+                )
+              }
               style={{
-                flex: 1,
+                width: "48px",
+                height: "48px",
+                borderRadius: "9999px",
+                background: "rgba(249, 54, 60, 0.14)",
+                border: "none",
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
-                gap: "8px",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "background-color 0.15s ease",
+              }}
+              type="button"
+            >
+              <Globe size={24} style={{ color: "#3C3C43" }} />
+            </button>
+            <span
+              style={{
+                fontFamily: "var(--font-geist-sans), sans-serif",
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                color: "rgba(60, 60, 67, 0.6)",
+                textAlign: "center",
               }}
             >
-              <button
-                className="tx-action-btn"
-                onClick={() =>
-                  window.open(
-                    `https://explorer.solana.com/tx/${detail.activity.id}`,
-                    "_blank",
-                    "noopener,noreferrer"
-                  )
-                }
-                style={{
-                  width: "48px",
-                  height: "48px",
-                  borderRadius: "9999px",
-                  background: "rgba(249, 54, 60, 0.14)",
-                  border: "none",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  transition: "background-color 0.15s ease",
-                }}
-                type="button"
-              >
-                <Globe size={24} style={{ color: "#3C3C43" }} />
-              </button>
-              <span
-                style={{
-                  fontFamily: "var(--font-geist-sans), sans-serif",
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: "rgba(60, 60, 67, 0.6)",
-                  textAlign: "center",
-                }}
-              >
-                View in explorer
-              </span>
-            </div>
-          )}
+              View in explorer
+            </span>
+          </div>
 
           {/* Share */}
           <div
@@ -309,11 +303,7 @@ export function TransactionDetailView({
             <button
               className="tx-action-btn"
               onClick={() => {
-                const text = isPrivate
-                  ? `Sent ${rawAmount} ${amountToken} (${detail.usdValue}) to ${truncateAddress(detail.activity.counterparty)}`
-                  : isShieldType
-                    ? `${title} ${rawAmount} ${amountToken} (${detail.usdValue})\nhttps://explorer.solana.com/tx/${detail.activity.id}`
-                    : `${title} ${rawAmount} ${amountToken} (${detail.usdValue}) ${isSent ? "to" : "from"} ${truncateAddress(detail.activity.counterparty)}\nhttps://explorer.solana.com/tx/${detail.activity.id}`;
+                const text = `${title} ${rawAmount} ${amountToken} (${detail.usdValue}) ${isSent ? "to" : "from"} ${truncateAddress(detail.activity.counterparty)}\nhttps://explorer.solana.com/tx/${detail.activity.id}`;
                 void navigator.clipboard.writeText(text).then(() => {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);

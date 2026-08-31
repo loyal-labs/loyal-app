@@ -67,15 +67,7 @@ const groupPairsByMint = (holdings: TokenHolding[]): TokenHolding[] => {
       }
     }
 
-    if (partners.length === 0) {
-      result.push(leader);
-      continue;
-    }
-
-    const group = [leader, ...partners];
-    const regulars = group.filter((h) => !h.isSecured);
-    const shielded = group.filter((h) => h.isSecured);
-    result.push(...regulars, ...shielded);
+    result.push(leader, ...partners);
   }
 
   return result;
@@ -95,7 +87,6 @@ const toZeroHolding = (
   imageUrl:
     existingHolding?.imageUrl ??
     resolveTokenIcon({ mint: fallback.mint, imageUrl: null }),
-  isSecured: false,
 });
 
 export type PairPosition = "single" | "top" | "bottom";
@@ -124,8 +115,8 @@ export function getDisplayTokenHoldings(holdings: TokenHolding[]): TokenHolding[
 
   return getPrefillTokens().map((token) => {
     const existingHolding = holdings.find(
-      (holding) => holding.mint === token.mint && !holding.isSecured,
-    ) ?? holdings.find((holding) => holding.mint === token.mint);
+      (holding) => holding.mint === token.mint,
+    );
     return toZeroHolding(existingHolding, token);
   });
 }

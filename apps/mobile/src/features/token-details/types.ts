@@ -7,8 +7,6 @@ export type TokenDetailTransaction = Pick<
 
 export type TokenPosition = {
   mint: string;
-  publicBalance: number;
-  shieldedBalance: number;
   totalBalance: number;
   totalValueUsd: number | null;
   symbol: string;

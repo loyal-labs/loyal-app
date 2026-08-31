@@ -13,7 +13,6 @@ import { Pressable, Text, View } from "@/tw";
 
 import type { WalletCategory } from "../model/categorize";
 
-const shieldBadge = require("../../../../assets/images/shield-badge.png");
 const MUTED = "rgba(60, 60, 67, 0.6)";
 const POSITIVE = "#24a148";
 const NEGATIVE = "#f97362";
@@ -80,12 +79,6 @@ export function CategoryAssetRow({
             borderColor: "rgba(0, 0, 0, 0.08)",
           }}
         />
-        {holding.isSecured ? (
-          <RNImage
-            source={shieldBadge}
-            style={{ position: "absolute", bottom: -2, right: 4, width: 24, height: 24 }}
-          />
-        ) : null}
         {groupPosition === "top" ? (
           <View
             style={{

@@ -42,18 +42,11 @@ function SelectableTokenRow({
               </div>
             )}
           </div>
-          {token.isSecured && (
-            <img
-              alt="Shielded"
-              src="/hero-new/Shield.png"
-              style={{ width: "20px", height: "20px", position: "absolute", bottom: "-2px", right: "-2px" }}
-            />
-          )}
         </div>
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px", padding: "10px 0", minWidth: 0 }}>
         <span style={{ fontFamily: "var(--font-geist-sans), sans-serif", fontSize: "16px", fontWeight: 500, lineHeight: "20px", color: "#000", letterSpacing: "-0.176px" }}>
-          {token.isSecured ? `${token.symbol} · Shielded` : token.symbol}
+          {token.symbol}
         </span>
         <span style={{ fontFamily: "var(--font-geist-sans), sans-serif", fontSize: "13px", fontWeight: 400, lineHeight: "16px", color: "rgba(60, 60, 67, 0.6)" }}>
           {token.price > 0
@@ -138,12 +131,11 @@ export function TokenSelectView({
         {allResults.map((token, i) => (
           <SelectableTokenRow
             isSelected={
-              (token.mint
+              token.mint
                 ? token.mint === currentToken.mint
-                : token.symbol === currentToken.symbol) &&
-              Boolean(token.isSecured) === Boolean(currentToken.isSecured)
+                : token.symbol === currentToken.symbol
             }
-            key={`${token.mint ?? `${token.symbol}-${i}`}-${token.isSecured ? "s" : "l"}`}
+            key={token.mint ?? `${token.symbol}-${i}`}
             onClick={() => {
               onSelect(token);
               onBack();
