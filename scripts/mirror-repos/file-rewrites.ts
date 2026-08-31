@@ -298,28 +298,6 @@ codegen-units = 1
   );
 }
 
-function addContractsWorkspace(root: string): void {
-  writeText(
-    path.join(root, "Cargo.toml"),
-    `[workspace]
-members = [
-    "programs/telegram-private-transfer",
-    "programs/telegram-verification",
-]
-resolver = "2"
-
-[profile.release]
-overflow-checks = true
-lto = "fat"
-codegen-units = 1
-
-[profile.release.build-override]
-opt-level = 3
-incremental = false
-codegen-units = 1
-`
-  );
-}
 
 export function applyMirrorRewrites(
   mirror: MirrorConfig,
@@ -347,9 +325,6 @@ export function applyMirrorRewrites(
       break;
     case "rust-cli":
       addRustCliWorkspace(root);
-      break;
-    case "anchor-programs":
-      addContractsWorkspace(root);
       break;
   }
 }
