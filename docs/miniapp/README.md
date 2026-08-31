@@ -8,7 +8,7 @@ Quick reference for `/apps/telegram/src/lib/`.
 |--------|---------|-------------|
 | `/core` | HTTP utilities, database | `fetchJson()`, `resolveEndpoint()`, `getDatabase()` |
 | `/encryption` | Message encryption | `encrypt()`, `decrypt()` |
-| `/solana` | Blockchain integration | RPC connections, wallet, deposits, token holdings |
+| `/solana` | Blockchain integration | RPC connections, wallet, token holdings |
 | `/telegram` | Telegram SDK integration | Mini app utils, bot API |
 | `/magicblock` | SOL/USD price feed | `fetchSolUsdPrice()` |
 | `/ai` | Ax program layer for summaries | summary specs, assets, evals |

@@ -260,27 +260,6 @@ function getActivityDisplay(
     }
     case "sol_transfer":
     default: {
-      if ("token" in activity) {
-        // Legacy activity variants carry a token leg; render it like a
-        // token transfer.
-        const position = resolvePositionByMint(positions, activity.token.mint);
-        return {
-          symbol: position?.asset.symbol ?? "TOKEN",
-          icon: position
-            ? resolveTokenIcon(position)
-            : "/hero-new/Wallet-Cover.png",
-          amount: activity.token.amount,
-          usdValue:
-            typeof position?.priceUsd === "number"
-              ? parseFloat(activity.token.amount) * position.priceUsd
-              : null,
-          counterparty:
-            activity.counterparty ??
-            (activity.direction === "in"
-              ? "Unknown sender"
-              : "Unknown recipient"),
-        };
-      }
       return {
         symbol: "SOL",
         icon: getTokenIconUrl("SOL"),
@@ -342,13 +321,6 @@ function getActivityUsdDelta(
     }
     case "sol_transfer":
     default: {
-      if ("token" in activity) {
-        const pos = resolvePositionByMint(positions, activity.token.mint);
-        if (typeof pos?.priceUsd === "number") {
-          return sign * parseFloat(activity.token.amount) * pos.priceUsd;
-        }
-        return 0;
-      }
       if (typeof solPriceUsd === "number") {
         return sign * (activity.amountLamports / 1_000_000_000) * solPriceUsd;
       }

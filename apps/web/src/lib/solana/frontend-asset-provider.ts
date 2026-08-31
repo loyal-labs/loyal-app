@@ -3,7 +3,6 @@ import type {
   AssetDescriptor,
   AssetProvider,
   AssetSnapshot,
-  ResolvedAssetEntry,
 } from "@loyal-labs/solana-wallet";
 import {
   NATIVE_SOL_DECIMALS,
@@ -519,46 +518,6 @@ export function createFrontendAssetProvider(args: {
         assets,
         fetchedAt: Date.now(),
       };
-    },
-    resolveAssets: async (mints) => {
-      // Used by the wallet-data client to render mints without a public ATA
-      // on chain. Without this, the placeholder descriptor collapses decimals
-      // to 0 and the row shows raw u64 lamports.
-      const uniqueMints = [...new Set(mints)];
-      const connection = getConnection();
-      const results = await Promise.all(
-        uniqueMints.map(async (mint) => {
-          try {
-            const mintPubkey = new PublicKey(mint);
-            // Read decimals from chain for both Token and Token-2022 mints.
-            const accountInfo = await connection.getAccountInfo(
-              mintPubkey,
-              args.commitment
-            );
-            if (!accountInfo) return null;
-            const isToken =
-              accountInfo.owner.equals(TOKEN_PROGRAM_ID) ||
-              accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID);
-            if (!isToken) return null;
-            // SPL mint layout: decimals at byte offset 44 (1 byte).
-            const decimals = accountInfo.data[44] ?? 0;
-            const metadata = await resolveTokenMetadata(mint, decimals);
-            return {
-              descriptor: {
-                ...metadata.descriptor,
-                // On-chain decimals are authoritative; never let metadata override.
-                decimals,
-              },
-              priceUsd: metadata.priceUsd,
-            } satisfies ResolvedAssetEntry;
-          } catch {
-            return null;
-          }
-        })
-      );
-      return results.filter(
-        (entry): entry is ResolvedAssetEntry => entry !== null
-      );
     },
     subscribeAssetChanges: async (owner, onChange, options = {}) => {
       const connection = getWebsocketConnection();

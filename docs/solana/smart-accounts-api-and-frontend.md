@@ -301,12 +301,10 @@ Key frontend files are `apps/web/src/components/hero-section.tsx`,
 `apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx`, and
 `apps/web/src/hooks/use-smart-account-sidebar-data.ts`.
 
-## CLI Split
+## CLI
 
-The branch separates `crates/private-transfers-cli`, whose binary is
-`loyal-private-transfers`, from `crates/loyal-cli`, whose binary is `loyal`.
-`loyal-private-transfers` targets `programs/telegram-private-transfer`; `loyal`
-targets Squads smart-account vault automation.
+`crates/loyal-cli`, whose binary is `loyal`, targets Squads smart-account
+vault automation.
 
 `loyal` supports `auth`, `pubkey`, `show`, `propose raw
 <ENCODED_TRANSACTION>`, `propose transfer sol <RECIPIENT_ADDRESS> <AMOUNT>`,

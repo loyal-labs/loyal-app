@@ -13,15 +13,11 @@ import { createRpcActivityProvider } from "./providers/default-activity-provider
 import type {
   ActivityPage,
   AddressInput,
-  AssetDescriptor,
-  AssetProvider,
-  AssetSnapshot,
   CreateSolanaWalletDataClientConfig,
   GetActivityOptions,
   GetPortfolioOptions,
   InvalidateCachesOptions,
   PortfolioSnapshot,
-  SecureBalanceMap,
   SolanaWalletDataClient,
   SubscribeActivityOptions,
   SubscribePortfolioOptions,
@@ -72,55 +68,6 @@ function getActivityCacheKey(
     before: options.before ?? null,
     onlySystemTransfers: options.onlySystemTransfers ?? false,
   });
-}
-
-async function resolveShieldedOnlyAssets(args: {
-  assetProvider: AssetProvider;
-  assetSnapshot: AssetSnapshot;
-  secureBalances: SecureBalanceMap;
-  logger: WalletDataLogger;
-}): Promise<{
-  descriptors: Map<string, AssetDescriptor>;
-  prices: Map<string, number | null>;
-}> {
-  const empty = {
-    descriptors: new Map<string, AssetDescriptor>(),
-    prices: new Map<string, number | null>(),
-  };
-  if (args.secureBalances.size === 0 || !args.assetProvider.resolveAssets) {
-    return empty;
-  }
-
-  const knownMints = new Set(
-    args.assetSnapshot.assets.map((asset) => asset.asset.mint)
-  );
-  const shieldedOnlyMints: string[] = [];
-  for (const mint of args.secureBalances.keys()) {
-    if (!knownMints.has(mint)) {
-      shieldedOnlyMints.push(mint);
-    }
-  }
-
-  if (shieldedOnlyMints.length === 0) {
-    return empty;
-  }
-
-  try {
-    const entries = await args.assetProvider.resolveAssets(shieldedOnlyMints);
-    const descriptors = new Map<string, AssetDescriptor>();
-    const prices = new Map<string, number | null>();
-    for (const entry of entries) {
-      descriptors.set(entry.descriptor.mint, entry.descriptor);
-      prices.set(entry.descriptor.mint, entry.priceUsd);
-    }
-    return { descriptors, prices };
-  } catch (error) {
-    args.logger.warn?.(
-      "Failed to resolve shielded-only asset descriptors",
-      error
-    );
-    return empty;
-  }
 }
 
 export function createSolanaWalletDataClient(
@@ -204,19 +151,6 @@ export function createSolanaWalletDataClient(
             })),
             fetchedAt: cached.snapshot.fetchedAt,
           },
-          secureBalances: new Map(
-            cached.snapshot.positions
-              .filter((position) => position.securedBalance > 0)
-              .map((position) => [
-                position.asset.mint,
-                BigInt(
-                  Math.round(
-                    position.securedBalance *
-                      Math.pow(10, position.asset.decimals)
-                  )
-                ),
-              ])
-          ),
           fallbackSolPriceUsd: options.fallbackSolPriceUsd,
         }).totals,
       };
@@ -229,34 +163,9 @@ export function createSolanaWalletDataClient(
 
     const loader = (async () => {
       const assetSnapshot = await assetProvider.getAssetSnapshot(owner);
-      const secureBalances: SecureBalanceMap = config.secureBalanceProvider
-        ? await config
-            .secureBalanceProvider({
-              owner,
-              env,
-              tokenMints: assetSnapshot.assets.map(
-                (assetBalance) => new PublicKey(assetBalance.asset.mint)
-              ),
-              assetBalances: assetSnapshot.assets,
-            })
-            .catch((error) => {
-              logger.warn?.("Failed to fetch secure balances", error);
-              return new Map<string, bigint>();
-            })
-        : new Map<string, bigint>();
-
-      const shieldedOnly = await resolveShieldedOnlyAssets({
-        assetProvider,
-        assetSnapshot,
-        secureBalances,
-        logger,
-      });
 
       const snapshot = buildPortfolioSnapshot({
         assetSnapshot,
-        secureBalances,
-        shieldedOnlyDescriptors: shieldedOnly.descriptors,
-        shieldedOnlyPrices: shieldedOnly.prices,
         fallbackSolPriceUsd: options.fallbackSolPriceUsd,
       });
 

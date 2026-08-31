@@ -32,45 +32,15 @@ export type AssetSnapshot = {
   fetchedAt: number;
 };
 
-export type SecureBalanceMap = ReadonlyMap<string, bigint>;
-
-export type SecureBalanceProviderArgs = {
-  owner: PublicKey;
-  env: SolanaEnv;
-  tokenMints: PublicKey[];
-  assetBalances: AssetBalance[];
-};
-
-export type SecureBalanceProvider = (
-  args: SecureBalanceProviderArgs
-) => Promise<SecureBalanceMap>;
-
 export type AssetProviderSubscribeOptions = {
   commitment?: "processed" | "confirmed" | "finalized";
   debounceMs?: number;
   includeNative?: boolean;
 };
 
-export type ResolvedAssetEntry = {
-  descriptor: AssetDescriptor;
-  /** USD price per whole token, when known. */
-  priceUsd: number | null;
-};
-
 export type AssetProvider = {
   getBalance: (owner: PublicKey) => Promise<number>;
   getAssetSnapshot: (owner: PublicKey) => Promise<AssetSnapshot>;
-  /**
-   * Resolve descriptors and pricing for arbitrary mints (typically those
-   * returned by a `secureBalanceProvider` that the public asset snapshot
-   * doesn't cover — e.g. a fully-shielded SPL mint with a closed/empty ATA).
-   *
-   * Implementations should return one entry per mint they could resolve;
-   * mints they could not resolve may simply be omitted (the SDK falls back to
-   * a placeholder so the row still renders). `priceUsd` may be null if the
-   * provider could resolve the descriptor but not the price.
-   */
-  resolveAssets?: (mints: string[]) => Promise<ResolvedAssetEntry[]>;
   subscribeAssetChanges: (
     owner: PublicKey,
     onChange: () => void,
@@ -78,22 +48,7 @@ export type AssetProvider = {
   ) => Promise<() => Promise<void>>;
 };
 
-export type ProgramActionType =
-  | "store"
-  | "verify_telegram_init_data"
-  | "initialize_deposit"
-  | "initialize_username_deposit"
-  | "claim_username_deposit_to_deposit"
-  | "transfer_deposit"
-  | "transfer_to_username_deposit"
-  | "create_permission"
-  | "create_username_permission"
-  | "delegate"
-  | "delegate_username_deposit"
-  | "undelegate"
-  | "undelegate_username_deposit"
-  | "earn_deposit"
-  | "earn_withdraw";
+export type ProgramActionType = "earn_deposit" | "earn_withdraw";
 
 export type WalletActivityStatus = "success" | "failed";
 
@@ -135,13 +90,6 @@ export type WalletSwapActivity = WalletActivityBase & {
   counterparty?: string;
 };
 
-export type WalletSecureActivity = WalletActivityBase & {
-  type: "secure" | "unshield";
-  direction: "in" | "out";
-  token: WalletTokenAmount;
-  counterparty?: string;
-};
-
 export type WalletProgramActionActivity = WalletActivityBase & {
   type: "program_action";
   action: ProgramActionType;
@@ -156,7 +104,6 @@ export type WalletActivity =
   | WalletSolTransferActivity
   | WalletTokenTransferActivity
   | WalletSwapActivity
-  | WalletSecureActivity
   | WalletProgramActionActivity;
 
 export type GetActivityOptions = {
@@ -199,26 +146,10 @@ export type ActivityProvider = {
 export type PortfolioPosition = {
   asset: AssetDescriptor;
   publicBalance: number;
-  securedBalance: number;
   totalBalance: number;
   priceUsd: number | null;
   publicValueUsd: number | null;
-  securedValueUsd: number | null;
   totalValueUsd: number | null;
-};
-
-export type PortfolioHolding = {
-  mint: string;
-  symbol: string;
-  name: string;
-  balance: number;
-  decimals: number;
-  priceUsd: number | null;
-  valueUsd: number | null;
-  imageUrl: string | null;
-  isNative: boolean;
-  kind: "public" | "secured" | "total";
-  isSecured?: boolean;
 };
 
 export type PortfolioTotals = {
@@ -260,7 +191,6 @@ export type CreateSolanaWalletDataClientConfig = {
   logger?: WalletDataLogger;
   assetProvider?: AssetProvider;
   activityProvider?: ActivityProvider;
-  secureBalanceProvider?: SecureBalanceProvider;
   createRpcConnection?: (
     rpcEndpoint: string,
     commitment: Commitment

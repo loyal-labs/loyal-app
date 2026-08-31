@@ -26,7 +26,7 @@ transactions through `--policy-pda`, including Kamino KTX responses or generic
 instruction JSON. The frontend provisions root smart accounts and exposes
 generic smart-account overview, approvals, policy signer updates,
 spending-limit policy creation, supported policy execution flows, and Kamino
-read-side helpers for portfolio/APY/shield balances.
+read-side helpers for portfolio/APY balances.
 
 This Agent auto-yield design still needs a frontend "enable auto-yield" action,
 persisted/indexed storage for the resulting Kamino `policyPda`, and a runtime

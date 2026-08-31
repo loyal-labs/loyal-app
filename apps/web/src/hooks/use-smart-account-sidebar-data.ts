@@ -2587,20 +2587,6 @@ function mapVaultActivity(
     }
     case "sol_transfer":
     default: {
-      if ("token" in activity) {
-        // Legacy activity variants carry a token leg; render it like a
-        // token transfer.
-        const position = resolvePositionByMint(positions, activity.token.mint);
-        const symbol = resolveTokenSymbol(position, activity.token.mint);
-        baseAmount = `${activity.token.amount} ${symbol}`;
-        icon = position
-          ? resolveTokenIcon(position)
-          : "/hero-new/Wallet-Cover.png";
-        usdValue = formatUsd(
-          tokenAmountToUsd(activity.token.amount, position?.priceUsd)
-        );
-        break;
-      }
       baseAmount = `${formatSolAmount(activity.amountLamports)} SOL`;
       icon = getTokenIconUrl("SOL");
       usdValue = formatUsd(lamportsToUsd(activity.amountLamports, solPriceUsd));
@@ -4868,11 +4854,10 @@ export function useSmartAccountSidebarData(
       stablecoinMints
     );
     const cashTokenRows = tokenRows.filter((row) =>
-      isStablecoinMint(row.id?.replace(/-secured$/, ""), stablecoinMints)
+      isStablecoinMint(row.id, stablecoinMints)
     );
     const investmentTokenRows = tokenRows.filter(
-      (row) =>
-        !isStablecoinMint(row.id?.replace(/-secured$/, ""), stablecoinMints)
+      (row) => !isStablecoinMint(row.id, stablecoinMints)
     );
     const activityView =
       vaultActivityByAccountIndex[vault.accountIndex] ??

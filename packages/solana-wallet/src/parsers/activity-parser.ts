@@ -3,7 +3,7 @@ import {
   type ParsedInstruction,
   type ParsedMessage,
   type ParsedTransactionWithMeta,
-  PartiallyDecodedInstruction,
+  type PartiallyDecodedInstruction,
   PublicKey,
 } from "@solana/web3.js";
 
@@ -14,7 +14,6 @@ import {
   NATIVE_SOL_MINT,
 } from "../constants";
 import { isDustSolTransfer, isDustTokenTransfer } from "../domain/dust-filter";
-import { decodeWalletInstruction } from "./instruction-manifest";
 import type {
   WalletActivity,
   WalletProgramActionActivity,
@@ -646,28 +645,6 @@ export function normalizeParsedTransaction(args: {
     direction: solDirection,
   });
 
-  const decodedInstruction = flattenInstructions(message, innerInstructions)
-    .filter(
-      (instruction): instruction is PartiallyDecodedInstruction =>
-        "data" in instruction && typeof instruction.data === "string"
-    )
-    .map((instruction) => decodeWalletInstruction(instruction.data))
-    .find((instruction) => instruction !== null);
-
-  if (decodedInstruction?.type === "modify_balance" && tokenChange !== null) {
-    return {
-      type: decodedInstruction.increase ? "secure" : "unshield",
-      signature: args.signature,
-      slot: args.tx.slot,
-      timestamp: args.tx.blockTime ? args.tx.blockTime * 1000 : null,
-      direction: decodedInstruction.increase ? "out" : "in",
-      token: toTokenAmount(tokenChange),
-      feeLamports: meta.fee ?? 0,
-      status: meta.err ? "failed" : "success",
-      counterparty,
-    };
-  }
-
   const instructions = flattenInstructions(message, innerInstructions);
   const isJupiterSwap =
     tokenChanges.length > 0 &&
@@ -762,19 +739,6 @@ export function normalizeParsedTransaction(args: {
         counterparty: "Swap",
       };
     }
-  }
-
-  if (decodedInstruction?.type === "program_action") {
-    return toProgramActionActivity({
-      signature: args.signature,
-      tx: args.tx,
-      decodedAction: decodedInstruction.action,
-      direction: tokenChange !== null ? tokenChange.direction : solDirection,
-      amountLamports: tokenChange !== null ? 0 : solAmountLamports,
-      netChangeLamports,
-      counterparty,
-      tokenChange,
-    });
   }
 
   const earn = detectEarnActivity({

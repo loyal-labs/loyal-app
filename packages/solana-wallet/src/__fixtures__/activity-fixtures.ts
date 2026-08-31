@@ -156,65 +156,6 @@ export function swapFixture(): ParsedTransactionWithMeta {
   return tx;
 }
 
-function modifyBalanceData(increase: boolean): string {
-  const bytes = new Uint8Array(17);
-  bytes.set([0x94, 0xe8, 0x07, 0xf0, 0x37, 0x33, 0x79, 0x73], 0);
-  bytes[16] = increase ? 1 : 0;
-  return encodeBase58(bytes);
-}
-
-function encodeBase58(bytes: Uint8Array): string {
-  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-  let x = BigInt(0);
-  for (const byte of bytes) {
-    x = (x << BigInt(8)) + BigInt(byte);
-  }
-
-  let encoded = "";
-  while (x > 0) {
-    const remainder = Number(x % BigInt(58));
-    encoded = alphabet[remainder] + encoded;
-    x /= BigInt(58);
-  }
-
-  return encoded || "1";
-}
-
-function programActionData(discriminator: number[]): string {
-  const bytes = new Uint8Array(8);
-  bytes.set(discriminator, 0);
-  return encodeBase58(bytes);
-}
-
-export function secureFixture(increase: boolean): ParsedTransactionWithMeta {
-  const tx = tokenTransferFixture();
-  (tx.transaction.message as { instructions: unknown[] }).instructions = [
-    {
-      programId: {
-        toBase58: () => "97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV",
-      },
-      data: modifyBalanceData(increase),
-    },
-  ];
-  return tx;
-}
-
-export function programActionFixture(): ParsedTransactionWithMeta {
-  const tx = baseParsedTransaction();
-  (tx.transaction.message as { instructions: unknown[] }).instructions = [
-    {
-      programId: {
-        toBase58: () => "9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz",
-      },
-      data: programActionData([0xdc, 0x1c, 0xcf, 0xeb, 0x00, 0xea, 0xc1, 0xf6]),
-    },
-  ];
-  tx.meta!.preBalances = [1_000_000_000, 1_000_000_000];
-  tx.meta!.postBalances = [999_995_000, 1_000_000_000];
-  return tx;
-}
-
 export function nativeSwapFixture(): ParsedTransactionWithMeta {
   const tx = baseParsedTransaction();
   tx.meta!.preBalances = [2_000_000_000, 1_000_000_000];

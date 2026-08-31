@@ -14,16 +14,11 @@ export interface TokenRow {
   amount: string;
   value: string;
   icon: string;
-  isSecured?: boolean;
-  apyBps?: number | null;
   priceChange24h?: number | null;
   totalAmountDisplay?: string | null;
   totalValueDisplay?: string | null;
   publicAmountDisplay?: string | null;
   publicValueDisplay?: string | null;
-  securedAmountDisplay?: string | null;
-  securedValueDisplay?: string | null;
-  /** Supply APY in basis points (e.g. 565 = 5.65%) — shown as badge when set. */
   /** USD value earned since principal was recorded (formatted, signed). */
   earnedValueDisplay?: string | null;
   /** USD value of principal (formatted) — shown next to earned delta. */
@@ -32,13 +27,12 @@ export interface TokenRow {
 
 export interface ActivityRow {
   id: string;
-  type: "received" | "sent" | "shielded" | "unshielded";
+  type: "received" | "sent";
   counterparty: string;
   amount: string;
   timestamp: string;
   date: string;
   icon: string;
-  isPrivate?: boolean;
   /** Epoch milliseconds for sort order — absent in legacy localStorage rows */
   rawTimestamp?: number;
   /** Replaces the type-derived row title (e.g. "Earn Deposit"). */
@@ -53,7 +47,6 @@ export interface TransactionDetail {
   status: string;
   networkFee: string;
   networkFeeUsd: string;
-  isPrivate?: boolean;
 }
 
 export interface SwapToken {
@@ -62,10 +55,9 @@ export interface SwapToken {
   icon: string;
   price: number;
   balance: number;
-  isSecured?: boolean;
 }
 
-export type SwapMode = "swap" | "shield";
+export type SwapMode = "swap";
 
 export interface FormButtonProps {
   label: string;
@@ -85,7 +77,6 @@ export type SubView =
     }
   | { type: "tokenSelect"; field: "from" | "to" }
   | { type: "sendTokenSelect" }
-  | { type: "shieldTokenSelect"; source?: "public" | "secured" }
   | { type: "approvalReview" }
   | { type: "accountPage"; account: "main" | "vault" }
   | {
@@ -104,7 +95,7 @@ export type SubView =
     }
   | { type: "sendPanel"; source?: "main" | "vault"; mint?: string }
   | { type: "receivePanel" }
-  | { type: "swapPanel"; mode?: "swap" | "shield" }
+  | { type: "swapPanel"; mode?: "swap" }
   | { type: "dappConnect"; origin: string; favicon?: string; requestId: string }
   | {
       type: "dappSign";

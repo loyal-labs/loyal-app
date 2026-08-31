@@ -28,39 +28,6 @@ Current behavior: when a transfer is classified as an SPL token transfer, `amoun
 
 ## Transaction Types
 
-The `type` field is decoded from on-chain instruction data. The parser attempts to decode instructions against the `telegram-private-transfer` and `telegram-verification` IDLs in order.
-
-### telegram-private-transfer program types
-
-These correspond to instructions on the `telegram-private-transfer` program (`97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV`):
-
-| Type | Description |
-|------|-------------|
-| `secure` | Shield — `modify_balance` with `increase=true` (tokens move from wallet to vault) |
-| `unshield` | Unshield — `modify_balance` with `increase=false` (tokens move from vault to wallet) |
-| `initialize_deposit` | Deposit account creation |
-| `initialize_username_deposit` | Username deposit account creation |
-| `transfer_deposit` | Private balance transfer between two user deposits (PER) |
-| `transfer_to_username_deposit` | Private transfer to a username deposit (PER) |
-| `claim_username_deposit_to_deposit` | Claim from username deposit with verified Telegram session (PER) |
-| `create_permission` | PER access control creation for user deposit |
-| `create_username_permission` | PER access control creation for username deposit |
-| `delegate` | Delegate user deposit to MagicBlock PER |
-| `delegate_username_deposit` | Delegate username deposit to PER |
-| `undelegate` | Commit and undelegate user deposit from PER |
-| `undelegate_username_deposit` | Commit and undelegate username deposit from PER |
-
-Note: `modify_balance` is not surfaced directly — it is re-mapped to `secure` or `unshield` based on the `increase` argument in the decoded instruction data (see `get-account-txn-history.ts:503-511`).
-
-### telegram-verification program types
-
-| Type | Description |
-|------|-------------|
-| `store` | Store Telegram validation bytes in session PDA |
-| `verify_telegram_init_data` | Verify Ed25519 signature against Telegram public key |
-
-### Other types
-
 | Type | Description |
 |------|-------------|
 | `transfer` | Default/fallback — standard SOL or SPL transfer |

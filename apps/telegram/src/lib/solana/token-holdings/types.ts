@@ -7,7 +7,6 @@ export type TokenHolding = {
   priceUsd: number | null;
   valueUsd: number | null;
   imageUrl: string | null;
-  isSecured?: boolean;
   principalBalance?: number | null;
   earnedBalance?: number | null;
   earnedValueUsd?: number | null;

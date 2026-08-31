@@ -17,7 +17,7 @@ Trust and control stays inside Automations as the canonical cross-cutting sectio
 
 The current Product tab contains four pages and about 850 raw words. It works as a short presentation, but it cannot answer the separate questions a customer asks while evaluating the product.
 
-The current Build tab contains nineteen pages and 11,372 raw words by `wc -w`. It exposes automation lifecycle, Earn routing, Smart Accounts, and Private Transactions at the same level. A developer must understand Loyal's component taxonomy before finding the right path.
+The current Build tab contains nineteen pages and 11,372 raw words by `wc -w`. It exposes automation lifecycle, Earn routing, and Smart Accounts at the same level. A developer must understand Loyal's component taxonomy before finding the right path.
 
 The repository also contains older privacy-inference and agent-network pages outside navigation. They describe a different Loyal product thesis. Leaving them routable creates conflicting explanations.
 
@@ -99,7 +99,7 @@ Use the following Mintlify features:
 | `expanded: false` | Apply it to every nested group. Top-level Product sections remain visible as native sidebar separators. |
 | `redirects` | Preserve every changed public route. |
 
-Do not use Mintlify `products` yet. The Smart Account and private-transfer capabilities remain inside Loyal's developer section. They are not separate customer offerings.
+Do not use Mintlify `products` yet. The Smart Account capabilities remain inside Loyal's developer section. They are not separate customer offerings.
 
 Two tabs create the clearest top-level distinction: Product explains what Loyal offers and how to adopt or build it; Transparency contains company and launch material. Automations, For Businesses, and Developers remain persistent as Product sidebar sections instead of competing for space in the top navigation.
 
@@ -204,18 +204,6 @@ The implementation target is exhaustive. Page paths omit file extensions, as req
                 ]
               },
               {
-                "group": "Private Transactions",
-                "icon": "user-shield",
-                "root": "packages/private-transactions/quick-start",
-                "expanded": false,
-                "pages": [
-                  "packages/private-transactions/how-it-works",
-                  "packages/private-transactions/reference",
-                  "packages/private-transactions/cli",
-                  "packages/private-transactions/errors"
-                ]
-              },
-              {
                 "group": "Reference",
                 "icon": "book-open",
                 "root": "build/reference",
@@ -292,11 +280,6 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 | Market selection | `/earn/orchestrator` | Report the selected market. Link for the complete loop. |
 | Earn enforcement layers | `/earn/trust-model` | Product pages link to Trust instead. |
 | Smart Account model | `/smart-accounts/overview` | Child pages own their specific concepts and SDKs. |
-| Private transaction entry point | `/packages/private-transactions/quick-start` | Child pages own protocol details and errors. |
-| Private transaction lifecycle | `/packages/private-transactions/how-it-works` | Name the lifecycle stage and link. |
-| Private transaction API surface | `/packages/private-transactions/reference` | Examples use only the methods they require. |
-| Private transaction CLI | `/packages/private-transactions/cli` | Other pages may link to a command. |
-| Private transaction troubleshooting | `/packages/private-transactions/errors` | Link with the observed symptom. |
 | Developer reference index | `/build/reference` | Route readers to deployed identity or runtime evidence without copying either. |
 | Deployment identity and current verification | `/build/networks-and-deployments` | Other pages cite a status and link. Audit interpretation stays in Trust. |
 | Automation runtime evidence and diagnosis | `/build/state-events-and-receipts` | Examples show only the fields they consume. Product-specific recovery stays on its error page. |
@@ -362,16 +345,6 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 | `/smart-accounts/typescript-sdk` retain | TypeScript developer: Which client level and helpers should I use? | Installation, clients, abstraction levels, PDA helpers, app-facing adapter. | Code only. | No Rust parity essay. Link to Rust SDK when relevant. |
 | `/smart-accounts/rust-sdk` retain | Rust developer: How do I construct requests with the Rust client? | Scope, client, request construction, useful entry points. | Code only. | No repeated Smart Account concepts. Link to overview. |
 
-### Developers: Private Transactions
-
-| Private route | User question | Required material | Format | Boundary and next page |
-| --- | --- | --- | --- | --- |
-| `/packages/private-transactions/quick-start` retain; use as Private Transactions root | SDK user: How do I shield and transfer privately, then claim and unshield? | Installation, client, four actions, required environment, next verification. | Use a flow when order is unclear; use code when invocation is unclear. | No internal account catalog. Link to How it works and Errors. |
-| `/packages/private-transactions/how-it-works` retain and reduce | Security-minded developer: What state and instructions implement the private lifecycle? | Lifecycle, source of truth, onchain data, instruction sequence, PER and Telegram boundaries. | Existing lifecycle diagram. | Move method signatures to Reference and fixes to Errors. |
-| `/packages/private-transactions/reference` retain | SDK user: Which public methods exist, and which types or helpers support them? | Generated or verified API surface with concise examples. | Tables and code only. | No conceptual explanation. Link to Quick start. |
-| `/packages/private-transactions/cli` retain | Operator: How do I run the supported private transaction commands? | Syntax, prerequisites, commands, environment, one end-to-end example. | Terminal examples. | No SDK method duplication. Link failed commands to Errors. |
-| `/packages/private-transactions/errors` retain | Developer or operator: What failed and what should I inspect next? | Validation errors, onchain errors, symptom-to-check table, safe retry boundary. | Troubleshooting table. | No lifecycle explanation. Link to How it works. |
-
 ### Developers: Reference
 
 | Reference route | Lookup question | Required evidence | Format | Scope and link |
@@ -409,11 +382,6 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 | `smart-accounts/frontend-and-vaults.mdx` | Retain. |
 | `smart-accounts/typescript-sdk.mdx` | Retain. |
 | `smart-accounts/rust-sdk.mdx` | Retain. |
-| `packages/private-transactions/quick-start.mdx` | Retain as Private Transactions root. |
-| `packages/private-transactions/how-it-works.mdx` | Retain and reduce overlap with Reference and Errors. |
-| `packages/private-transactions/reference.mdx` | Retain as reference only. |
-| `packages/private-transactions/cli.mdx` | Retain. |
-| `packages/private-transactions/errors.mdx` | Retain as the troubleshooting owner. |
 
 ### Existing redirect disposition
 
@@ -452,13 +420,13 @@ These pages describe the former private-inference and agent-network product. Git
 | Current page | Page action | Route action |
 | --- | --- | --- |
 | `Introduction/index.mdx` | Delete | Redirect `/Introduction` to `/`. |
-| `Introduction/howitworks.mdx` | Delete; do not reuse unverified historical claims | Redirect: `/packages/private-transactions/how-it-works` |
+| `Introduction/howitworks.mdx` | Delete; do not reuse unverified historical claims | Remove without redirect |
 | `Introduction/solution.mdx` | Delete | Redirect: `/` |
 | `Introduction/usecases.mdx` | Delete | Redirect: `/business/use-cases` |
 | `Introduction/vision.mdx` | Delete | Redirect: `/` |
 | `architecture/network.mdx` | Delete | Redirect: `/build/system-architecture` |
 | `architecture/payments.mdx` | Delete | Redirect: `/build/system-architecture` |
-| `architecture/privacy.mdx` | Delete | Redirect: `/packages/private-transactions/how-it-works` |
+| `architecture/privacy.mdx` | Delete | Remove without redirect |
 | `quickstart.mdx` | Delete | Redirect `/quickstart` to `/build/first-automation`. |
 | `surveillance-crisis.mdx` | Delete | Redirect: `/` |
 | `launch/MetaDAO.mdx` | Delete | Redirect: `/launch/token` |
@@ -547,7 +515,6 @@ Exit condition: no full explanation of the thesis, mechanism, economics, authori
 - Create pause and close implementation guidance.
 - Add networks and deployments.
 - Add the runtime evidence reference.
-- Separate Private Transactions How it works from Reference. Errors owns remediation.
 
 Exit condition: a developer can choose a path, build the minimal flow, verify failure and exit, and locate current deployment evidence without reading unrelated product branches.
 
