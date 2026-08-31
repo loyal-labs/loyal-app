@@ -4,7 +4,6 @@ import {
   BottomSheetModal,
 } from "@gorhom/bottom-sheet";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { Shield, ShieldOff } from "lucide-react-native";
 import { forwardRef, useCallback, useMemo } from "react";
 import { Image as RNImage } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -44,11 +43,6 @@ function TransactionRow({
 }) {
   const isIncoming = transaction.type === "incoming";
   const isSwap = transaction.transferType === "swap";
-  const isSecure = transaction.transferType === "secure";
-  const isUnshield = transaction.transferType === "unshield";
-  const isCompact =
-    transaction.transferType === "store" ||
-    transaction.transferType === "verify_telegram_init_data";
 
   const counterparty = isIncoming
     ? transaction.sender || "Unknown sender"
@@ -64,29 +58,6 @@ function TransactionRow({
   let subtitle: string | null = null;
   let amount: string;
   let amountColor = "#000";
-
-  if (isCompact) {
-    title =
-      transaction.transferType === "store" ? "Store data" : "Verify data";
-    amount = formatTransactionDate(transaction.timestamp);
-
-    return (
-      <Pressable onPress={onPress} className="flex-row items-center px-4 py-2">
-        <Text
-          className="flex-1 text-[13px]"
-          style={{ color: "rgba(60, 60, 67, 0.6)" }}
-        >
-          {title}
-        </Text>
-        <Text
-          className="text-[13px]"
-          style={{ color: "rgba(60, 60, 67, 0.6)" }}
-        >
-          {amount}
-        </Text>
-      </Pressable>
-    );
-  }
 
   if (isSwap) {
     const swapToHolding = transaction.swapToMint
@@ -136,37 +107,6 @@ function TransactionRow({
       transaction.swapToAmount != null
         ? `+${transaction.swapToAmount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${toSymbol}`
         : "Swap";
-  } else if (isSecure || isUnshield) {
-    const secureHolding = transaction.tokenMint
-      ? tokenHoldings.find((h) => h.mint === transaction.tokenMint)
-      : undefined;
-    const symbol =
-      transaction.secureTokenSymbol ||
-      (transaction.tokenMint
-        ? resolveTokenSymbol({
-            mint: transaction.tokenMint,
-            detailSymbol: tokenDetailsByMint[transaction.tokenMint]?.token.symbol,
-            holdingSymbol: secureHolding?.symbol,
-          })
-        : "Token");
-    const secureAmount =
-      transaction.secureAmount ??
-      (transaction.tokenAmount ? parseFloat(transaction.tokenAmount) : null);
-    iconElement = isSecure ? (
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-blue-100">
-        <Shield size={28} color="#2563eb" strokeWidth={1.5} />
-      </View>
-    ) : (
-      <View className="h-12 w-12 items-center justify-center rounded-full bg-orange-100">
-        <ShieldOff size={28} color="#ea580c" strokeWidth={1.5} />
-      </View>
-    );
-    title = isSecure ? "Shielded" : "Unshielded";
-    subtitle = symbol;
-    amount =
-      secureAmount != null
-        ? `${secureAmount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${symbol}`
-        : `${formatTransactionAmount(transaction.amountLamports)} SOL`;
   } else if (transaction.tokenMint && transaction.tokenAmount) {
     const holding = tokenHoldings.find(
       (h) => h.mint === transaction.tokenMint,

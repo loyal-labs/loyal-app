@@ -8,7 +8,6 @@ import {
   type BalanceBackgroundOption,
   findBalanceBackground,
 } from "@/lib/wallet/balance-backgrounds";
-import type { KaminoUsdcEarnings } from "@/lib/solana/deposits/kamino-earnings";
 import { formatAddress } from "@/lib/solana/wallet/formatters";
 import { getSolanaEnv } from "@/lib/solana/rpc/connection";
 import { Pressable, Text, View } from "@/tw";
@@ -21,8 +20,6 @@ type BalanceCardProps = {
   isLoading: boolean;
   walletError?: string | null;
   onRetry?: () => void;
-  /** Aggregate Kamino USDC earnings pill. Hidden when null or zero. */
-  earnings?: KaminoUsdcEarnings | null;
   showTopUpAction?: boolean;
   onTopUpPress?: () => void;
   /** id of the active balance background (null = no image). */
@@ -32,17 +29,6 @@ type BalanceCardProps = {
   onOpenBgPicker?: () => void;
 };
 
-function formatEarnedPct(pct: number): string {
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
-}
-
-function formatEarnedUsd(usd: number): string {
-  return `$${usd.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
 export function BalanceCard({
   walletAddress,
   solBalanceLamports,
@@ -50,7 +36,6 @@ export function BalanceCard({
   isLoading,
   walletError,
   onRetry,
-  earnings,
   showTopUpAction = false,
   onTopUpPress,
   balanceBg,
@@ -75,8 +60,6 @@ export function BalanceCard({
     }
     onOpenBgPicker();
   };
-  const showEarningsPill =
-    !!earnings && earnings.earnedUsd > 0 && earnings.earnedPct > 0;
   const [addressCopied, setAddressCopied] = useState(false);
   const solanaEnv = getSolanaEnv();
 
@@ -236,24 +219,6 @@ export function BalanceCard({
                       </Pressable>
                     ) : null}
                   </View>
-                  {showEarningsPill && earnings && (
-                    <View style={styles.earningsRow}>
-                      <View style={styles.earningsPill}>
-                        <Text style={styles.earningsPillText}>
-                          {formatEarnedPct(earnings.earnedPct)} (
-                          {formatEarnedUsd(earnings.earnedUsd)})
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.earningsAllTime,
-                          { color: mutedTextColor },
-                        ]}
-                      >
-                        All time
-                      </Text>
-                    </View>
-                  )}
                 </View>
               )}
             </View>
@@ -316,29 +281,6 @@ const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-  },
-  earningsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 6,
-  },
-  earningsPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
-  },
-  earningsPillText: {
-    color: "#15803d",
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  earningsAllTime: {
-    fontFamily: "Geist_500Medium",
-    fontSize: 13,
-    lineHeight: 18,
   },
   topUpText: {
     color: "#fff",

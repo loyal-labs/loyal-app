@@ -3,13 +3,9 @@ import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 
 import type { TokenPosition } from "./types";
 
-function sumBalances(
-  holdings: TokenHolding[],
-  mint: string,
-  isSecured: boolean,
-): number {
+function sumBalances(holdings: TokenHolding[], mint: string): number {
   return holdings.reduce((total, holding) => {
-    if (holding.mint !== mint || Boolean(holding.isSecured) !== isSecured) {
+    if (holding.mint !== mint) {
       return total;
     }
     return total + holding.balance;
@@ -57,14 +53,10 @@ export function buildTokenPosition(
   holdings: TokenHolding[],
 ): TokenPosition {
   const { symbol, icon } = resolveTokenInfo(mint, holdings);
-  const publicBalance = sumBalances(holdings, mint, false);
-  const shieldedBalance = sumBalances(holdings, mint, true);
 
   return {
     mint,
-    publicBalance,
-    shieldedBalance,
-    totalBalance: publicBalance + shieldedBalance,
+    totalBalance: sumBalances(holdings, mint),
     totalValueUsd: sumValueUsd(holdings, mint),
     symbol,
     name: resolveName(mint, symbol, holdings),

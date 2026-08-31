@@ -1,5 +1,4 @@
 // mobile/metro.config.js
-const fs = require("fs");
 const path = require("path");
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativewind } = require("nativewind/metro");
@@ -31,39 +30,10 @@ const solanaInstructionDecoderRoot = path.resolve(
   __dirname,
   "../../packages/solana-instruction-decoder/src",
 );
-const privateTransactionsRoot = path.resolve(__dirname, "../../packages/private-transactions");
-const privateTransactionsEntryCandidates = [
-  path.resolve(
-    __dirname,
-    "node_modules/@loyal-labs/private-transactions/dist/index.js",
-  ),
-  path.resolve(
-    __dirname,
-    "../../packages/private-transactions/dist/index.js",
-  ),
-  path.resolve(
-    __dirname,
-    "node_modules/@loyal-labs/private-transactions/index.ts",
-  ),
-  path.resolve(
-    __dirname,
-    "../../packages/private-transactions/index.ts",
-  ),
-];
-const privateTransactionsEntry = privateTransactionsEntryCandidates.find(
-  (candidate) => fs.existsSync(candidate),
-);
-
-if (!privateTransactionsEntry) {
-  throw new Error(
-    "Unable to resolve @loyal-labs/private-transactions entry file from Metro config.",
-  );
-}
 config.watchFolders = [
   sharedRoot,
   solanaRpcRoot,
   walletCoreRoot,
-  privateTransactionsRoot,
   smartAccountVaultsRoot,
   loyalActionsRoot,
   loyalSmartAccountsRoot,
@@ -107,13 +77,6 @@ const nativewindConfig = withNativewind(config, {
 
 const nativewindResolveRequest = nativewindConfig.resolver.resolveRequest;
 nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "@loyal-labs/private-transactions") {
-    return {
-      type: "sourceFile",
-      filePath: privateTransactionsEntry,
-    };
-  }
-
   // The SDK's webcrypto.ts guards a `await import("node:crypto")` behind a
   // Node-only runtime check, but Metro still walks the import graph eagerly.
   // Shim it to an empty module so the bundler stops complaining; the guard

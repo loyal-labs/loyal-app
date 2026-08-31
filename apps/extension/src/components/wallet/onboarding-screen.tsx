@@ -14,18 +14,6 @@ const SLIDES = [
       "Send, swap, and receive any Solana token from one secure wallet.",
   },
   {
-    image: "/onboarding/on2.png",
-    title: "Send Privately",
-    subtitle:
-      "Send crypto privately over Telegram username. Don\u2019t reveal your address and sensitive data onchain.",
-  },
-  {
-    image: "/onboarding/on3.png",
-    title: "Shield and Earn",
-    subtitle:
-      "Move assets into your private balance and earn up to 4.31% APY while keeping them ready for private transactions.",
-  },
-  {
     image: "/onboarding/on4.png",
     title: "Connect With Confidence",
     subtitle:

@@ -31,7 +31,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
-import { ShieldSheet } from "@/components/wallet/ShieldSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { splitUsd } from "@/features/wallet-categories/model/format";
 import { ActionBarButton } from "@/features/wallet-categories/ui/ActionBarButton";
@@ -44,7 +43,6 @@ import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletBalance } from "@/hooks/wallet/useWalletBalance";
 import { useWalletInit } from "@/hooks/wallet/useWalletInit";
-import type { ShieldDirection } from "@/lib/solana/shielding";
 import { formatUsdSpotPrice } from "@/lib/solana/token-holdings/format-usd-price";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import type { TokenDetailTimeframe } from "@/services/api";
@@ -66,7 +64,6 @@ import UnverifiedBadgeIcon from "../../../../assets/images/icons/unverified_badg
 import VerifiedBadgeIcon from "../../../../assets/images/icons/verified_badge_24.svg";
 import XLogoIcon from "../../../../assets/images/icons/x_logo_20.svg";
 
-const shieldBadge = require("../../../../assets/images/shield-badge.png");
 
 const MUTED = "rgba(60, 60, 67, 0.6)";
 const DIM = "rgba(60, 60, 67, 0.4)";
@@ -424,14 +421,12 @@ function BalanceRow({
   title,
   amountText,
   usdText,
-  shielded,
   showConnector,
 }: {
   icon: string;
   title: string;
   amountText: string;
   usdText: string;
-  shielded?: boolean;
   showConnector?: boolean;
 }) {
   return (
@@ -448,12 +443,6 @@ function BalanceRow({
             borderColor: ICON_BORDER,
           }}
         />
-        {shielded ? (
-          <RNImage
-            source={shieldBadge}
-            style={{ position: "absolute", bottom: -2, right: 4, width: 24, height: 24 }}
-          />
-        ) : null}
         {showConnector ? (
           <View
             style={{
@@ -573,13 +562,10 @@ export default function TokenDetailScreen() {
   const [scanOnOpen, setScanOnOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
-  const [isShieldOpen, setIsShieldOpen] = useState(false);
   const [isVerifySheetOpen, setIsVerifySheetOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
   const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
-  const [shieldDirection, setShieldDirection] =
-    useState<ShieldDirection>("shield");
   const [timeframe, setTimeframe] = useState<TokenDetailTimeframe>("1d");
   const [activeChartPointIndex, setActiveChartPointIndex] = useState<number | null>(null);
   const [isChartInteracting, setIsChartInteracting] = useState(false);
@@ -590,7 +576,7 @@ export default function TokenDetailScreen() {
   const { solPriceUsd } = useSolPrice();
   const { tokenHoldings, refreshTokenHoldings } = useTokenHoldings(walletAddress);
   // Feed the same CoinGecko-backed token-detail cache the home screen uses,
-  // so sheets launched from here (send/swap/shield) can resolve icons via
+  // so sheets launched from here (send/swap) can resolve icons via
   // `detailLogoUrl` rather than falling back to Helius metadata or the
   // SOL-logo placeholder.
   const sheetTokenDetailMints = useMemo(
@@ -633,11 +619,6 @@ export default function TokenDetailScreen() {
     setTimeframe(next);
   }, []);
 
-  const handleOpenShield = useCallback((direction: ShieldDirection) => {
-    setShieldDirection(direction);
-    setIsShieldOpen(true);
-  }, []);
-
   const handleBackPress = useCallback(() => {
     router.back();
   }, [router]);
@@ -665,10 +646,8 @@ export default function TokenDetailScreen() {
     position.totalValueUsd ??
     (spotPrice !== null ? position.totalBalance * spotPrice : null);
   const totalUsdParts = totalUsd !== null ? splitUsd(totalUsd) : null;
-  const hasBothBalances = position.publicBalance > 0 && position.shieldedBalance > 0;
-
-  const initialSwapFromMint = position.publicBalance > 0 ? viewModel.mint : undefined;
-  const initialSwapToMint = position.publicBalance > 0 ? undefined : viewModel.mint;
+  const initialSwapFromMint = position.totalBalance > 0 ? viewModel.mint : undefined;
+  const initialSwapToMint = position.totalBalance > 0 ? undefined : viewModel.mint;
 
   if (!tokenMint) {
     return (
@@ -939,30 +918,16 @@ export default function TokenDetailScreen() {
                 {formatBalance(position.totalBalance)} {token.symbol}
               </Text>
             </View>
-            {position.publicBalance > 0 ? (
+            {position.totalBalance > 0 ? (
               <BalanceRow
                 icon={token.icon}
-                title="Public"
-                amountText={`${formatBalance(position.publicBalance)} ${token.symbol}`}
+                title="Available"
+                amountText={`${formatBalance(position.totalBalance)} ${token.symbol}`}
                 usdText={
                   spotPrice !== null
-                    ? formatUsdValue(position.publicBalance * spotPrice)
+                    ? formatUsdValue(position.totalBalance * spotPrice)
                     : "—"
                 }
-                showConnector={hasBothBalances}
-              />
-            ) : null}
-            {position.shieldedBalance > 0 ? (
-              <BalanceRow
-                icon={token.icon}
-                title="Shielded"
-                amountText={`${formatBalance(position.shieldedBalance)} ${token.symbol}`}
-                usdText={
-                  spotPrice !== null
-                    ? formatUsdValue(position.shieldedBalance * spotPrice)
-                    : "—"
-                }
-                shielded
               />
             ) : null}
           </View>
@@ -1041,17 +1006,6 @@ export default function TokenDetailScreen() {
         initialToMint={initialSwapToMint}
       />
 
-      <ShieldSheet
-        open={isShieldOpen}
-        onClose={() => setIsShieldOpen(false)}
-        walletAddress={walletAddress}
-        tokenHoldings={tokenHoldings}
-        tokenDetailsByMint={tokenDetailsByMint}
-        onShieldComplete={handleActionComplete}
-        initialMint={viewModel.mint}
-        initialDirection={shieldDirection}
-      />
-
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
@@ -1062,8 +1016,6 @@ export default function TokenDetailScreen() {
         }}
         onReceive={() => setIsReceiveOpen(true)}
         onSwap={() => setIsSwapOpen(true)}
-        onShield={() => handleOpenShield("shield")}
-        onUnshield={() => handleOpenShield("unshield")}
       />
 
       <TokenVerificationSheet

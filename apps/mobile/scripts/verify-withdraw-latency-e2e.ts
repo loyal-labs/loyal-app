@@ -5,15 +5,11 @@ import {
   constants,
   createWriteStream,
   existsSync,
-  lstatSync,
   mkdtempSync,
   mkdirSync,
-  readlinkSync,
   readFileSync,
   readdirSync,
   rmSync,
-  symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,9 +126,6 @@ const apiTimings: ApiTiming[] = [];
 let emulatorStarted = false;
 let emulatorSerial: string | null = null;
 let seedDepositActionBounds: UiNode["bounds"] | null = null;
-let materializedPrivateTransactionsEntry:
-  | { entryPath: string; linkTarget: string }
-  | undefined;
 let patchedKaminoClientSource: { path: string; source: string } | undefined;
 const seededDepositSources: { path: string; source: string }[] = [];
 
@@ -290,28 +283,6 @@ function decodeXml(value: string): string {
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
     .replaceAll("&amp;", "&");
-}
-
-function materializeWorktreePrivateTransactionsEntry(): void {
-  const entryPath = resolve(
-    import.meta.dir,
-    "../node_modules/@loyal-labs/private-transactions/dist/index.js"
-  );
-  if (!existsSync(entryPath) || !lstatSync(entryPath).isSymbolicLink()) return;
-
-  const linkTarget = readlinkSync(entryPath);
-  const worktreeEntry = resolve(dirname(entryPath), linkTarget);
-  unlinkSync(entryPath);
-  copyFileSync(worktreeEntry, entryPath);
-  materializedPrivateTransactionsEntry = { entryPath, linkTarget };
-}
-
-function restorePrivateTransactionsEntry(): void {
-  if (!materializedPrivateTransactionsEntry) return;
-  const { entryPath, linkTarget } = materializedPrivateTransactionsEntry;
-  unlinkSync(entryPath);
-  symlinkSync(linkTarget, entryPath);
-  materializedPrivateTransactionsEntry = undefined;
 }
 
 function routeKaminoInstructionApiThroughVerifier(): void {
@@ -1759,7 +1730,6 @@ async function main(): Promise<void> {
       adbRun(["reverse", "tcp:8899", "tcp:8899"]);
       adbRun(["reverse", "tcp:8900", "tcp:8900"]);
     }
-    materializeWorktreePrivateTransactionsEntry();
     routeKaminoInstructionApiThroughVerifier();
     if (mode === "insufficient-sol") {
       openDepositSheetInVerifierBundle();
@@ -1937,7 +1907,6 @@ try {
   if (emulatorStarted) {
     spawnSync(adb, ["-s", emulatorSerial!, "emu", "kill"], { stdio: "ignore" });
   }
-  restorePrivateTransactionsEntry();
   restoreKaminoClientSource();
   restoreDepositSource();
   processLog.end();

@@ -10,7 +10,6 @@ import {
   TESTNET_RPC_URL,
 } from "../rpc/constants";
 import { CACHE_TTL_MS } from "./constants";
-import { fetchSecuredBalances } from "./fetch-secured-balances";
 import { resolveTokenIcon } from "./resolve-token-info";
 import type {
   CachedHoldings,
@@ -327,10 +326,8 @@ export async function fetchTokenHoldings(
   }
 
   // Coalesce concurrent fetches for the same wallet — including forced ones.
-  // One holdings fetch fans out into several RPC calls (searchAssets +
-  // getProgramAccounts via enumerateDepositsByUser + per-mint reads + a Kamino
-  // quote); getProgramAccounts in particular is heavily rate-limited. With many
-  // mounted useTokenHoldings instances and several `forceRefresh` callers firing
+  // One holdings fetch fans out into several RPC calls; with many mounted
+  // useTokenHoldings instances and several `forceRefresh` callers firing
   // together (deposit/withdraw/sweep + mutation refresh + polls), letting forced
   // calls skip this dedup launched that whole fan-out in parallel and tripped
   // Helius into 429s with a single user. An in-flight request is already a live
@@ -348,20 +345,9 @@ export async function fetchTokenHoldings(
 
   const loader = fetchHoldingsFromHelius(rpcUrl, publicKey).then(
     async (holdings) => {
-      let allHoldings = holdings;
+      let enrichedHoldings = holdings;
       try {
-        const securedHoldings = await fetchSecuredBalances(publicKey, holdings);
-        allHoldings = [...holdings, ...securedHoldings];
-      } catch (error) {
-        console.warn(
-          "Failed to fetch secured balances, using public only",
-          error
-        );
-      }
-
-      let enrichedHoldings = allHoldings;
-      try {
-        enrichedHoldings = await enrichHoldingsWithJupiterPrices(allHoldings);
+        enrichedHoldings = await enrichHoldingsWithJupiterPrices(holdings);
       } catch (error) {
         console.warn("Failed to enrich holdings with Jupiter prices", error);
       }

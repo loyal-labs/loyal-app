@@ -272,7 +272,7 @@ export default function EarnScreen() {
     // cost — so gate on the policy read, not just the balance.
     if (!earnPositionLoaded || (hasDeposit && !earnPolicyMissing)) return null;
     const sol = tokenHoldings.find(
-      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured,
+      (h) => h.mint === NATIVE_SOL_MINT,
     );
     if (!sol) return null;
     return computeFirstDepositSolShortfall(sol.balance);
@@ -281,7 +281,7 @@ export default function EarnScreen() {
   // same fail-open gate. The sheet only applies it in "create" mode.
   const autodepositSolShortfall = useMemo(() => {
     const sol = tokenHoldings.find(
-      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured,
+      (h) => h.mint === NATIVE_SOL_MINT,
     );
     if (!sol) return null;
     return computeAutodepositSetupSolShortfall(sol.balance);

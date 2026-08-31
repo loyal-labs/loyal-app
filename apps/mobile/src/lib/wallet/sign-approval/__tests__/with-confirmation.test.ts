@@ -116,7 +116,7 @@ describe("withConfirmation", () => {
     const inner = makeSeedVaultSigner();
     const { ctx, requests } = makeCtx();
     const wrapped = withConfirmation(inner, ctx, {
-      title: "Shield 4 USDC",
+      title: "Send 4 USDC",
       subtitle: "Loyal → Kamino",
     });
 
@@ -127,7 +127,7 @@ describe("withConfirmation", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({
       kind: "transaction",
-      title: "Shield 4 USDC",
+      title: "Send 4 USDC",
       subtitle: "Loyal → Kamino",
     });
   });

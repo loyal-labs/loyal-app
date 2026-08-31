@@ -18,7 +18,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
-import { ShieldSheet } from "@/components/wallet/ShieldSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
 import { buildTokenDetailHref } from "@/features/token-details/routes";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
@@ -33,7 +32,6 @@ import {
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
 import { getSolanaEnv } from "@/lib/solana/rpc/connection";
-import type { ShieldDirection } from "@/lib/solana/shielding";
 import {
   getDisplayTokenHoldings,
   getPairPositions,
@@ -136,22 +134,14 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const [scanOnOpen, setScanOnOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
-  const [isShieldOpen, setIsShieldOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
   const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
-  const [shieldDirection, setShieldDirection] =
-    useState<ShieldDirection>("shield");
 
   const refresh = useCallback(() => {
     void refreshBalance(true);
     void refreshTokenHoldings(true);
   }, [refreshBalance, refreshTokenHoldings]);
-
-  const handleOpenShield = useCallback((direction: ShieldDirection) => {
-    setShieldDirection(direction);
-    setIsShieldOpen(true);
-  }, []);
 
   const handleTokenPress = useCallback(
     (mint: string) => {
@@ -295,7 +285,7 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
                 ) : (
                   displayHoldings.map((holding, index) => (
                     <CategoryAssetRow
-                      key={`${holding.mint}-${holding.isSecured ? "s" : "r"}`}
+                      key={holding.mint}
                       holding={holding}
                       detail={tokenDetailsByMint[holding.mint]}
                       variant={category}
@@ -384,17 +374,6 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         initialFromMint={initialMint}
       />
 
-      <ShieldSheet
-        open={isShieldOpen}
-        onClose={() => setIsShieldOpen(false)}
-        walletAddress={walletAddress}
-        tokenHoldings={tokenHoldings}
-        tokenDetailsByMint={tokenDetailsByMint}
-        onShieldComplete={refresh}
-        initialMint={initialMint}
-        initialDirection={shieldDirection}
-      />
-
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
@@ -405,8 +384,6 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         }}
         onReceive={() => setIsReceiveOpen(true)}
         onSwap={() => setIsSwapOpen(true)}
-        onShield={() => handleOpenShield("shield")}
-        onUnshield={() => handleOpenShield("unshield")}
       />
     </>
   );

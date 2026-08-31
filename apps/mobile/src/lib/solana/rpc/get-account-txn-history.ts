@@ -13,11 +13,6 @@ import {
 } from "@solana/web3.js";
 
 import { NATIVE_SOL_DECIMALS, NATIVE_SOL_MINT } from "../constants";
-import {
-  decodeTelegramPrivateTransferInstruction,
-  decodeTelegramTransferInstruction,
-  decodeTelegramVerificationInstruction,
-} from "../solana-helpers";
 import { getConnection } from "./connection";
 import { GetAccountTransactionHistoryOptions, WalletTransfer } from "./types";
 
@@ -554,96 +549,9 @@ const mapTransactionToTransfer = (
     }
   }
 
-  const allInstructionsWithData = [
-    ...(message.instructions as (
-      | ParsedInstruction
-      | PartiallyDecodedInstruction
-    )[]),
-    ...((innerInstructions ?? []) as ParsedInnerInstruction[]).flatMap(
-      (ix: ParsedInnerInstruction) =>
-        (ix.instructions ?? []) as (
-          | ParsedInstruction
-          | PartiallyDecodedInstruction
-        )[],
-    ),
-  ].filter(
-    (ix): ix is PartiallyDecodedInstruction =>
-      "data" in ix &&
-      typeof (ix as PartiallyDecodedInstruction).data === "string",
-  );
+  let type: WalletTransfer["type"] = "transfer";
 
-  const knownInstructionTypes: WalletTransfer["type"][] = [
-    "verify_telegram_init_data",
-    "store",
-    "initialize_deposit",
-    "initialize_username_deposit",
-    "modify_balance",
-    "claim_username_deposit_to_deposit",
-    "transfer_deposit",
-    "transfer_to_username_deposit",
-    "create_permission",
-    "create_username_permission",
-    "delegate",
-    "delegate_username_deposit",
-    "undelegate",
-    "undelegate_username_deposit",
-  ];
-
-  const decodeInstructionData = (data: string) => {
-    const decoders = [
-      decodeTelegramPrivateTransferInstruction,
-      decodeTelegramTransferInstruction,
-      decodeTelegramVerificationInstruction,
-    ];
-
-    for (const decode of decoders) {
-      try {
-        const decoded = decode(data);
-        if (decoded) return decoded;
-      } catch {
-        continue;
-      }
-    }
-
-    return null;
-  };
-
-  const decodedInstructions = allInstructionsWithData
-    .map((ix) => decodeInstructionData(ix.data))
-    .filter(
-      (decoded): decoded is NonNullable<typeof decoded> => decoded !== null,
-    );
-
-  // First shield for a given mint bundles initialize_deposit +
-  // modify_balance + create_permission + delegate_deposit into one tx.
-  // A plain .find() returned `initialize_deposit`, which is not a
-  // shield/unshield type — the UI then rendered the tx as a generic
-  // "SOL Sent" row. `modify_balance` is the canonical shield/unshield
-  // marker; when present it must win regardless of instruction order.
-  const decodedInstruction =
-    decodedInstructions.find((decoded) => decoded.name === "modify_balance") ??
-    decodedInstructions[0];
-
-  const decodedType = decodedInstruction?.name;
-
-  let type: WalletTransfer["type"] =
-    decodedType &&
-    knownInstructionTypes.includes(decodedType as WalletTransfer["type"])
-      ? (decodedType as WalletTransfer["type"])
-      : "transfer";
-
-  if (decodedType === "modify_balance" && decodedInstruction) {
-    const modifyArgs = (
-      decodedInstruction.data as { args?: { increase?: boolean } }
-    )?.args;
-    if (typeof modifyArgs?.increase === "boolean") {
-      type = modifyArgs.increase ? "secure" : "unshield";
-    }
-  }
-
-  const isTokenTransfer = type === "transfer" && tokenChange !== null;
-  const isSecureWithToken =
-    (type === "secure" || type === "unshield") && tokenChange !== null;
+  const isTokenTransfer = tokenChange !== null;
 
   const isJupiterSwap =
     type === "transfer" &&
@@ -678,13 +586,13 @@ const mapTransactionToTransfer = (
   const direction: "in" | "out" =
     type === "swap"
       ? "out"
-      : isTokenTransfer || isSecureWithToken
+      : isTokenTransfer
         ? tokenChange!.direction
         : solDirection;
   const amountLamports =
     type === "swap"
       ? solAmountLamports
-      : isTokenTransfer || isSecureWithToken
+      : isTokenTransfer
         ? 0
         : solAmountLamports;
 
@@ -713,7 +621,7 @@ const mapTransactionToTransfer = (
     feeLamports: safeMeta.fee ?? 0,
     status: safeMeta.err ? "failed" : "success",
     counterparty,
-    ...((isTokenTransfer || isSecureWithToken) && type !== "swap"
+    ...(isTokenTransfer && type !== "swap"
       ? {
           tokenMint: tokenChange!.mint,
           tokenAmount: formatTokenAmountFromRaw({

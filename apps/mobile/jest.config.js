@@ -6,7 +6,6 @@ module.exports = {
     "^@loyal-labs/shared$": "<rootDir>/../../packages/shared/src/index",
     "^@loyal-labs/wallet-core/lib$":
       "<rootDir>/../../packages/wallet-core/src/lib/index",
-    "^@loyal-labs/private-transactions$": "<rootDir>/../../packages/private-transactions/index",
     "^expo-seed-vault$": "<rootDir>/modules/expo-seed-vault/src/index",
     "^expo-synced-keychain$": "<rootDir>/modules/expo-synced-keychain/src/index",
     "\\.(png|jpg|jpeg|gif|webp|svg)$": "<rootDir>/test/fileMock.js",

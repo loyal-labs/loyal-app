@@ -4,10 +4,6 @@ export const SECRET_KEY_STORAGE_KEY = "solana_secret_key";
 export const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
 export const NATIVE_SOL_DECIMALS = 9;
 
-export const DEPOSIT_SEED = "deposit_v2";
-export const VAULT_SEED = "vault";
-export const SESSION_SEED = "tg_session";
-
 // SOL price for USD conversions (hardcoded fallback)
 export const SOL_PRICE_USD = 180;
 
@@ -28,12 +24,3 @@ export const RECENT_RECIPIENTS_KEY = "recentRecipients";
 export const MAX_RECENT_RECIPIENTS = 10;
 export const DISPLAY_CURRENCY_KEY = "displayCurrency";
 export const BALANCE_BG_KEY = "balanceBg";
-
-// Lazy-initialized to avoid top-level Buffer access before polyfills load
-let _sessionSeedBytes: Uint8Array | null = null;
-export const getSessionSeedBytes = (): Uint8Array => {
-  if (!_sessionSeedBytes) {
-    _sessionSeedBytes = Buffer.from("tg_session");
-  }
-  return _sessionSeedBytes;
-};

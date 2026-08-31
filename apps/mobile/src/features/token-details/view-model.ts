@@ -25,8 +25,6 @@ export type TokenDetailViewModel = {
   canSend: boolean;
   canReceive: boolean;
   canSwap: boolean;
-  canShield: boolean;
-  canUnshield: boolean;
 };
 
 type BuildTokenDetailViewModelInput = {
@@ -97,10 +95,8 @@ export function buildTokenDetailViewModel({
     links: marketForMint ? marketForMint.links : null,
     market: marketSummary,
     info: marketForMint ? marketForMint.info : null,
-    canSend: position.publicBalance > 0,
+    canSend: position.totalBalance > 0,
     canReceive: true,
     canSwap: true,
-    canShield: position.publicBalance > 0,
-    canUnshield: position.shieldedBalance > 0,
   };
 }

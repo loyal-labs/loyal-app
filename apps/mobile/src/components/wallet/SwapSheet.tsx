@@ -39,7 +39,6 @@ import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
 import type { PopularToken } from "@/hooks/wallet/usePopularTokens";
 import { usePopularTokens } from "@/hooks/wallet/usePopularTokens";
-import { useShield } from "@/hooks/wallet/useShield";
 import { track } from "@/lib/analytics/analytics";
 import { SWAP_EVENTS } from "@/lib/analytics/swap-events";
 import {
@@ -72,8 +71,6 @@ import SwapCurrencyIcon from "../../../assets/images/icons/swap_currency_28.svg"
 import SendErrorDog from "../../../assets/images/wallet/send_error_dog.svg";
 import SendSpinnerIcon from "../../../assets/images/wallet/send_spinner_80.svg";
 import SendSuccessDog from "../../../assets/images/wallet/send_success_dog.svg";
-
-const shieldBadge = require("../../../assets/images/shield-badge.png");
 
 // Fixed-height sheet (mirrors SendSheet). A fixed height is what lets each
 // step's `flex-1` regions size + center correctly and keeps the footer pinned.
@@ -231,11 +228,11 @@ function formatAmountInputDisplay(raw: string): string {
 function resolveInitialSwapMints(params: {
   initialFromMint?: string;
   initialToMint?: string;
-  publicHoldings: TokenHolding[];
+  holdings: TokenHolding[];
   toPickerTokens: TokenHolding[];
 }) {
   const defaultToMint = getDefaultUsdcMint();
-  const requestedFromMint = params.publicHoldings.some(
+  const requestedFromMint = params.holdings.some(
     (holding) => holding.mint === params.initialFromMint
   )
     ? (params.initialFromMint as string)
@@ -258,7 +255,7 @@ function resolveInitialSwapMints(params: {
         toMint = nextTo.mint;
       }
     } else {
-      const nextFrom = params.publicHoldings.find(
+      const nextFrom = params.holdings.find(
         (holding) => holding.mint !== toMint
       );
       if (nextFrom) {
@@ -324,40 +321,23 @@ export function SwapSheet({
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
-  const [fromIsSecured, setFromIsSecured] = useState(false);
-  const [swapStage, setSwapStage] = useState<
-    "idle" | "unshielding" | "swapping"
-  >("idle");
-
-  const { executeUnshield } = useShield();
 
   const { tokens: popularTokens, searchTokens } = usePopularTokens();
 
-  // From picker shows both public AND shielded balances. Shielded From
-  // triggers an auto-unshield-then-swap flow. To picker stays public-only
-  // — Jupiter routes deposit into the user's public token account.
-  const publicHoldings = useMemo(
-    () => tokenHoldings.filter((t) => !t.isSecured),
-    [tokenHoldings]
-  );
   const fromHoldings = useMemo(
     () => tokenHoldings.filter((t) => t.balance > 0),
     [tokenHoldings]
   );
   const toPickerTokens = useMemo(() => {
-    const heldMints = new Set(publicHoldings.map((t) => t.mint));
+    const heldMints = new Set(tokenHoldings.map((t) => t.mint));
     const popularAsHoldings: TokenHolding[] = popularTokens
       .filter((p) => !heldMints.has(p.mint))
       .map(popularToHolding);
-    return [...publicHoldings, ...popularAsHoldings];
-  }, [publicHoldings, popularTokens]);
+    return [...tokenHoldings, ...popularAsHoldings];
+  }, [tokenHoldings, popularTokens]);
 
   const fromHolding =
-    tokenHoldings.find(
-      (t) => t.mint === fromMint && Boolean(t.isSecured) === fromIsSecured
-    ) ??
-    tokenHoldings.find((t) => t.mint === fromMint) ??
-    null;
+    tokenHoldings.find((t) => t.mint === fromMint) ?? null;
   const toHolding =
     tokenHoldings.find((t) => t.mint === toMint) ??
     toPickerTokens.find((t) => t.mint === toMint) ??
@@ -385,7 +365,7 @@ export function SwapSheet({
       const initialMints = resolveInitialSwapMints({
         initialFromMint,
         initialToMint,
-        publicHoldings,
+        holdings: tokenHoldings,
         toPickerTokens,
       });
       bottomSheetRef.current?.present();
@@ -393,8 +373,6 @@ export function SwapSheet({
       setFromMint(initialMints.fromMint);
       setToMint(initialMints.toMint);
       setSelectedToToken(null);
-      setFromIsSecured(false);
-      setSwapStage("idle");
       setAmountStr("");
       setCurrencyMode("TOKEN");
       lastSuccessfulFeeEstimateStateRef.current = null;
@@ -611,9 +589,6 @@ export function SwapSheet({
     const prevTo = toMint;
     setFromMint(prevTo);
     setToMint(prevFrom);
-    // Flipping always resets to public source — shielded balance can only
-    // sit on the From side, never the To side.
-    setFromIsSecured(false);
     setAmountStr("");
     setCurrencyMode("TOKEN");
     lastSuccessfulFeeEstimateStateRef.current = null;
@@ -672,24 +647,6 @@ export function SwapSheet({
     setStep("result");
 
     try {
-      // Jupiter routes operate on the user's public token account. If the
-      // selected source is shielded, we have to materialize the funds in
-      // the public account first via unshield.
-      if (fromIsSecured) {
-        setSwapStage("unshielding");
-        const unshieldResult = await executeUnshield({
-          tokenSymbol: fromHolding.symbol,
-          amount: amountNum,
-          tokenMint: fromHolding.mint,
-          tokenDecimals: fromHolding.decimals,
-        });
-        if (!unshieldResult.success) {
-          throw new Error(unshieldResult.error ?? "Unshield failed");
-        }
-      }
-
-      setSwapStage("swapping");
-
       const swapTxResponse = await getJupiterSwapTransaction({
         quoteResponse: quote,
         userPublicKey: walletAddress,
@@ -712,26 +669,15 @@ export function SwapSheet({
 
       setTxSignature(sig);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      track(SWAP_EVENTS.swapTokens, {
-        from_shielded: fromIsSecured,
-      });
+      track(SWAP_EVENTS.swapTokens);
       onSwapComplete?.();
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Swap failed";
-      const friendly = getFriendlyError(msg);
-      const stageAtFailure = swapStage;
-      const recovery =
-        stageAtFailure === "swapping" && fromIsSecured && fromHolding
-          ? `${friendly} Your ${fromHolding.symbol} is now unshielded — retry the swap to complete it.`
-          : friendly;
-      setSwapError(recovery);
+      setSwapError(getFriendlyError(msg));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      track(SWAP_EVENTS.swapTokensFailed, {
-        from_shielded: fromIsSecured,
-      });
+      track(SWAP_EVENTS.swapTokensFailed);
     } finally {
       setIsSwapping(false);
-      setSwapStage("idle");
     }
   }, [
     isFormValid,
@@ -739,11 +685,7 @@ export function SwapSheet({
     walletAddress,
     quote,
     fromHolding,
-    fromIsSecured,
-    amountNum,
-    executeUnshield,
     onSwapComplete,
-    swapStage,
     signer,
   ]);
 
@@ -765,9 +707,8 @@ export function SwapSheet({
   );
 
   const selectFromToken = useCallback(
-    (mint: string, isSecured: boolean) => {
+    (mint: string) => {
       setFromMint(mint);
-      setFromIsSecured(isSecured);
       setShowFromPicker(false);
       lastSuccessfulFeeEstimateStateRef.current = null;
       feeEstimateFlowKeyRef.current = null;
@@ -793,7 +734,6 @@ export function SwapSheet({
       setFeeEstimateState({ status: "idle" });
       if (token.mint === fromMint) {
         setFromMint(toMint);
-        setFromIsSecured(false);
       }
     },
     [fromMint, toMint]
@@ -871,9 +811,7 @@ export function SwapSheet({
                 title="You swap"
                 tokenHoldings={fromHoldings}
                 tokenDetailsByMint={tokenDetailsByMint}
-                onSelect={(token) =>
-                  selectFromToken(token.mint, Boolean(token.isSecured))
-                }
+                onSelect={(token) => selectFromToken(token.mint)}
                 onBack={() => setShowFromPicker(false)}
               />
             ) : (
@@ -911,7 +849,6 @@ export function SwapSheet({
           <ResultStep
             isSwapping={isSwapping}
             swapError={swapError}
-            swapStage={swapStage}
             txSignature={txSignature}
             toHolding={toHolding}
             outAmount={outAmount}
@@ -937,7 +874,6 @@ function SwapTokenPill({
     ? getTokenIcon(holding, detailLogoUrl)
     : DEFAULT_TOKEN_ICON;
   const symbol = holding?.symbol ?? "Select";
-  const isSecured = Boolean(holding?.isSecured);
 
   return (
     <Pressable
@@ -958,18 +894,6 @@ function SwapTokenPill({
             source={{ uri: icon }}
             style={{ width: 28, height: 28, borderRadius: 14 }}
           />
-          {isSecured ? (
-            <Image
-              source={shieldBadge}
-              style={{
-                position: "absolute",
-                bottom: -2,
-                right: -2,
-                width: 14,
-                height: 14,
-              }}
-            />
-          ) : null}
         </View>
       </View>
       <View style={{ paddingVertical: 7 }}>
@@ -1157,7 +1081,6 @@ function TokenPicker({
           token,
           tokenDetailsByMint?.[token.mint]?.token.logoUrl
         );
-        const isSecured = Boolean(token.isSecured);
         // "To" picker chooses what to receive → show the unit price. "From"
         // picker chooses from holdings → show held balance + its USD value.
         const subLabel =
@@ -1170,7 +1093,7 @@ function TokenPicker({
             : formatUsdAmount(token.balance * (token.priceUsd ?? 0));
         return (
           <Pressable
-            key={`${token.mint}:${isSecured ? "shielded" : "public"}`}
+            key={token.mint}
             className="w-full flex-row items-center"
             style={{ paddingHorizontal: 16 }}
             onPress={() => onSelect(token)}
@@ -1189,18 +1112,6 @@ function TokenPicker({
                     borderColor: "rgba(0,0,0,0.08)",
                   }}
                 />
-                {isSecured ? (
-                  <Image
-                    source={shieldBadge}
-                    style={{
-                      position: "absolute",
-                      bottom: -2,
-                      right: -2,
-                      width: 16,
-                      height: 16,
-                    }}
-                  />
-                ) : null}
               </View>
             </View>
             <View className="flex-1" style={{ paddingVertical: 8, gap: 2 }}>
@@ -2010,7 +1921,6 @@ function MascotReveal({ children }: { children: React.ReactNode }) {
 function ResultStep({
   isSwapping,
   swapError,
-  swapStage,
   txSignature,
   toHolding,
   outAmount,
@@ -2018,7 +1928,6 @@ function ResultStep({
 }: {
   isSwapping: boolean;
   swapError: string | null;
-  swapStage: "idle" | "unshielding" | "swapping";
   txSignature: string | null;
   toHolding: TokenHolding | null;
   outAmount: number | null;
@@ -2036,9 +1945,7 @@ function ResultStep({
 
   const title =
     status === "swapping"
-      ? swapStage === "unshielding"
-        ? "Unshielding…"
-        : "Swapping…"
+      ? "Swapping…"
       : status === "success"
       ? "Swapped"
       : "Transaction failed";

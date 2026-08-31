@@ -1,5 +1,4 @@
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { Shield, ShieldOff } from "lucide-react-native";
 import { Image as RNImage, StyleSheet } from "react-native";
 
 import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
@@ -38,22 +37,6 @@ function TokenAvatar({ uri }: { uri: string }) {
   );
 }
 
-function ShieldedBadge() {
-  return (
-    <View style={[styles.iconCircle, { backgroundColor: "#dbeafe" }]}>
-      <Shield size={26} color="#2563eb" strokeWidth={2} />
-    </View>
-  );
-}
-
-function UnshieldedBadge() {
-  return (
-    <View style={[styles.iconCircle, { backgroundColor: "#ffedd5" }]}>
-      <ShieldOff size={26} color="#ea580c" strokeWidth={2} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   iconCircle: {
     width: 48,
@@ -77,11 +60,6 @@ function TransactionRow({
 }) {
   const isIncoming = transaction.type === "incoming";
   const isSwap = transaction.transferType === "swap";
-  const isSecure = transaction.transferType === "secure";
-  const isUnshield = transaction.transferType === "unshield";
-  const isCompact =
-    transaction.transferType === "store" ||
-    transaction.transferType === "verify_telegram_init_data";
 
   const counterparty = isIncoming
     ? transaction.sender || "Unknown sender"
@@ -91,30 +69,6 @@ function TransactionRow({
     : formatSenderAddress(counterparty);
   const isEffectivelyZero =
     Math.abs(transaction.amountLamports) < LAMPORTS_PER_SOL / 10000;
-
-  if (isCompact) {
-    const label =
-      transaction.transferType === "store" ? "Store data" : "Verify data";
-    return (
-      <Pressable
-        onPress={onPress}
-        className="flex-row items-center px-4 py-2"
-      >
-        <Text
-          className="flex-1 text-[13px]"
-          style={{ color: "rgba(60, 60, 67, 0.6)" }}
-        >
-          {label}
-        </Text>
-        <Text
-          className="text-[13px]"
-          style={{ color: "rgba(60, 60, 67, 0.6)" }}
-        >
-          {formatTransactionDate(transaction.timestamp)}
-        </Text>
-      </Pressable>
-    );
-  }
 
   if (isSwap) {
     const swapFromHolding = transaction.swapFromMint
@@ -170,57 +124,6 @@ function TransactionRow({
             {swapToAmount != null
               ? `+${swapToAmount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${swapToSymbol}`
               : "Swap"}
-          </Text>
-          <Text
-            className="text-[13px]"
-            style={{ color: "rgba(60, 60, 67, 0.6)" }}
-          >
-            {formatTransactionDate(transaction.timestamp)}
-          </Text>
-        </View>
-      </Pressable>
-    );
-  }
-
-  if (isSecure || isUnshield) {
-    const secureHolding = transaction.tokenMint
-      ? tokenHoldings.find((h) => h.mint === transaction.tokenMint)
-      : undefined;
-    const secureSymbol =
-      transaction.secureTokenSymbol ||
-      (transaction.tokenMint
-        ? resolveTokenSymbol({
-            mint: transaction.tokenMint,
-            detailSymbol: tokenDetailsByMint[transaction.tokenMint]?.token.symbol,
-            holdingSymbol: secureHolding?.symbol,
-          })
-        : "Token");
-    const secureAmount =
-      transaction.secureAmount ??
-      (transaction.tokenAmount ? parseFloat(transaction.tokenAmount) : null);
-
-    return (
-      <Pressable
-        onPress={onPress}
-        className="flex-row items-center px-4 py-2.5"
-      >
-        {isSecure ? <ShieldedBadge /> : <UnshieldedBadge />}
-        <View className="ml-3 flex-1">
-          <Text className="text-[17px] font-medium text-black">
-            {isSecure ? "Shielded" : "Unshielded"}
-          </Text>
-          <Text
-            className="text-[13px]"
-            style={{ color: "rgba(60, 60, 67, 0.6)" }}
-          >
-            {secureSymbol}
-          </Text>
-        </View>
-        <View className="items-end">
-          <Text className="text-[17px] font-medium text-black">
-            {secureAmount != null
-              ? `${secureAmount.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${secureSymbol}`
-              : `${formatTransactionAmount(transaction.amountLamports)} SOL`}
           </Text>
           <Text
             className="text-[13px]"

@@ -4,11 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSwap } from "@loyal-labs/wallet-core/hooks";
 import type { SwapConfig } from "@loyal-labs/wallet-core/hooks";
 
-import { SwapShieldTabs } from "~/src/components/wallet/shield-content";
 import type {
   FormButtonProps,
   SubView,
-  SwapMode,
   SwapToken,
 } from "@loyal-labs/wallet-core/types";
 
@@ -855,8 +853,6 @@ export function SwapContent({
   toToken: toTokenProp,
   onFromTokenChange,
   onToTokenChange,
-  swapMode,
-  onSwapModeChange,
   hideFormChrome,
   onFormActiveChange,
   onFormButtonChange,
@@ -868,8 +864,6 @@ export function SwapContent({
   toToken: SwapToken;
   onFromTokenChange: (t: SwapToken) => void;
   onToTokenChange: (t: SwapToken) => void;
-  swapMode: SwapMode;
-  onSwapModeChange: (mode: SwapMode) => void;
   hideFormChrome?: boolean;
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
@@ -1180,13 +1174,42 @@ export function SwapContent({
           }
         `}</style>
 
-        {/* Header with tabs — hidden when parent owns chrome */}
+        {/* Header — hidden when parent owns chrome */}
         {!hideFormChrome && (
-          <SwapShieldTabs
-            mode={swapMode}
-            onClose={onClose}
-            onModeChange={onSwapModeChange}
-          />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "8px",
+            }}
+          >
+            <div style={{ flex: 1, paddingLeft: "12px", paddingTop: "4px", paddingBottom: "4px" }}>
+              <span style={{ fontFamily: font, fontSize: "18px", fontWeight: 600, lineHeight: "28px", color: "#000" }}>
+                Swap
+              </span>
+            </div>
+            <button
+              className="swap-close"
+              onClick={onClose}
+              style={{
+                width: "36px",
+                height: "36px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                background: "rgba(0, 0, 0, 0.04)",
+                border: "none",
+                borderRadius: "9999px",
+                cursor: "pointer",
+                transition: "background 0.2s ease",
+                color: "#3C3C43",
+              }}
+              type="button"
+            >
+              <X size={24} />
+            </button>
+          </div>
         )}
 
         {/* Body */}
