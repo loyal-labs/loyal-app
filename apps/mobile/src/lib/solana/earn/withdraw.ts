@@ -46,6 +46,8 @@ const WITHDRAW_MIN_FEE_LAMPORTS = 1_000_000;
 // left some with several; each re-prepare surfaces the next one. The cap
 // guards against a close that never sticks in the read-model.
 const MAX_WITHDRAW_AUTODEPOSIT_CLOSES = 4;
+const WITHDRAW_CLOSE_PROJECTION_ATTEMPTS = 30;
+const WITHDRAW_CLOSE_PROJECTION_RETRY_DELAY_MS = 1_000;
 
 function usdToUsdcRaw(amountUsd: number): string {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
@@ -422,18 +424,50 @@ async function runEarnWithdraw(
     });
 
   let context = await fetchContext();
+  const confirmedClosedPolicies = new Set<string>();
+  const fetchContextAfterConfirmedCloses = async () => {
+    for (
+      let attempt = 0;
+      attempt < WITHDRAW_CLOSE_PROJECTION_ATTEMPTS;
+      attempt++
+    ) {
+      const refreshed = await fetchContext();
+      const projectedClose = refreshed?.withdrawInput.autodepositClose;
+      if (
+        !projectedClose ||
+        !confirmedClosedPolicies.has(projectedClose.policy)
+      ) {
+        return refreshed;
+      }
+      if (attempt + 1 < WITHDRAW_CLOSE_PROJECTION_ATTEMPTS) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, WITHDRAW_CLOSE_PROJECTION_RETRY_DELAY_MS)
+        );
+      }
+    }
+    throw new Error(
+      "The Autodeposit close confirmed, but Earn state has not refreshed yet. Retry the withdrawal after a moment."
+    );
+  };
 
   // A full exit of a position with an active Autodeposit also tears down the
   // recurring delegation (mirrors web): close it via the Autodeposit close
   // flow first, then re-resolve the withdrawal against the post-close state.
-  for (let round = 0; context?.withdrawInput.autodepositClose; round++) {
-    if (round >= MAX_WITHDRAW_AUTODEPOSIT_CLOSES) {
+  // LaserStream can briefly return the confirmed-close identity again, so
+  // retain every identity and poll rather than submitting a duplicate close.
+  let closedPolicyCount = 0;
+  while (context?.withdrawInput.autodepositClose) {
+    const close = context.withdrawInput.autodepositClose;
+    if (confirmedClosedPolicies.has(close.policy)) {
+      context = await fetchContextAfterConfirmedCloses();
+      continue;
+    }
+    if (closedPolicyCount >= MAX_WITHDRAW_AUTODEPOSIT_CLOSES) {
       throw new Error(
         "Couldn't remove the Autodeposit tied to this position. Delete the Autodeposit and try again."
       );
     }
-    const close = context.withdrawInput.autodepositClose;
-    await executeEarnAutodepositClose({
+    const confirmedClose = await executeEarnAutodepositClose({
       signer: args.signer,
       policy: close.policy,
       recurringDelegation: close.recurringDelegation,
@@ -444,8 +478,12 @@ async function runEarnWithdraw(
       });
       throw error;
     });
+    for (const policyAccount of confirmedClose.policyAccounts) {
+      confirmedClosedPolicies.add(policyAccount);
+    }
+    closedPolicyCount += Math.max(1, confirmedClose.policyAccounts.length);
     flow.observe("autodeposit_close", { autodepositCloseRequired: true });
-    context = await fetchContext();
+    context = await fetchContextAfterConfirmedCloses();
   }
 
   if (context) {
