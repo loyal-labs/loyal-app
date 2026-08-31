@@ -19,6 +19,11 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import {
+  type ChartCardCustomContent,
+  type ChartTab,
+  EarnChartPane,
+} from "@/components/wallet-workspace/facelift/earn-chart-pane";
+import {
   EarnMaxDepositPane,
   EarnMaxDualIcon,
   EarnMaxInfoFaqsCard,
@@ -33,6 +38,10 @@ import {
   isEarnMaxWithdrawishAction,
   OperationRow,
 } from "@/components/wallet-workspace/facelift/earn-max-transaction-detail";
+import {
+  EarnedBarsChart,
+  type EarnedChartBar,
+} from "@/components/wallet-workspace/facelift/earned-chart";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { isEscapeGuardedTarget } from "@/components/wallet-workspace/facelift/keyboard";
 import {
@@ -43,6 +52,7 @@ import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import {
+  EARN_MAX_FALLBACK_APY_BPS,
   EARN_MAX_STRATEGY_NAME,
   type EarnMaxActions,
   type EarnMaxActivityItem,
@@ -217,90 +227,92 @@ export function EarnMaxMockRail() {
   );
 }
 
-// Figma 5429:37577 — right-rail chart card. Earned totals come from the
-// summary; the bars are daily equity deltas from confirmed snapshots.
-// ponytail: no expanded overlay and no APY history feed yet — the APY tab
-// shows the realized figure over the same bars.
-function EarnMaxChartCard({ view }: { view: EarnMaxViewModel }) {
-  const [tab, setTab] = useState<"apy" | "earned">("earned");
-  const { isBalanceHidden } = useBalanceVisibility();
-  const deltas: number[] = [];
-  for (let index = 1; index < view.performance.length; index += 1) {
-    deltas.push(
-      view.performance[index]!.equityUsd - view.performance[index - 1]!.equityUsd
+// Earn MAX rides the shared Earn chart machinery (EarnChartPane: tabs pill,
+// enlarged overlay, card motion) with its own two tabs and data — Earned bars
+// derived from confirmed position snapshots, APY from the summary.
+const EARN_MAX_CHART_TABS: readonly ChartTab[] = ["APY", "Earned"];
+
+// ponytail: daily "earned" ≈ equity delta minus confirmed same-day flows
+// (deposits in, withdrawal requests out) — replace with a dedicated earnings
+// feed when the indexer grows one.
+function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[] {
+  const days: { date: Date; equity: number; key: string }[] = [];
+  for (const point of view.performance) {
+    const date = new Date(point.timestamp);
+    if (Number.isNaN(date.getTime())) {
+      continue;
+    }
+    const key = date.toDateString();
+    const last = days.at(-1);
+    if (last && last.key === key) {
+      last.date = date;
+      last.equity = point.equityUsd;
+    } else {
+      days.push({ date, equity: point.equityUsd, key });
+    }
+  }
+  const flows = new Map<string, number>();
+  for (const operation of view.activity) {
+    if (!(operation.amountRaw && operation.timestamp)) {
+      continue;
+    }
+    const date = new Date(operation.timestamp);
+    if (Number.isNaN(date.getTime())) {
+      continue;
+    }
+    const sign =
+      operation.action === "deposit" || operation.action === "install"
+        ? 1
+        : operation.action === "withdraw_request"
+        ? -1
+        : 0;
+    if (sign === 0) {
+      continue;
+    }
+    const key = date.toDateString();
+    flows.set(
+      key,
+      (flows.get(key) ?? 0) + (sign * Number(operation.amountRaw)) / 1_000_000
     );
   }
-  const maxAbsDelta = deltas.reduce(
-    (max, delta) => Math.max(max, Math.abs(delta)),
-    0
-  );
-  const earned = splitUsdBalance(view.earnedUsd ?? 0);
-  const apyLabel =
-    view.realizedApyBps === null
-      ? "—"
-      : `${(view.realizedApyBps / 100).toFixed(2)}%`;
+  const bars: EarnedChartBar[] = [];
+  for (let index = 1; index < days.length; index += 1) {
+    const previous = days[index - 1]!;
+    const current = days[index]!;
+    bars.push({
+      apyBps: null,
+      earnedUsd:
+        current.equity - previous.equity - (flows.get(current.key) ?? 0),
+      endAt: current.date.toISOString(),
+      isCurrent: index === days.length - 1,
+      label: current.date.toLocaleDateString("en-US", {
+        day: "numeric",
+        month: "short",
+      }),
+      startAt: previous.date.toISOString(),
+    });
+  }
+  return bars.slice(-30);
+}
+
+// ponytail: no Earn MAX APY history feed yet — the tab shows the realized /
+// forecast figure in the shared chart typography until one exists.
+function EarnMaxApyBody({ view }: { view: EarnMaxViewModel }) {
+  const hasRealized = view.realizedApyBps !== null;
+  const apyBps =
+    view.realizedApyBps ?? view.forecastApyBps ?? EARN_MAX_FALLBACK_APY_BPS;
   return (
-    <div className="flex shrink-0 flex-col rounded-3xl bg-card">
-      <header className="flex w-full items-center justify-between p-2">
-        <div className="flex items-center gap-1 rounded-full bg-accent p-1">
-          {(["apy", "earned"] as const).map((key) => (
-            <button
-              className={`flex items-center justify-center rounded-full px-4 py-2 font-medium text-[14px] leading-5 ${
-                tab === key
-                  ? "bg-card text-foreground"
-                  : "text-muted-foreground"
-              }`}
-              key={key}
-              onClick={() => setTab(key)}
-              type="button"
-            >
-              {key === "apy" ? "APY" : "Earned"}
-            </button>
-          ))}
-        </div>
-      </header>
-      <div className="flex w-full flex-col gap-0.5 px-6 pt-2">
-        <span className="text-[16px] text-muted-foreground leading-5">
-          {tab === "earned" ? "Earned past 30 days" : "Realized APY"}
-        </span>
-        <span className="font-semibold text-[40px] text-foreground leading-[48px]">
-          {tab === "earned" ? (
-            <ScrambledPopDigits
-              isHidden={isBalanceHidden}
-              segments={[
-                { text: earned.balanceWhole },
-                { color: "var(--tertiary)", text: earned.balanceFraction },
-              ]}
-            />
-          ) : (
-            apyLabel
-          )}
-        </span>
+    <div className="flex min-h-0 w-full flex-1 flex-col">
+      <div className="flex w-full flex-col gap-0.5 pb-2">
+        <p className="truncate text-[16px] text-muted-foreground leading-5">
+          {hasRealized ? "Realized APY" : "Forecast APY"}
+        </p>
+        <p className="font-semibold text-[40px] text-foreground leading-[48px]">
+          {(apyBps / 100).toFixed(2)}%
+        </p>
       </div>
-      <div className="flex w-full flex-col px-4 pt-4 pb-4">
-        {deltas.length > 0 ? (
-          <div className="flex h-40 w-full items-end justify-center gap-0.5 px-2">
-            {deltas.slice(-40).map((delta, index) => {
-              const height =
-                maxAbsDelta > 0
-                  ? Math.max((Math.abs(delta) / maxAbsDelta) * 100, 3)
-                  : 3;
-              return (
-                <div
-                  className={`min-w-px flex-1 rounded-[2px] ${
-                    delta >= 0 ? "bg-positive" : "bg-primary"
-                  }`}
-                  key={index}
-                  style={{ height: `${height}%` }}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex h-40 w-full items-center justify-center px-2 text-center text-[13px] text-muted-foreground leading-4">
-            History appears after confirmed position snapshots.
-          </div>
-        )}
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center text-center text-[13px] text-muted-foreground leading-4">
+        APY history appears as your position ages.
       </div>
     </div>
   );
@@ -864,6 +876,8 @@ export function EarnMaxWorkspace({
 }) {
   const { isHydrated, isSignedIn } = useAuthCapability();
   const [screen, setScreen] = useState<"deposit" | "main" | "withdraw">("main");
+  const [chartTab, setChartTab] = useState<ChartTab | null>(null);
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [selectedTransaction, setSelectedTransaction] =
     useState<EarnMaxActivityItem | null>(null);
   // Keep the closing detail populated until its exit animation finishes
@@ -909,6 +923,23 @@ export function EarnMaxWorkspace({
   }, [screen, selectedTransaction]);
 
   const { actions, view } = earnMax;
+  const chartCustom: ChartCardCustomContent = {
+    defaultTab: "Earned",
+    renderBody: (activeTab) =>
+      activeTab === "Earned" ? (
+        <EarnedBarsChart
+          bars={buildEarnMaxEarnedBars(view)}
+          currentApyBps={view.realizedApyBps}
+          isLoading={view.isLoading}
+          isStale={false}
+          isUnavailable={false}
+          lifetimeEarnedUsd={view.earnedUsd ?? 0}
+        />
+      ) : (
+        <EarnMaxApyBody view={view} />
+      ),
+    tabs: EARN_MAX_CHART_TABS,
+  };
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
       <MiddlePaneSlide
@@ -967,10 +998,17 @@ export function EarnMaxWorkspace({
           </PaneReveal>
         </aside>
       ) : (
-        <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 min-[1204px]:flex">
-          <EarnMaxChartCard view={view} />
-          <EarnMaxInfoFaqsCard className="flex min-h-0 flex-1" />
-        </aside>
+        <EarnChartPane
+          custom={chartCustom}
+          earnData={earnData}
+          isExpanded={isChartExpanded}
+          onExpandedChange={setIsChartExpanded}
+          onSelectTab={setChartTab}
+          selectedTab={chartTab}
+          statsPanel={
+            <EarnMaxInfoFaqsCard className="flex min-h-[240px] w-full flex-1" />
+          }
+        />
       )}
     </div>
   );

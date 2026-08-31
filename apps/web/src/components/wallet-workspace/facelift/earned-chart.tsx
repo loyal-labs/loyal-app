@@ -38,13 +38,23 @@ const TODAY_BAR_HOVER_FILL =
 const BAR_MAX_FRACTION = 290 / 300;
 const BAR_MIN_HEIGHT_PX = 4;
 
+// One rendered daily bar — the shape EarnedBarsChart consumes. Earn feeds it
+// from the earnings API; Earn MAX derives it from position snapshots.
+export type EarnedChartBar = {
+  apyBps: number | null;
+  earnedUsd: number;
+  endAt: string;
+  isCurrent: boolean;
+  label: string;
+  startAt: string;
+};
+
 // The "good old" Earned chart re-skinned for the facelift right pane. Data and
 // derivations mirror EarnDetailView/EarningsBlock exactly (same hook, same
 // cache key recipe, same live-estimate math) — only the markup is new.
 export function EarnedChart({ data }: { data: EarnPositionData }) {
   const publicEnv = usePublicEnv();
   const earnForecastApy = useEarnForecastApy();
-  const { isBalanceHidden } = useBalanceVisibility();
   const hasPositiveCurrentBalance = data.hasPosition && data.earnBalanceUsd > 0;
   const earnEarningsRevalidationKey = data.position?.principalAmountRaw ?? "0";
   const earnEarningsCacheKey = getEarnEarningsCacheKey({
@@ -102,7 +112,6 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   const earningsUnavailable = earningsOutcome === "unavailable";
   const earningsStale = earningsFreshness === "stale";
 
-  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const realBars = dailyData?.bars;
   const hasRealBars = (realBars?.length ?? 0) > 0;
   const showEarningsLoader = isEarningsLoading && !hasRealBars;
@@ -121,6 +130,47 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
       ),
     [realBars, estimatedTodayEarnedUsd]
   );
+
+  return (
+    <EarnedBarsChart
+      bars={dailyBars}
+      currentApyBps={dailyData?.currentApyBps ?? null}
+      isLoading={showEarningsLoader}
+      isStale={earningsStale}
+      isUnavailable={earningsUnavailable}
+      lifetimeEarnedUsd={estimatedEarnedAmounts.lifetimeEarnedUsd}
+      onRetry={refreshEarnings}
+    />
+  );
+}
+
+// Presentational half of the Earned chart — header, hover states and the
+// animated daily bars. Earn and Earn MAX both render through this so the two
+// products share one Earned chart implementation.
+export function EarnedBarsChart({
+  bars,
+  currentApyBps,
+  isLoading,
+  isStale,
+  isUnavailable,
+  lifetimeEarnedUsd,
+  onRetry,
+}: {
+  bars: EarnedChartBar[];
+  currentApyBps: number | null;
+  isLoading: boolean;
+  isStale: boolean;
+  isUnavailable: boolean;
+  lifetimeEarnedUsd: number;
+  onRetry?: () => void;
+}) {
+  const { isBalanceHidden } = useBalanceVisibility();
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const dailyBars = bars;
+  const earningsStale = isStale;
+  const earningsUnavailable = isUnavailable;
+  const showEarningsLoader = isLoading;
+  const refreshEarnings = onRetry ?? (() => undefined);
   const maxDailyEarnedUsd = useMemo(
     () => dailyBars.reduce((max, bar) => Math.max(max, bar.earnedUsd), 0),
     [dailyBars]
@@ -129,7 +179,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
     hoveredBar !== null ? dailyBars[hoveredBar] ?? null : null;
   const hoveredApyBps = hoveredBarEntry
     ? hoveredBarEntry.isCurrent
-      ? dailyData?.currentApyBps ?? hoveredBarEntry.apyBps
+      ? currentApyBps ?? hoveredBarEntry.apyBps
       : hoveredBarEntry.apyBps
     : null;
   const hoveredDateLabel = hoveredBarEntry
@@ -140,7 +190,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   const headerValue = splitEarningsHeaderValue(
     hoveredBarEntry
       ? Math.max(0, hoveredBarEntry.earnedUsd)
-      : estimatedEarnedAmounts.lifetimeEarnedUsd
+      : lifetimeEarnedUsd
   );
   let headerSubtitle: ReactNode;
   if (!hoveredBarEntry) {
