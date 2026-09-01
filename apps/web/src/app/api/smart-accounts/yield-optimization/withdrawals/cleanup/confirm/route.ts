@@ -196,6 +196,8 @@ export async function POST(request: Request) {
           ...(persistence.autodepositClose?.policyAccount
             ? [persistence.autodepositClose.policyAccount]
             : []),
+          ...(persistence.additionalClosedPolicyAccounts ?? []),
+          ...(persistence.refundedRecurringDelegations ?? []),
         ],
         programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
         settingsPda: new PublicKey(persistence.settings),

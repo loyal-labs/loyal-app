@@ -111,7 +111,9 @@ import {
   executeEarnAutoswapSetupClient,
   prepareEarnAutoswapDeletionClient,
 } from "@/lib/yield-optimization/earn-autoswap-client-flow";
+import type { EarnPolicyRefundScanResponse } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
+import { serializePreparedEarnUsdcCleanup } from "@/lib/yield-optimization/earn-withdraw-cleanup-contracts.shared";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
@@ -1691,6 +1693,65 @@ async function fetchSmartAccountGroup<T>(url: URL): Promise<T> {
 
   const payload = (await response.json()) as SmartAccountTimedRouteResponse<T>;
   return payload.data;
+}
+
+async function fetchEarnPolicyRefundScan(args: {
+  observabilityFlowId?: string;
+}): Promise<EarnPolicyRefundScanResponse> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/policy-refunds/scan",
+    {
+      cache: "no-store",
+      credentials: "include",
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to classify refundable Earn policies."
+    );
+  }
+  return (await response.json()) as EarnPolicyRefundScanResponse;
+}
+
+async function postEarnCleanupConfirmation(args: {
+  autodepositCloseConfirmedSlot?: string;
+  autodepositCloseSignature?: string;
+  cleanupSignature: string;
+  confirmedSlot: string;
+  observabilityFlowId?: string;
+  preparedCleanup: PreparedEarnUsdcCleanup;
+}): Promise<void> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm",
+    {
+      body: JSON.stringify({
+        autodepositCloseConfirmedSlot: args.autodepositCloseConfirmedSlot,
+        autodepositCloseSignature: args.autodepositCloseSignature,
+        cleanupSignature: args.cleanupSignature,
+        confirmedSlot: args.confirmedSlot,
+        preparedCleanup: serializePreparedEarnUsdcCleanup({
+          estimatedRefundLamports: args.preparedCleanup.estimatedRefundLamports,
+          preparedCleanup: args.preparedCleanup,
+        }),
+      }),
+      credentials: "include",
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to record Earn cleanup confirmation."
+    );
+  }
 }
 
 async function fetchEarnState(options?: {
@@ -6883,6 +6944,8 @@ export function useSmartAccountSidebarData(
         }
         const autodepositClosePrepared =
           preparedCleanup.autodepositClosePrepared ?? null;
+        let autodepositCloseSignature: string | undefined;
+        let autodepositCloseConfirmedSlot: string | undefined;
         if (autodepositClosePrepared) {
           const closeSendResult = await sendPreparedEarnWithClusterPreflight({
             expectedCluster: expectedEarnCluster,
@@ -6900,6 +6963,11 @@ export function useSmartAccountSidebarData(
           if (!closeSendResult.success) {
             return closeSendResult;
           }
+          autodepositCloseSignature = closeSendResult.signature;
+          autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
+            connection,
+            signature: closeSendResult.signature,
+          });
         }
 
         const sendResult = await sendPreparedEarnWithClusterPreflight({
@@ -6923,6 +6991,26 @@ export function useSmartAccountSidebarData(
           connection,
           signature,
         });
+        try {
+          await postEarnCleanupConfirmation({
+            autodepositCloseConfirmedSlot,
+            autodepositCloseSignature,
+            cleanupSignature: signature,
+            confirmedSlot,
+            observabilityFlowId: request.observabilityFlowId,
+            preparedCleanup,
+          });
+        } catch (error) {
+          captureBrowserError(error, "earn.cleanup.execute");
+          return {
+            success: false,
+            signature,
+            confirmedSlot,
+            status: "confirmation_record_failed",
+            error:
+              "Earn cleanup was confirmed, but its server state was not recorded. Retry after refreshing.",
+          };
+        }
 
         return {
           success: true,
@@ -7133,14 +7221,75 @@ export function useSmartAccountSidebarData(
         },
         refreshState: () => fetchEarnState({ strict: true }),
       });
-      const snapshot = await context.client.fetchEarnVaultRefundSnapshot({
-        cluster: context.cluster,
-        minContextSlot: request.minContextSlot,
-        settingsPda: context.settingsPda,
-      });
+      const [snapshot, policyInventory, refundScan] = await Promise.all([
+        context.client.fetchEarnVaultRefundSnapshot({
+          cluster: context.cluster,
+          minContextSlot: request.minContextSlot,
+          settingsPda: context.settingsPda,
+        }),
+        context.client.listPolicies({ settingsPda: context.settingsPda }),
+        fetchEarnPolicyRefundScan({}),
+      ]);
+      if (
+        refundScan.settingsPda !== context.settingsPda.toBase58() ||
+        refundScan.programId !== context.client.programId.toBase58() ||
+        refundScan.cluster !== context.cluster
+      ) {
+        throw new Error(
+          "Refund classification does not match the connected Earn vault."
+        );
+      }
+      const standardPolicyAccounts = new Set([
+        policy.account,
+        ...(policy.setupPolicy ? [policy.setupPolicy.account] : []),
+      ]);
+      const policyInventoryByAddress = new Map(
+        policyInventory.map((entry) => [entry.address, entry])
+      );
+      const refundablePolicies = refundScan.policies.filter(
+        (entry) => entry.canRefund
+      );
+      for (const entry of refundablePolicies) {
+        const chainPolicy = policyInventoryByAddress.get(entry.account);
+        if (
+          entry.accountIndex !== 1 ||
+          entry.state !== "ProgramInteraction" ||
+          chainPolicy?.accountIndex !== 1 ||
+          chainPolicy.state !== entry.state ||
+          chainPolicy.seed !== entry.seed
+        ) {
+          throw new Error(
+            "Refund classification does not match the connected Earn vault."
+          );
+        }
+      }
+      const additionalPolicies = refundablePolicies.filter(
+        (entry) => !standardPolicyAccounts.has(entry.account)
+      );
+      const refundableRecurringDelegations =
+        refundScan.recurringDelegations.filter(
+          (delegation) => delegation.canRefund
+        );
+      if (
+        refundableRecurringDelegations.some(
+          (delegation) =>
+            delegation.delegator !== context.walletAddress.toBase58() ||
+            delegation.delegatee !== snapshot.vaultPda.toBase58()
+        )
+      ) {
+        throw new Error(
+          "Refund classification does not match the connected Earn vault."
+        );
+      }
       const preparedCleanup = await context.client.prepareEarnUsdcCleanup({
+        additionalPolicyAccounts: additionalPolicies.map(
+          (entry) => new PublicKey(entry.account)
+        ),
         cluster: context.cluster,
         feePayer: context.feePayer,
+        refundableRecurringDelegations: refundableRecurringDelegations.map(
+          (delegation) => new PublicKey(delegation.account)
+        ),
         policySigner: context.policySigner,
         settingsPda: context.settingsPda,
         vaultTokenAccounts: snapshot.tokenAccounts.map((account) => ({
@@ -7166,6 +7315,14 @@ export function useSmartAccountSidebarData(
         Number(snapshot.lamports) +
         snapshot.tokenAccounts.reduce(
           (sum, account) => sum + account.lamports,
+          0
+        ) +
+        additionalPolicies.reduce(
+          (sum, entry) => sum + (entry.lamports ?? 0),
+          0
+        ) +
+        refundableRecurringDelegations.reduce(
+          (sum, delegation) => sum + (delegation.lamports ?? 0),
           0
         );
       return { ...preparedCleanup, estimatedRefundLamports };

@@ -3134,10 +3134,12 @@ function createEarnFullWithdrawCleanupInstructions(args: {
   // Refund the vault PDA's SOL on final exit. The first deposit tops the vault
   // up with KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS but the Kamino setup only
   // spends part of it — without this sweep the remainder (~0.024 SOL) strands
-  // on the vault forever. The Kamino obligation and farms user-state rents are
-  // NOT recoverable: klend/kfarms have no close instructions; those accounts
-  // are reused by the wallet's next deposit. Amount is the prepare-time
-  // balance: anything that lands later stays as dust for the next exit.
+  // on the vault forever. Klend's current v2 full-withdraw instruction closes
+  // the emptied obligation automatically. Legacy obligations have no safe
+  // standalone close path, and Kfarms exposes no close instruction for its
+  // user state, so those surviving accounts are reused by the next deposit.
+  // Amount is the prepare-time balance: anything that lands later stays as
+  // dust for the next exit.
   const vaultSweepLamports = args.vaultSweepLamports ?? BigInt(0);
   if (vaultSweepLamports > BigInt(0)) {
     instructions.push(
@@ -9955,8 +9957,8 @@ export function createSmartAccountVaultsClient(
 
     // Same final-exit refund as the full-withdraw path: return the unspent
     // Kamino setup buffer sitting on the vault PDA (see
-    // createEarnFullWithdrawCleanupInstructions for why the obligation and
-    // farms rents cannot be reclaimed).
+    // createEarnFullWithdrawCleanupInstructions for the remaining legacy
+    // obligation and farms-account limitations).
     const vaultSweepLamports = await getVaultSweepLamportsOrZero(
       config.connection,
       vaultPda
@@ -9999,15 +10001,111 @@ export function createSmartAccountVaultsClient(
         ? [args.yieldRoutingPolicy.setupPolicy.account]
         : []),
     ];
+    const standardPolicyAddresses = new Set(
+      policyAccounts.map((policy) => policy.toBase58())
+    );
+    const additionalPolicyAccounts = dedupePublicKeys(
+      args.additionalPolicyAccounts ?? []
+    ).filter((policy) => !standardPolicyAddresses.has(policy.toBase58()));
+    const existingAdditionalPolicyAccounts =
+      additionalPolicyAccounts.length === 0
+        ? new Set<string>()
+        : await getExistingAccountSet({
+            accounts: additionalPolicyAccounts,
+            connection: config.connection,
+          });
+    const liveAdditionalPolicyAccounts = additionalPolicyAccounts.filter(
+      (policy) => existingAdditionalPolicyAccounts.has(policy.toBase58())
+    );
     const policyCloseOperation = await prepareCloseLiveYieldRoutingPoliciesSync(
       {
         settingsPda: args.settingsPda,
         feePayer: args.feePayer,
         signers: [args.walletAddress],
-        policies: policyAccounts,
+        policies: [...policyAccounts, ...liveAdditionalPolicyAccounts],
         memo: args.memo,
       }
     );
+    const refundableRecurringDelegations = dedupePublicKeys(
+      args.refundableRecurringDelegations ?? []
+    );
+    const recurringDelegationInstructions: TransactionInstruction[] = [];
+    if (refundableRecurringDelegations.length > 0) {
+      const recurringDelegationAccounts =
+        await config.connection.getMultipleAccountsInfo(
+          refundableRecurringDelegations,
+          "confirmed"
+        );
+      const expectedSubscriptionAuthority = deriveSubscriptionAuthority(
+        args.walletAddress,
+        usdcMint
+      );
+      for (const [
+        index,
+        recurringDelegation,
+      ] of refundableRecurringDelegations.entries()) {
+        const account = recurringDelegationAccounts[index];
+        if (
+          !account ||
+          !account.owner.equals(SUBSCRIPTIONS_PROGRAM_ID) ||
+          account.data.length < SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN ||
+          account.data[
+            SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET
+          ] !== SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR
+        ) {
+          throw new Error(
+            "Refundable recurring delegation account is missing or invalid."
+          );
+        }
+        const identityChecks: [string, PublicKey, PublicKey][] = [
+          [
+            "delegator",
+            readPublicKey(
+              account.data,
+              SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET
+            ),
+            args.walletAddress,
+          ],
+          [
+            "delegatee",
+            readPublicKey(
+              account.data,
+              SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET
+            ),
+            vaultPda,
+          ],
+          [
+            "authority",
+            readPublicKey(
+              account.data,
+              SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET
+            ),
+            expectedSubscriptionAuthority,
+          ],
+          [
+            "mint",
+            readPublicKey(
+              account.data,
+              SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET
+            ),
+            usdcMint,
+          ],
+        ];
+        for (const [label, actual, expected] of identityChecks) {
+          if (!actual.equals(expected)) {
+            throw new Error(
+              `Refundable recurring delegation ${label} does not match the Earn vault.`
+            );
+          }
+        }
+        recurringDelegationInstructions.push(
+          createSubscriptionRevokeDelegationInstruction({
+            authority: args.walletAddress,
+            delegation: recurringDelegation,
+          })
+        );
+      }
+    }
     const autodepositClosePrepared = args.autodepositClose
       ? await prepareEarnUsdcAutodepositClose({
           cluster,
@@ -10025,7 +10123,10 @@ export function createSmartAccountVaultsClient(
       ...(tokenOperation ? [tokenOperation] : []),
       ...(policyCloseOperation ? [policyCloseOperation] : []),
     ];
-    if (operations.length === 0) {
+    if (
+      operations.length === 0 &&
+      recurringDelegationInstructions.length === 0
+    ) {
       throw new Error(
         "Nothing to clean up: yield routing policies are already closed."
       );
@@ -10037,6 +10138,7 @@ export function createSmartAccountVaultsClient(
       requiresConfirmation: true,
       instructions: [
         ...walletAtaInstructions,
+        ...recurringDelegationInstructions,
         ...operations.flatMap((operation) => operation.instructions),
       ],
       lookupTableAccounts: dedupeLookupTableAccounts(
@@ -10070,6 +10172,12 @@ export function createSmartAccountVaultsClient(
         closedCollateralAtas: args.vaultTokenAccounts
           .filter((account) => !account.address.equals(vaultUsdcAta))
           .map((account) => account.address.toBase58()),
+        additionalClosedPolicyAccounts: liveAdditionalPolicyAccounts.map(
+          (policy) => policy.toBase58()
+        ),
+        refundedRecurringDelegations: refundableRecurringDelegations.map(
+          (delegation) => delegation.toBase58()
+        ),
         autodepositClose: autodepositClosePrepared?.persistence ?? null,
       },
       policy: {
@@ -12146,6 +12254,7 @@ export function createSmartAccountVaultsClient(
     sdk: smartAccountsClient,
     fetchVault,
     listVaults,
+    listPolicies,
     listSpendingLimitPolicies,
     listSpendingLimits: listSpendingLimitPolicies,
     listProposals,

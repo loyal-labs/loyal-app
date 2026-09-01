@@ -2319,6 +2319,7 @@ export function EarnTransactionsPane({
                           account: policyRefundVault.account,
                           accountIndex: 1,
                           activeAutodeposit: false,
+                          activeAutoswap: false,
                           activeManagedVault: false,
                           blockedReason: policyRefundVault.blockedReason,
                           canRefund: policyRefundVault.canRefund,

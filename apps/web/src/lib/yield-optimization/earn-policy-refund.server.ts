@@ -61,6 +61,7 @@ export type EarnPolicyRefundContext = {
 
 function getBlockedReason(args: {
   activeAutodeposit: boolean;
+  activeAutoswap: boolean;
   activeManagedVault: boolean;
   referencedByActivePosition: boolean;
 }): string | null {
@@ -68,7 +69,10 @@ function getBlockedReason(args: {
     return "Active Earn position";
   }
   if (args.activeAutodeposit) {
-    return "Protected recurring delegation";
+    return "Active Autodeposit policy";
+  }
+  if (args.activeAutoswap) {
+    return "Active Autoswap policy";
   }
   if (args.activeManagedVault) {
     return "Active Earn vault policy";
@@ -82,6 +86,7 @@ function getBlockedReason(args: {
 function buildVaultRefundEntry(args: {
   dbState: {
     hasActiveAutodeposit: boolean;
+    hasActiveAutoswap: boolean;
     hasActiveManagedVault: boolean;
     hasActivePosition: boolean;
   };
@@ -93,15 +98,18 @@ function buildVaultRefundEntry(args: {
       tokenAccount.amountRaw > BigInt(0) &&
       !tokenAccount.address.equals(snapshot.vaultUsdcAta)
   );
-  const blockedReason = holdsChainFunds
-    ? "Vault still holds funds on chain"
-    : dbState.hasActivePosition
-      ? "Active Earn position"
-      : dbState.hasActiveAutodeposit
-        ? "Active Autodeposit"
-        : dbState.hasActiveManagedVault
-          ? "Active Earn vault policy"
-          : null;
+  let blockedReason: string | null = null;
+  if (holdsChainFunds) {
+    blockedReason = "Vault still holds funds on chain";
+  } else if (dbState.hasActivePosition) {
+    blockedReason = "Active Earn position";
+  } else if (dbState.hasActiveAutodeposit) {
+    blockedReason = "Active Autodeposit";
+  } else if (dbState.hasActiveAutoswap) {
+    blockedReason = "Active Autoswap";
+  } else if (dbState.hasActiveManagedVault) {
+    blockedReason = "Active Earn vault policy";
+  }
   const totalRefundableLamports =
     Number(snapshot.lamports) +
     snapshot.tokenAccounts.reduce(
@@ -216,6 +224,7 @@ export async function scanEarnPolicyRefunds(
       const activeAutodeposit = dbState.activeAutodepositAccounts.has(
         policy.address
       );
+      const activeAutoswap = dbState.activeAutoswapAccounts.has(policy.address);
       const recurringDelegations =
         dbState.recurringDelegationsByPolicyAccount.get(policy.address) ?? [];
       const referencedByActivePosition = dbState.activePositionAccounts.has(
@@ -223,6 +232,7 @@ export async function scanEarnPolicyRefunds(
       );
       const blockedReason = getBlockedReason({
         activeAutodeposit,
+        activeAutoswap,
         activeManagedVault,
         referencedByActivePosition,
       });
@@ -231,6 +241,7 @@ export async function scanEarnPolicyRefunds(
         account: policy.address,
         accountIndex: policy.accountIndex,
         activeAutodeposit,
+        activeAutoswap,
         activeManagedVault,
         blockedReason,
         canRefund: blockedReason === null,
@@ -408,6 +419,7 @@ export async function prepareEarnPolicyRefund(
     account: overviewPolicy.address,
     accountIndex: overviewPolicy.accountIndex,
     activeAutodeposit: dbState.activeAutodeposit,
+    activeAutoswap: dbState.activeAutoswap,
     activeManagedVault: dbState.activeManagedVault,
     blockedReason,
     canRefund: blockedReason === null,

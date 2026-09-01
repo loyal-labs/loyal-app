@@ -50,6 +50,7 @@ export type EarnPolicyRefundScanPolicy = {
   account: string;
   accountIndex: number | null;
   activeAutodeposit: boolean;
+  activeAutoswap: boolean;
   activeManagedVault: boolean;
   blockedReason: string | null;
   canRefund: boolean;

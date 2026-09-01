@@ -757,6 +757,8 @@ export type SmartAccountEarnUsdcCleanupInput = {
   feePayer: PublicKey;
   policySigner: PublicKey;
   cluster?: LoyalCluster;
+  additionalPolicyAccounts?: PublicKey[];
+  refundableRecurringDelegations?: PublicKey[];
   vaultTokenAccounts: Array<{
     address: PublicKey;
     amountRaw: bigint;
@@ -898,6 +900,8 @@ export type SmartAccountEarnUsdcCleanupMetadata = {
   idleTransferAmountRaw: string;
   closedVaultUsdcAta: boolean;
   closedCollateralAtas: string[];
+  additionalClosedPolicyAccounts?: string[];
+  refundedRecurringDelegations?: string[];
   autodepositClose?: SmartAccountEarnUsdcAutodepositCloseMetadata | null;
 };
 

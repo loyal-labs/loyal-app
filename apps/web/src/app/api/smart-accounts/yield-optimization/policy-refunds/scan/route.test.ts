@@ -3,12 +3,22 @@ import { PublicKey, Connection } from "@solana/web3.js";
 
 mock.module("server-only", () => ({}));
 
-mock.module("drizzle-orm", () => ({
-  and: (...conditions: unknown[]) => ({ conditions, op: "and" }),
-  eq: (left: unknown, right: unknown) => ({ left, op: "eq", right }),
-  inArray: (left: unknown, right: unknown) => ({ left, op: "inArray", right }),
-  ne: (left: unknown, right: unknown) => ({ left, op: "ne", right }),
-}));
+mock.module("drizzle-orm", () => {
+  const sql = Object.assign((strings: TemplateStringsArray) => ({ strings }), {
+    join: (values: unknown[]) => values,
+  });
+  return {
+    and: (...conditions: unknown[]) => ({ conditions, op: "and" }),
+    eq: (left: unknown, right: unknown) => ({ left, op: "eq", right }),
+    inArray: (left: unknown, right: unknown) => ({
+      left,
+      op: "inArray",
+      right,
+    }),
+    ne: (left: unknown, right: unknown) => ({ left, op: "ne", right }),
+    sql,
+  };
+});
 
 const principal = {
   settingsPda: "11111111111111111111111111111112",
@@ -18,7 +28,11 @@ const principal = {
 const autodepositPolicyAccount = "11111111111111111111111111111115";
 const refundablePolicyAccount = "11111111111111111111111111111116";
 
-let activeAutodepositRows: Array<{ policyAccount: string }> = [];
+let activeAutodepositRows: Array<{
+  id: bigint;
+  policyAccount: string;
+}> = [];
+let activeAutoswapRows: Array<{ policyAccount: string }> = [];
 let activeManagedVaultRows: unknown[] = [];
 let activePositionRows: Array<{ policyAccount: string }> = [];
 let routePolicyRows: Array<{
@@ -55,6 +69,12 @@ mock.module("@/lib/solana/rpc-rate-limit", () => ({
 
 mock.module("@loyal-labs/smart-account-vaults", () => ({
   createSmartAccountVaultsClient: () => ({
+    fetchEarnVaultRefundSnapshot: async () => ({
+      lamports: BigInt(0),
+      tokenAccounts: [],
+      vaultPda: new PublicKey(principal.smartAccountAddress),
+      vaultUsdcAta: new PublicKey(principal.smartAccountAddress),
+    }),
     fetchPolicyOverview: async () => ({
       policies: [
         {
@@ -76,6 +96,7 @@ mock.module("@loyal-labs/smart-account-vaults", () => ({
 
 mock.module("@/lib/yield-optimization/yield-neon-client.server", () => {
   const query = (rows: unknown[]) => ({
+    findFirst: async () => rows[0],
     findMany: async () => rows,
   });
   const selectQuery = {
@@ -91,6 +112,10 @@ mock.module("@/lib/yield-optimization/yield-neon-client.server", () => {
   };
 
   return {
+    balanceSweepLotClaims: {
+      status: "balanceSweepLotClaims.status",
+      targetId: "balanceSweepLotClaims.targetId",
+    },
     balanceSweepPolicies: {
       active: "balanceSweepPolicies.active",
       id: "balanceSweepPolicies.id",
@@ -99,6 +124,11 @@ mock.module("@/lib/yield-optimization/yield-neon-client.server", () => {
       settings: "balanceSweepPolicies.settings",
       vaultIndex: "balanceSweepPolicies.vaultIndex",
     },
+    balanceSweepSurplusLots: {
+      remainingAmountRaw: "balanceSweepSurplusLots.remainingAmountRaw",
+      status: "balanceSweepSurplusLots.status",
+      targetId: "balanceSweepSurplusLots.targetId",
+    },
     balanceSweepTargets: {
       balanceSweepPolicyId: "balanceSweepTargets.balanceSweepPolicyId",
       lifecycleStatus: "balanceSweepTargets.lifecycleStatus",
@@ -106,9 +136,19 @@ mock.module("@/lib/yield-optimization/yield-neon-client.server", () => {
       settings: "balanceSweepTargets.settings",
       vaultIndex: "balanceSweepTargets.vaultIndex",
     },
+    crossMintSwapPolicies: {
+      active: "crossMintSwapPolicies.active",
+      id: "crossMintSwapPolicies.id",
+      policyAccount: "crossMintSwapPolicies.policyAccount",
+      settings: "crossMintSwapPolicies.settings",
+      vaultIndex: "crossMintSwapPolicies.vaultIndex",
+    },
     getYieldOptimizationClient: () => ({
       db: {
+        execute: async () => ({ rows: [] }),
         query: {
+          balanceSweepTargets: query([]),
+          crossMintSwapPolicies: query(activeAutoswapRows),
           managedVaults: query(activeManagedVaultRows),
           routePolicies: query(routePolicyRows),
           userYieldPositions: query(activePositionRows),
@@ -142,12 +182,19 @@ describe("policy refund scan route", () => {
   beforeEach(() => {
     activeAutodepositRows = [
       {
+        id: BigInt(1),
         policyAccount: autodepositPolicyAccount,
       },
     ];
+    activeAutoswapRows = [];
     activeManagedVaultRows = [];
     activePositionRows = [];
     routePolicyRows = [];
+    (
+      Connection.prototype as unknown as {
+        getProgramAccounts: () => Promise<unknown[]>;
+      }
+    ).getProgramAccounts = async () => [];
     (
       Connection.prototype as unknown as {
         getMultipleAccountsInfo: (
@@ -181,6 +228,36 @@ describe("policy refund scan route", () => {
         activeAutodeposit: false,
         blockedReason: null,
         canRefund: true,
+      }),
+    ]);
+  });
+
+  test("protects both active Autoswap policy shards from refunds", async () => {
+    activeAutodepositRows = [];
+    activeAutoswapRows = [
+      { policyAccount: autodepositPolicyAccount },
+      { policyAccount: refundablePolicyAccount },
+    ];
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      new Request("http://localhost/policy-refunds/scan", { method: "POST" })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.policies).toEqual([
+      expect.objectContaining({
+        account: autodepositPolicyAccount,
+        activeAutoswap: true,
+        blockedReason: "Active Autoswap policy",
+        canRefund: false,
+      }),
+      expect.objectContaining({
+        account: refundablePolicyAccount,
+        activeAutoswap: true,
+        blockedReason: "Active Autoswap policy",
+        canRefund: false,
       }),
     ]);
   });

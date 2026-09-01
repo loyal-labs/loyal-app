@@ -10,7 +10,11 @@ const principal = {
   ).publicKey.toBase58(),
 };
 const policyAccount = "11111111111111111111111111111114";
+const supplementalPolicyAccount = "11111111111111111111111111111116";
+const refundedRecurringDelegation = "11111111111111111111111111111117";
 const persistence = {
+  additionalClosedPolicyAccounts: [supplementalPolicyAccount],
+  refundedRecurringDelegations: [refundedRecurringDelegation],
   autodepositClose: null,
   cluster: "mainnet-beta",
   policyAccount,
@@ -29,6 +33,7 @@ let policyAccountStillOpen: boolean;
 let callOrder: string[];
 let cleanupRecordCount: number;
 let preparedWalletAddress: string;
+let verifiedPolicyAccounts: string[];
 
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest: async () => principal,
@@ -130,6 +135,7 @@ describe("Earn cleanup confirm route", () => {
     callOrder = [];
     cleanupRecordCount = 0;
     preparedWalletAddress = principal.walletAddress;
+    verifiedPolicyAccounts = [];
     Connection.prototype.getSignatureStatuses = mock(async () => ({
       value: [
         {
@@ -139,13 +145,18 @@ describe("Earn cleanup confirm route", () => {
         },
       ],
     })) as never;
-    Connection.prototype.getMultipleAccountsInfoAndContext = mock(async () => {
-      callOrder.push("verify-policy-accounts");
-      return {
-        context: { slot: 600 },
-        value: [policyAccountStillOpen ? { lamports: 1 } : null],
-      };
-    }) as never;
+    Connection.prototype.getMultipleAccountsInfoAndContext = mock(
+      async (accounts: { toBase58: () => string }[]) => {
+        callOrder.push("verify-policy-accounts");
+        verifiedPolicyAccounts = accounts.map((account) => account.toBase58());
+        return {
+          context: { slot: 600 },
+          value: accounts.map((_, index) =>
+            index === 0 && policyAccountStillOpen ? { lamports: 1 } : null
+          ),
+        };
+      }
+    ) as never;
   });
 
   test("rejects cleanup prepared for another wallet before chain reads", async () => {
@@ -209,5 +220,10 @@ describe("Earn cleanup confirm route", () => {
     });
     expect(cleanupRecordCount).toBe(0);
     expect(callOrder).toEqual(["verify-zero", "verify-policy-accounts"]);
+    expect(verifiedPolicyAccounts).toEqual([
+      policyAccount,
+      supplementalPolicyAccount,
+      refundedRecurringDelegation,
+    ]);
   });
 });

@@ -20,6 +20,7 @@ import {
   balanceSweepPolicies,
   balanceSweepSurplusLots,
   balanceSweepTargets,
+  crossMintSwapPolicies,
   getYieldOptimizationClient,
   managedVaults,
   routePolicies,
@@ -41,6 +42,7 @@ type AutodepositPolicyRow = {
 
 export type EarnPolicyRefundDbState = {
   activeAutodepositAccounts: Set<string>;
+  activeAutoswapAccounts: Set<string>;
   activeManagedVaultAccounts: Set<string>;
   activePositionAccounts: Set<string>;
   recurringDelegationsByPolicyAccount: Map<
@@ -54,6 +56,7 @@ export type EarnPolicyRefundDbState = {
 function emptyPolicyRefundDbState(): EarnPolicyRefundDbState {
   return {
     activeAutodepositAccounts: new Set(),
+    activeAutoswapAccounts: new Set(),
     activeManagedVaultAccounts: new Set(),
     activePositionAccounts: new Set(),
     recurringDelegationsByPolicyAccount: new Map(),
@@ -558,6 +561,7 @@ export async function findEarnPolicyRefundDbState(args: {
     activeVaultRows,
     activePositionRows,
     autodepositRows,
+    activeAutoswapRows,
     openRecurringDelegations,
   ] = await Promise.all([
     client.db.query.routePolicies.findMany({
@@ -612,6 +616,15 @@ export async function findEarnPolicyRefundDbState(args: {
           ne(balanceSweepTargets.lifecycleStatus, "closed")
         )
       ),
+    client.db.query.crossMintSwapPolicies.findMany({
+      columns: { policyAccount: true },
+      where: and(
+        eq(crossMintSwapPolicies.active, true),
+        eq(crossMintSwapPolicies.settings, args.settings),
+        eq(crossMintSwapPolicies.vaultIndex, EARN_VAULT_INDEX),
+        inArray(crossMintSwapPolicies.policyAccount, args.policyAccounts)
+      ),
+    }),
     findOpenWalletToEarnVaultRecurringDelegations({
       connection: args.connection,
       vaultPubkey: args.vaultPubkey,
@@ -676,15 +689,16 @@ export async function findEarnPolicyRefundDbState(args: {
   }
 
   const activeAutodepositAccounts = new Set<string>();
+  for (const row of autodepositRowsWithScheduleCounts) {
+    if (row.policyAccount && resolveRecurringDelegationUsage(row).protected) {
+      activeAutodepositAccounts.add(row.policyAccount);
+    }
+  }
   for (const [
     policyAccount,
     delegations,
   ] of recurringDelegationsByPolicyAccount) {
-    if (
-      delegations.some(
-        (delegation) => delegation.exists && delegation.protected
-      )
-    ) {
+    if (delegations.some((delegation) => delegation.protected)) {
       activeAutodepositAccounts.add(policyAccount);
     }
   }
@@ -695,6 +709,9 @@ export async function findEarnPolicyRefundDbState(args: {
 
   return {
     activeAutodepositAccounts,
+    activeAutoswapAccounts: new Set(
+      activeAutoswapRows.map((row) => row.policyAccount)
+    ),
     activeManagedVaultAccounts,
     activePositionAccounts: new Set(
       activePositionRows.map((row) => row.policyAccount)
@@ -714,40 +731,54 @@ export async function findEarnVaultRefundDbState(args: {
   settings: string;
 }): Promise<{
   hasActiveAutodeposit: boolean;
+  hasActiveAutoswap: boolean;
   hasActiveManagedVault: boolean;
   hasActivePosition: boolean;
 }> {
   const client = getYieldOptimizationClient();
-  const [activePosition, activeManagedVault, openAutodepositTarget] =
-    await Promise.all([
-      client.db.query.userYieldPositions.findFirst({
-        columns: { id: true },
-        where: and(
-          eq(userYieldPositions.settings, args.settings),
-          eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX),
-          eq(userYieldPositions.status, "active")
-        ),
-      }),
-      client.db.query.managedVaults.findFirst({
-        columns: { id: true },
-        where: and(
-          eq(managedVaults.active, true),
-          eq(managedVaults.settings, args.settings),
-          eq(managedVaults.vaultIndex, EARN_VAULT_INDEX)
-        ),
-      }),
-      client.db.query.balanceSweepTargets.findFirst({
-        columns: { id: true },
-        where: and(
-          eq(balanceSweepTargets.settings, args.settings),
-          eq(balanceSweepTargets.vaultIndex, EARN_VAULT_INDEX),
-          ne(balanceSweepTargets.lifecycleStatus, "closed")
-        ),
-      }),
-    ]);
+  const [
+    activePosition,
+    activeManagedVault,
+    openAutodepositTarget,
+    activeAutoswapPolicy,
+  ] = await Promise.all([
+    client.db.query.userYieldPositions.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(userYieldPositions.settings, args.settings),
+        eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX),
+        eq(userYieldPositions.status, "active")
+      ),
+    }),
+    client.db.query.managedVaults.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(managedVaults.active, true),
+        eq(managedVaults.settings, args.settings),
+        eq(managedVaults.vaultIndex, EARN_VAULT_INDEX)
+      ),
+    }),
+    client.db.query.balanceSweepTargets.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(balanceSweepTargets.settings, args.settings),
+        eq(balanceSweepTargets.vaultIndex, EARN_VAULT_INDEX),
+        ne(balanceSweepTargets.lifecycleStatus, "closed")
+      ),
+    }),
+    client.db.query.crossMintSwapPolicies.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(crossMintSwapPolicies.active, true),
+        eq(crossMintSwapPolicies.settings, args.settings),
+        eq(crossMintSwapPolicies.vaultIndex, EARN_VAULT_INDEX)
+      ),
+    }),
+  ]);
 
   return {
     hasActiveAutodeposit: openAutodepositTarget !== undefined,
+    hasActiveAutoswap: activeAutoswapPolicy !== undefined,
     hasActiveManagedVault: activeManagedVault !== undefined,
     hasActivePosition: activePosition !== undefined,
   };
@@ -761,6 +792,7 @@ export async function findSingleEarnPolicyRefundDbState(args: {
   walletAddress: string;
 }): Promise<{
   activeAutodeposit: boolean;
+  activeAutoswap: boolean;
   activeManagedVault: boolean;
   dbPresent: boolean;
   recurringDelegations: EarnPolicyRefundRecurringDelegation[];
@@ -776,6 +808,7 @@ export async function findSingleEarnPolicyRefundDbState(args: {
 
   return {
     activeAutodeposit: state.activeAutodepositAccounts.has(args.policyAccount),
+    activeAutoswap: state.activeAutoswapAccounts.has(args.policyAccount),
     activeManagedVault: state.activeManagedVaultAccounts.has(
       args.policyAccount
     ),
