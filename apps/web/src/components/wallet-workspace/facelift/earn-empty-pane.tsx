@@ -184,7 +184,10 @@ export function EarnEmptyPane({
           On desktop it ignores the pane instead: unclipped and dropped by the
           shell's 8px gap (p-2) so it sits flush with the viewport bottom. */}
       <div className="-bottom-2 pointer-events-none absolute inset-x-0 flex justify-center max-[795px]:bottom-0 max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
-        <div className="relative w-full max-w-[420px]">
+        {/* Desktop: the dog is a bottom-anchored square, so capping width caps
+            height. ~380px of header/headline/CTA sits above it, so shrink with
+            viewport height below 800px (380 + 420) to keep the CTA clear. */}
+        <div className="relative w-full max-w-[420px] min-[796px]:max-w-[clamp(140px,100dvh_-_380px,420px)]">
           <DogLottie
             className="aspect-square max-h-[420px] w-full"
             variant="playful"
