@@ -26,6 +26,7 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
         commitment: "confirmed",
         fetchImpl: globalThis.fetch,
         rpcEndpoint,
+        solanaEnv: publicEnv.solanaEnv,
         websocketEndpoint,
       }),
       env: publicEnv.solanaEnv,

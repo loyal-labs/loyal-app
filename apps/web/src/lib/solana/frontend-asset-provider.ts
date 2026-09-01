@@ -8,6 +8,7 @@ import {
   NATIVE_SOL_DECIMALS,
   NATIVE_SOL_MINT,
 } from "@loyal-labs/solana-wallet";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import {
   Connection,
   type Commitment,
@@ -27,6 +28,7 @@ const TOKEN_2022_PROGRAM_ID = new PublicKey(
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 );
 const COINGECKO_BASE_URL = "https://pro-api.coingecko.com/api/v3";
+const JUPITER_TOKEN_SEARCH_URL = "https://lite-api.jup.ag/tokens/v2/search";
 const SOLANA_NETWORK = "solana";
 const DEFAULT_SUBSCRIPTION_DEBOUNCE_MS = 750;
 export const USDC_ICON_URL =
@@ -216,6 +218,33 @@ async function fetchCoinGeckoTokenMarket(
   }
 }
 
+type JupiterTokenSearchResult = {
+  id: string;
+  usdPrice?: number;
+};
+
+// Mainnet price backstop for mints CoinGecko does not cover. A tradable token
+// is listed on Jupiter with a USD price; NFT and airdrop-spam mints are not,
+// which is what lets getAssetSnapshot hide them from the asset list.
+async function fetchJupiterPriceUsd(
+  fetchImpl: typeof fetch,
+  mint: string
+): Promise<number | null> {
+  try {
+    const tokens = await fetchJson<JupiterTokenSearchResult[]>(
+      fetchImpl,
+      `${JUPITER_TOKEN_SEARCH_URL}?query=${encodeURIComponent(mint)}`,
+      { method: "GET" }
+    );
+
+    return toSafePositiveNumber(
+      tokens.find((token) => token.id === mint)?.usdPrice
+    );
+  } catch {
+    return null;
+  }
+}
+
 type OnchainTokenMetadata = {
   imageUrl: string | null;
   name: string | null;
@@ -339,7 +368,9 @@ export function createFrontendAssetProvider(args: {
   websocketEndpoint: string;
   commitment: Commitment;
   fetchImpl: typeof fetch;
+  solanaEnv?: SolanaEnv;
 }): AssetProvider {
+  const isMainnet = args.solanaEnv === "mainnet";
   let rpcConnection: Connection | null = null;
   let websocketConnection: Connection | null = null;
   const rpcFetch = getFrontendSolanaRpcFetch(args.fetchImpl);
@@ -409,7 +440,10 @@ export function createFrontendAssetProvider(args: {
 
       const market = await fetchCoinGeckoTokenMarket(args.fetchImpl, mint);
       const coinGeckoSymbol = market?.token.symbol?.trim() || null;
-      const priceUsd = toSafePositiveNumber(market?.market.priceUsd);
+      const priceUsd =
+        toSafePositiveNumber(market?.market.priceUsd) ??
+        // Jupiter only indexes mainnet, so skip the lookup elsewhere.
+        (isMainnet ? await fetchJupiterPriceUsd(args.fetchImpl, mint) : null);
 
       // CoinGecko is the primary source (it also carries price). When it has no
       // name/symbol for this mint, fall back to the token's own on-chain
@@ -510,7 +544,13 @@ export function createFrontendAssetProvider(args: {
         })
       );
 
-      assets.push(...tokenAssets);
+      // On mainnet a token with no USD price from CoinGecko or Jupiter is not
+      // tradable — NFTs and airdrop-spam mints (e.g. "by-*" Token-2022 drops)
+      // land here — so keep them out of the wallet's asset list. Devnet and
+      // localnet test tokens have no price source at all, so they stay.
+      assets.push(
+        ...tokenAssets.filter((asset) => !isMainnet || asset.priceUsd !== null)
+      );
 
       return {
         owner: owner.toBase58(),
