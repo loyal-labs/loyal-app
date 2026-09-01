@@ -21,22 +21,36 @@ function formatHeadlineUsd(value: number): string {
 }
 
 export function EarnEmptyPane({
+  apyBadgeLabel,
+  onBack,
   onDeposit,
   onManageAutoswap,
   onOpenChart,
+  onOpenSettings,
   title = "Earn",
+  tooltipText = "Earn yield on your idle USDC",
 }: {
+  /** Mobile-only green badge under the title (Figma 5459:71363/71433). */
+  apyBadgeLabel?: string;
+  /** Mobile-only back chevron to the wallet home (signed-in screens). */
+  onBack?: () => void;
   onDeposit?: () => void;
   onManageAutoswap?: () => void;
   onOpenChart?: () => void;
+  /** Mobile-only gear on the signed-out screen (Figma 5459:71296). */
+  onOpenSettings?: () => void;
   /** "Earn MAX" reuses this pane as its logged-out connect screen. */
   title?: string;
+  tooltipText?: string;
 }) {
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
   const target =
     HEADLINE_PRINCIPAL_USD * getEarnForecastTargetMultiplier(apy.apyBps);
+  // Earn's own forecast backs the default badge; Earn MAX overrides it.
+  const badgeLabel =
+    apyBadgeLabel ?? `${formatEarnApyLabel(apy.apyBps)} APY`;
 
   // The target and APY words derive from the fetched APY; they skeleton until
   // it lands, then reveal with a digit pop (the fallback APY is hardcoded and
@@ -60,17 +74,75 @@ export function EarnEmptyPane({
   return (
     <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-card max-[795px]:overflow-clip max-[795px]:rounded-none">
       <header className="flex w-full items-center p-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
-          <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
-            {title}
-          </h1>
-          {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
-          <InfoTooltip
-            iconClassName="size-6"
-            placement="bottom"
-            text="Earn yield on your idle USDC"
-          />
+        {isHydrated && isSignedIn && onBack ? (
+          <button
+            aria-label="Back"
+            className="t-hover hidden size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:flex"
+            onClick={onBack}
+            type="button"
+          >
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
+              src={`${ASSET_BASE}/icon-arrow-left.svg`}
+            />
+          </button>
+        ) : null}
+        <div
+          className={`flex min-w-0 flex-1 items-center gap-2 py-2 pl-4 ${
+            isHydrated && isSignedIn && onBack ? "max-[795px]:pl-1" : ""
+          }`}
+        >
+          {/* Figma 5459:71296 — signed-out mobile leads with the wordmark. */}
+          {isHydrated && !isSignedIn ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt="Loyal"
+              className="hidden h-6 w-14 max-[795px]:block dark:invert"
+              src={`${ASSET_BASE}/logotype.svg`}
+            />
+          ) : null}
+          <div
+            className={`flex flex-col items-start ${
+              isHydrated && !isSignedIn ? "max-[795px]:hidden" : ""
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
+                {title}
+              </h1>
+              {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
+              <span className="max-[795px]:hidden">
+                <InfoTooltip
+                  iconClassName="size-6"
+                  placement="bottom"
+                  text={tooltipText}
+                />
+              </span>
+            </div>
+            {/* Figma 5459:71363 / 71433 — APY badge under the title. */}
+            {isHydrated && isSignedIn ? (
+              <span className="hidden items-center rounded-md bg-positive/[0.14] px-1 py-px max-[795px]:inline-flex">
+                <span className="whitespace-nowrap pt-px font-medium text-[11px] text-positive leading-[13px] tracking-[0.06px]">
+                  {badgeLabel}
+                </span>
+              </span>
+            ) : null}
+          </div>
         </div>
+        {isHydrated && !isSignedIn ? (
+          <a
+            className="t-hover hidden h-11 shrink-0 items-center gap-2 rounded-3xl px-2.5 hover:bg-accent max-[795px]:flex"
+            href="https://askloyal.com"
+          >
+            <ThemedIcon
+              className="size-6 text-tertiary"
+              src={`${ASSET_BASE}/icon-globe.svg`}
+            />
+            <span className="whitespace-nowrap font-medium text-[16px] text-muted-foreground leading-5">
+              askloyal.com
+            </span>
+          </a>
+        ) : null}
         {onOpenChart ? (
           <button
             aria-label="Open chart"
@@ -84,12 +156,35 @@ export function EarnEmptyPane({
             />
           </button>
         ) : null}
+        {/* Mobile swaps the title tooltip into the icon cluster. */}
+        {isHydrated && isSignedIn ? (
+          <span className="hidden size-11 shrink-0 items-center justify-center max-[795px]:flex">
+            <InfoTooltip
+              iconClassName="size-6"
+              placement="bottom"
+              text={tooltipText}
+            />
+          </span>
+        ) : null}
+        {isHydrated && !isSignedIn && onOpenSettings ? (
+          <button
+            aria-label="Open settings"
+            className="t-hover hidden size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:flex"
+            onClick={onOpenSettings}
+            type="button"
+          >
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
+              src={`${ASSET_BASE}/icon-gear.svg`}
+            />
+          </button>
+        ) : null}
       </header>
 
       <div className="flex w-full flex-1 flex-col items-center gap-9 pt-8">
         <div className="w-full max-w-[400px] px-10">
           <p
-            className="flex flex-wrap content-center items-center justify-center gap-x-1.5 gap-y-0.5 font-bold text-[40px] uppercase leading-none tracking-[-0.4px]"
+            className="flex flex-wrap content-center items-center justify-center gap-x-1.5 gap-y-0.5 font-bold text-[40px] uppercase leading-none tracking-[-0.4px] max-[795px]:text-[36px] max-[795px]:tracking-[-0.36px]"
             style={{ fontFeatureSettings: '"case" 1' }}
           >
             {/* Figma 5429:36626 — the logged-out connect pane leads with a
@@ -100,9 +195,16 @@ export function EarnEmptyPane({
                 Make your money work smarter
               </span>
             ) : null}
-            {isHydrated && !isSignedIn
-              ? null
-              : headlineWords.map((word, index) => {
+            {/* Figma 5459:71363/71433 — mobile keeps the static line for
+                signed-in users too; the APY math headline is desktop-only. */}
+            {isHydrated && isSignedIn ? (
+              <span className="hidden text-center text-foreground max-[795px]:inline">
+                Make your money work smarter
+              </span>
+            ) : null}
+            {isHydrated && !isSignedIn ? null : (
+              <span className="contents max-[795px]:hidden">
+                {headlineWords.map((word, index) => {
               const colorClassName = word.emphasized
                 ? "text-foreground"
                 : "text-muted-foreground";
@@ -131,6 +233,8 @@ export function EarnEmptyPane({
                 </SkeletonReveal>
               );
             })}
+              </span>
+            )}
           </p>
         </div>
 

@@ -52,11 +52,13 @@ export function WalletHomePage({
   earnMaxForecastApyBps,
   isEarnBalanceLoading,
   isEarnMaxBalanceLoading,
+  onOpenSettings,
   onSelectPage,
   onSetUpAutodeposit,
   showActivityBadge,
   showEarnMax,
 }: {
+  onOpenSettings: () => void;
   earnBalanceUsd: number;
   earnMaxBalanceUsd: number;
   earnMaxForecastApyBps: number | null;
@@ -236,10 +238,22 @@ export function WalletHomePage({
                 </div>
               )}
               <div className="flex min-w-0 flex-1 items-center justify-end gap-1 pl-3">
-                {/* ponytail: settings icon returns when its screen ships */}
+                {/* Figma 5465:83164 — mobile replaces the quick links with
+                    the settings gear (links live in the sheet). */}
+                <button
+                  aria-label="Open settings"
+                  className="t-hover hidden size-11 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:flex"
+                  onClick={onOpenSettings}
+                  type="button"
+                >
+                  <ThemedIcon
+                    className="size-6 text-tertiary"
+                    src={`${ASSET_BASE}/icon-gear.svg`}
+                  />
+                </button>
                 <a
                   aria-label="Visit askloyal.com"
-                  className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
+                  className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:hidden"
                   href="https://askloyal.com"
                 >
                   <ThemedIcon
@@ -250,7 +264,7 @@ export function WalletHomePage({
                 {cherryRuntime.mode === "standalone" ? (
                   <button
                     aria-label="Disconnect wallet"
-                    className="t-hover flex size-11 items-center justify-center rounded-3xl enabled:hover:bg-accent disabled:opacity-40"
+                    className="t-hover flex size-11 items-center justify-center rounded-3xl enabled:hover:bg-accent disabled:opacity-40 max-[795px]:hidden"
                     disabled={!canDisconnect}
                     onClick={handleDisconnect}
                     type="button"

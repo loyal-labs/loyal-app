@@ -245,6 +245,10 @@ const EARN_MAX_CHART_TABS: readonly ChartTab[] = ["APY", "Earned"];
 // ponytail: daily "earned" ≈ equity delta minus confirmed same-day flows
 // (deposits in, withdrawal requests out) — replace with a dedicated earnings
 // feed when the indexer grows one.
+// ponytail: mock tooltip copy — real copy comes with the wiring pass
+const EARN_MAX_TOOLTIP_TEXT =
+  "Higher-yield USDC strategies with a short withdrawal delay";
+
 const EARNED_WINDOW_DAYS = 30;
 
 function dayKey(date: Date): string {
@@ -953,10 +957,16 @@ function EarnMaxMainPane({
 export function EarnMaxWorkspace({
   earnData,
   earnMax,
+  onBack,
+  onOpenSettings,
   onViewAllActivity,
 }: {
   earnData: EarnPositionData;
   earnMax: { actions: EarnMaxActions; view: EarnMaxViewModel };
+  /** Mobile back chevron to the wallet home. */
+  onBack: () => void;
+  /** Mobile settings gear on the signed-out screen. */
+  onOpenSettings: () => void;
   onViewAllActivity: () => void;
 }) {
   const { isHydrated, isSignedIn } = useAuthCapability();
@@ -972,6 +982,14 @@ export function EarnMaxWorkspace({
     lastTransactionRef.current = selectedTransaction;
   }
   const transactionDetail = selectedTransaction ?? lastTransactionRef.current;
+  const { view, actions } = earnMax;
+  // A wallet that never touched Earn MAX gets the first-deposit screen; any
+  // history (even fully withdrawn) keeps the full workspace for its records.
+  const isVirgin =
+    !view.isLoading &&
+    view.balanceUsd <= 0 &&
+    view.activity.length === 0 &&
+    !view.withdrawal;
   useEffect(() => {
     if (isHydrated && !isSignedIn && screen !== "main") {
       setScreen("main");
@@ -1006,8 +1024,6 @@ export function EarnMaxWorkspace({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [screen, selectedTransaction]);
-
-  const { actions, view } = earnMax;
   const chartCustom: ChartCardCustomContent = {
     defaultTab: "Earned",
     renderBody: (activeTab) =>
@@ -1054,10 +1070,26 @@ export function EarnMaxWorkspace({
       >
         {isHydrated && !isSignedIn ? (
           <PaneReveal>
-            <EarnEmptyPane title="Earn MAX" />
+            <EarnEmptyPane
+              onOpenSettings={onOpenSettings}
+              title="Earn MAX"
+              tooltipText={EARN_MAX_TOOLTIP_TEXT}
+            />
           </PaneReveal>
         ) : !isHydrated ? (
           <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-card max-[795px]:rounded-none" />
+        ) : isVirgin ? (
+          // Figma 5459:71433 — a wallet with no Earn MAX history gets the
+          // first-deposit screen (same pane Earn's empty state uses).
+          <PaneReveal>
+            <EarnEmptyPane
+              apyBadgeLabel={`Up to ${formatEarnMaxApyLabel(view.forecastApyBps)}`}
+              onBack={onBack}
+              onDeposit={() => setScreen("deposit")}
+              title="Earn MAX"
+              tooltipText={EARN_MAX_TOOLTIP_TEXT}
+            />
+          </PaneReveal>
         ) : (
           <PaneReveal>
             <EarnMaxMainPane

@@ -26,6 +26,7 @@ import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stat
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
+import { SettingsSheet } from "@/components/wallet-workspace/facelift/settings-sheet";
 import {
   MiddlePaneSlide,
   PaneReveal,
@@ -90,6 +91,9 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
 export function WorkspaceFaceliftShell() {
   const publicEnv = usePublicEnv();
   const [isChartExpanded, setIsChartExpanded] = useState(false);
+  // Mobile settings sheet (Figma 5462:75016 / 5462:74914) — opened by the
+  // header gears on the home and signed-out screens.
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // One shared tab choice for every chart card (compact right pane, mobile
   // inline card, enlarged overlay) — enlarging must not reset the tab.
   const [chartTab, setChartTab] = useState<ChartTab | null>(null);
@@ -366,6 +370,10 @@ export function WorkspaceFaceliftShell() {
         {/* Status pill for Earn deposit/withdraw/autodeposit flows —
             use-earn-actions.ts drives it through the earnToast emitter. */}
         <EarnToastHost />
+        <SettingsSheet
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
         {/* ASK-1972 — one-time lifecycle onboarding pop-ups (welcome /
             post-deposit / autodeposit-enabled), shown only on the Earn
             root so they never cover an in-progress action screen. */}
@@ -418,10 +426,9 @@ export function WorkspaceFaceliftShell() {
                 setActivePage("earn");
                 setMiddleView("autodeposit");
               }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
               showActivityBadge={hasUnseenActivity}
-              // Earn MAX is desktop-only for now — the mobile wallet home
-              // hides its tile until the mobile layout ships.
-              showEarnMax={false}
+              showEarnMax={EARN_MAX_VISIBLE}
             />
           ) : activePage === "activity" ? (
             <ActivityPage
@@ -435,6 +442,8 @@ export function WorkspaceFaceliftShell() {
             <EarnMaxWorkspace
               earnData={earnData}
               earnMax={earnMax}
+              onBack={() => handleSelectPage("wallet")}
+              onOpenSettings={() => setIsSettingsOpen(true)}
               onViewAllActivity={() => handleSelectPage("activity")}
             />
           ) : activePage !== "earn" && activePage !== "earnmax" ? (
@@ -511,10 +520,12 @@ export function WorkspaceFaceliftShell() {
                   ) : (
                     <PaneReveal>
                       <EarnEmptyPane
+                        onBack={() => handleSelectPage("wallet")}
                         onDeposit={() => {
                           setDepositSourceKey(null);
                           setMiddleView("deposit");
                         }}
+                        onOpenSettings={() => setIsSettingsOpen(true)}
                         onManageAutoswap={
                           earnData.autoswapConfig
                             ? () => setMiddleView("autoswap")
@@ -575,7 +586,9 @@ export function WorkspaceFaceliftShell() {
                   ) : null}
                 </SheetReveal>
               ) : null}
-              {isEarnRootView ? (
+              {/* Figma 5459:71296/71363 — the signed-out and first-deposit
+                  screens drop the tab bar (back arrow / connect instead). */}
+              {isEarnRootView && isSignedIn && earnData.hasPosition ? (
                 <MobileTabBar
                   activeTab="earn"
                   onSelect={handleSelectPage}

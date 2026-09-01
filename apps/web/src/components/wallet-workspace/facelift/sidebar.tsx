@@ -44,8 +44,9 @@ import {
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
-// Same destinations the old workspace's bottom rail linked to.
-const SIDEBAR_LINKS = [
+// Same destinations the old workspace's bottom rail linked to. The mobile
+// settings sheet reuses these entries with its own labels.
+export const SIDEBAR_LINKS = [
   {
     href: "https://x.com/loyal_hq",
     icon: "icon-x-social.svg",
