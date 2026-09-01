@@ -26,6 +26,7 @@ import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-du
 import {
   type ChartCardCustomContent,
   type ChartTab,
+  EarnChartCard,
   EarnChartPane,
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import {
@@ -54,6 +55,7 @@ import {
   MiddlePaneSlide,
   PaneReveal,
 } from "@/components/wallet-workspace/facelift/pane-transitions";
+import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import {
   StaggerLine,
@@ -247,7 +249,19 @@ const EARN_MAX_CHART_TABS: readonly ChartTab[] = ["APY", "Earned"];
 // feed when the indexer grows one.
 // ponytail: mock tooltip copy — real copy comes with the wiring pass
 const EARN_MAX_TOOLTIP_TEXT =
-  "Higher-yield USDC strategies with a short withdrawal delay";
+  "Higher-yield strategies through your own smart account";
+
+// A wallet that never touched Earn MAX gets the first-deposit screen; any
+// history (even fully withdrawn) keeps the full workspace for its records.
+// The shell shares this to pick the mobile background.
+export function isEarnMaxUntouched(view: EarnMaxViewModel): boolean {
+  return (
+    !view.isLoading &&
+    view.balanceUsd <= 0 &&
+    view.activity.length === 0 &&
+    !view.withdrawal
+  );
+}
 
 const EARNED_WINDOW_DAYS = 30;
 
@@ -336,7 +350,7 @@ function buildEarnMaxDailySeries(view: EarnMaxViewModel): {
   return { days };
 }
 
-function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[] {
+export function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[] {
   return buildEarnMaxDailySeries(view).days.map((day) => ({
     apyBps: null,
     earnedUsd: day.earnedUsd,
@@ -757,18 +771,30 @@ function EarnMaxActivityCard({
 // the transactions card below it.
 function EarnMaxMainPane({
   actions,
+  chartCustom,
+  earnData,
+  onBack,
   onDeposit,
+  onOpenChart,
+  onSelectChartTab,
   onSelectTransaction,
   onViewAllActivity,
   onWithdraw,
+  selectedChartTab,
   selectedTransactionId,
   view,
 }: {
   actions: EarnMaxActions;
+  chartCustom: ChartCardCustomContent;
+  earnData: EarnPositionData;
+  onBack: () => void;
   onDeposit: () => void;
+  onOpenChart: () => void;
+  onSelectChartTab: (tab: ChartTab) => void;
   onSelectTransaction: (item: EarnMaxActivityItem) => void;
   onViewAllActivity: () => void;
   onWithdraw: () => void;
+  selectedChartTab: ChartTab | null;
   selectedTransactionId: string | null;
   view: EarnMaxViewModel;
 }) {
@@ -783,22 +809,55 @@ function EarnMaxMainPane({
         })}`;
   const canWithdraw = view.balanceUsd > 0;
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
+    <section className="flex h-full min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-y-auto">
       <div className="flex w-full shrink-0 flex-col rounded-3xl bg-card max-[795px]:rounded-t-none">
         <header className="flex w-full items-center p-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
+          {/* Figma 5459:71906 — mobile treats Earn MAX as a subscreen. */}
+          <button
+            aria-label="Back"
+            className="t-hover hidden size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:flex"
+            onClick={onBack}
+            type="button"
+          >
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
+              src={`${ASSET_BASE}/icon-arrow-left.svg`}
+            />
+          </button>
+          <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4 max-[795px]:pl-1">
             <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
               Earn MAX
             </h1>
             {/* ponytail: mock tooltip copy — real copy comes with the
                 content pass */}
+            <span className="max-[795px]:hidden">
+              <InfoTooltip
+                iconClassName="size-6"
+                placement="bottom"
+                text={EARN_MAX_TOOLTIP_TEXT}
+              />
+            </span>
+          </div>
+          <button
+            aria-label="Expand chart"
+            className="t-hover hidden size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:flex"
+            onClick={onOpenChart}
+            type="button"
+          >
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
+              src={`${ASSET_BASE}/icon-chart.svg`}
+            />
+          </button>
+          <span className="hidden size-11 shrink-0 items-center justify-center max-[795px]:flex">
             <InfoTooltip
               iconClassName="size-6"
               placement="bottom"
-              text="Higher-yield strategies through your own smart account"
+              text={EARN_MAX_TOOLTIP_TEXT}
             />
-          </div>
-          <div className="flex shrink-0 items-start gap-2 pl-3">
+          </span>
+          <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
             <button
               className="t-hover flex items-center justify-center gap-2 rounded-full bg-accent p-2.5 enabled:hover:-translate-y-0.5 enabled:hover:bg-accent-active enabled:active:translate-y-0 disabled:opacity-40"
               disabled={!canWithdraw}
@@ -940,6 +999,19 @@ function EarnMaxMainPane({
           ) : null}
         </div>
       </div>
+      {/* Mobile inline chart card between balance and activity (same slot
+          Earn's position pane uses); on desktop the chart lives in the
+          right pane. */}
+      <EarnChartCard
+        actionAriaLabel="Expand chart"
+        actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
+        custom={chartCustom}
+        earnData={earnData}
+        onAction={onOpenChart}
+        onSelectTab={onSelectChartTab}
+        sectionClassName="hidden h-[406px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:flex"
+        selectedTab={selectedChartTab}
+      />
       <EarnMaxActivityCard
         actions={actions}
         onSelectTransaction={onSelectTransaction}
@@ -948,6 +1020,41 @@ function EarnMaxMainPane({
         selectedTransactionId={selectedTransactionId}
         view={view}
       />
+      </div>
+
+      {/* Mobile sticky action bar — same contract as Earn's (Figma
+          5459:71906 bottom buttons). */}
+      <div className="hidden w-full shrink-0 bg-card px-4 py-2 max-[795px]:block">
+        <div className="flex w-full gap-2">
+          <button
+            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-foreground hover:bg-foreground/90"
+            onClick={onDeposit}
+            type="button"
+          >
+            <ThemedIcon
+              className="size-6 text-background"
+              src={`${ASSET_BASE}/icon-plus.svg`}
+            />
+            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-background leading-5">
+              Deposit
+            </span>
+          </button>
+          <button
+            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-accent enabled:hover:bg-accent-active disabled:opacity-40"
+            disabled={!canWithdraw}
+            onClick={onWithdraw}
+            type="button"
+          >
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
+              src={`${ASSET_BASE}/icon-withdraw-arrow.svg`}
+            />
+            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
+              Withdraw
+            </span>
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -983,13 +1090,7 @@ export function EarnMaxWorkspace({
   }
   const transactionDetail = selectedTransaction ?? lastTransactionRef.current;
   const { view, actions } = earnMax;
-  // A wallet that never touched Earn MAX gets the first-deposit screen; any
-  // history (even fully withdrawn) keeps the full workspace for its records.
-  const isVirgin =
-    !view.isLoading &&
-    view.balanceUsd <= 0 &&
-    view.activity.length === 0 &&
-    !view.withdrawal;
+  const isVirgin = isEarnMaxUntouched(view);
   useEffect(() => {
     if (isHydrated && !isSignedIn && screen !== "main") {
       setScreen("main");
@@ -1094,7 +1195,13 @@ export function EarnMaxWorkspace({
           <PaneReveal>
             <EarnMaxMainPane
               actions={actions}
+              chartCustom={chartCustom}
+              earnData={earnData}
+              onBack={onBack}
               onDeposit={() => setScreen("deposit")}
+              onOpenChart={() => setIsChartExpanded(true)}
+              onSelectChartTab={setChartTab}
+              selectedChartTab={chartTab}
               onSelectTransaction={(item) =>
                 setSelectedTransaction((current) =>
                   current?.id === item.id ? null : item
@@ -1108,6 +1215,23 @@ export function EarnMaxWorkspace({
           </PaneReveal>
         )}
       </MiddlePaneSlide>
+      {/* Below 1204px the transaction detail rides the same sheet the Earn
+          shell uses (bottom sheet on mobile, right sheet in between). */}
+      <SheetReveal
+        isOpen={selectedTransaction !== null && screen === "main"}
+        onClose={() => setSelectedTransaction(null)}
+        scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+        sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      >
+        {transactionDetail ? (
+          <EarnMaxTransactionDetailPane
+            item={transactionDetail}
+            key={transactionDetail.id}
+            onClose={() => setSelectedTransaction(null)}
+            walletAddress={earnData.walletAddress ?? null}
+          />
+        ) : null}
+      </SheetReveal>
       {screen !== "main" ? null : isHydrated && !isSignedIn ? (
         <EarnMaxMockRail />
       ) : selectedTransaction && transactionDetail ? (

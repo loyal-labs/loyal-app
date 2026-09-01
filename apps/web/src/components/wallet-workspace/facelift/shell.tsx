@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { ActivityPage } from "@/components/wallet-workspace/facelift/activity-page";
@@ -20,7 +20,12 @@ import {
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
-import { EarnMaxWorkspace } from "@/components/wallet-workspace/facelift/earn-max-pane";
+import {
+  buildEarnMaxEarnedBars,
+  EarnMaxWorkspace,
+  isEarnMaxUntouched,
+} from "@/components/wallet-workspace/facelift/earn-max-pane";
+import { useEarnEarnedData } from "@/components/wallet-workspace/facelift/earned-chart";
 import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
@@ -185,6 +190,23 @@ export function WorkspaceFaceliftShell() {
     settingsPda: EARN_MAX_VISIBLE ? earnData.settingsPda : undefined,
     walletAddress: EARN_MAX_VISIBLE ? earnData.walletAddress : null,
   });
+  // 30-day earned figures for the mobile home product cards (Figma
+  // 5465:83340) — same feeds the Earned charts render, just summed.
+  const earnEarned = useEarnEarnedData(earnData);
+  const earnEarned30dUsd =
+    earnEarned.showEarningsLoader || earnEarned.earningsUnavailable
+      ? null
+      : earnEarned.dailyBars.reduce((sum, bar) => sum + bar.earnedUsd, 0);
+  const earnMaxEarned30dUsd = useMemo(
+    () =>
+      earnMax.view.isLoading
+        ? null
+        : buildEarnMaxEarnedBars(earnMax.view).reduce(
+            (sum, bar) => sum + bar.earnedUsd,
+            0
+          ),
+    [earnMax.view]
+  );
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
   // Send/Swap screens — including re-selecting the page it's already on.
   const [navigationNonce, setNavigationNonce] = useState(0);
@@ -345,10 +367,17 @@ export function WorkspaceFaceliftShell() {
       (earnData.settingsPda === undefined || !earnData.hasResolvedPosition));
   const isEarnRootView = activeMiddleView === "earn";
   const isMobileGrayBackground =
-    activePage === "earn" &&
-    isEarnRootView &&
-    earnData.hasPosition &&
-    !isPositionLoading;
+    (activePage === "earn" &&
+      isEarnRootView &&
+      earnData.hasPosition &&
+      !isPositionLoading) ||
+    // Earn MAX main view runs card-on-gray too (Figma 5459:71906); its
+    // action screens are full-bleed white cards so gray never peeks through.
+    (EARN_MAX_VISIBLE &&
+      activePage === "earnmax" &&
+      isSignedIn &&
+      !earnMax.view.isLoading &&
+      !isEarnMaxUntouched(earnMax.view));
 
   return (
     <BalanceVisibilityProvider>
@@ -417,7 +446,9 @@ export function WorkspaceFaceliftShell() {
           {activePage === "wallet" ? (
             <WalletHomePage
               earnBalanceUsd={earnData.earnBalanceUsd}
+              earnEarned30dUsd={earnEarned30dUsd}
               earnMaxBalanceUsd={earnMax.view.balanceUsd}
+              earnMaxEarned30dUsd={earnMaxEarned30dUsd}
               earnMaxForecastApyBps={earnMax.view.forecastApyBps}
               isEarnBalanceLoading={isPositionLoading}
               isEarnMaxBalanceLoading={earnMax.view.isLoading}

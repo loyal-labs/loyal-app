@@ -107,9 +107,35 @@ export function BannerTitleChars({ title }: { title: string }) {
 // pagination dots float 20px above the card like the design's overlay.
 // Becoming the active slide plays the entrance: title characters via the
 // soft-blur-in recipe, then art + button on the texts-reveal stagger.
+// Figma 5465:83201 — static banner shown before the first Earn/Earn MAX
+// deposit; the carousel takes the slot back afterwards.
+export function FirstDepositBanner() {
+  return (
+    <div className="flex h-full w-full items-center justify-end overflow-clip rounded-3xl bg-black/[0.04] dark:bg-white/[0.06]">
+      <p className="min-w-0 flex-1 self-start p-4 font-medium text-[16px] text-foreground leading-[18px]">
+        Make your first
+        <br />
+        deposit to get started
+      </p>
+      <div className="relative aspect-square h-full shrink-0 overflow-clip">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt=""
+          aria-hidden="true"
+          className="absolute right-[-12%] bottom-[-8%] w-[110%] max-w-none"
+          src={`${ASSET_BASE}/banner-mascot.svg`}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function WalletHomeBanners({
+  dotsBelow = false,
   onSetUpAutodeposit,
 }: {
+  /** Mobile home puts the pager dots under the banner (Figma 5465:83340). */
+  dotsBelow?: boolean;
   onSetUpAutodeposit: () => void;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -164,7 +190,9 @@ export function WalletHomeBanners({
     <div className="relative col-span-2">
       <div
         aria-hidden="true"
-        className="-top-5 -translate-x-1/2 absolute left-1/2 flex h-4 items-center gap-2"
+        className={`-translate-x-1/2 absolute left-1/2 flex h-4 items-center gap-2 ${
+          dotsBelow ? "-bottom-5" : "-top-5"
+        }`}
       >
         {BANNERS.map((banner, index) => (
           <span
