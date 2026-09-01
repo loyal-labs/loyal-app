@@ -7,8 +7,12 @@ import { flushSync } from "react-dom";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 
-// White spreads from the clicked button to cover the screen.
+// Cover (white, or app-dark for known dark-theme users) spreads from the
+// clicked button to cover the screen.
 const COVER_MS = 420;
+// Dark cover matches the app's dark Background/Primary (see .dark --background
+// in globals.css) so the reveal cross-fades dark -> dark with no flash.
+const DARK_COVER = "#1d1b20";
 // Manual-fallback fade (browsers without View Transitions).
 const REVEAL_MS = 360;
 // The clicked button lingers on top of the white, then fades out.
@@ -339,6 +343,12 @@ export function AppTransitionBridge() {
     return null;
   }
 
+  // Known dark-theme users (localStorage "theme" = "dark") already have
+  // html.dark set by the pre-paint script in app/layout.tsx; mirror it so the
+  // splash matches the app they are about to see. Overlay only renders
+  // client-side (post-click), so reading the DOM here is safe.
+  const isDark = document.documentElement.classList.contains("dark");
+
   const { x, y } = origin.current;
   const r = expanded ? radius.current : 0;
 
@@ -348,7 +358,7 @@ export function AppTransitionBridge() {
         aria-hidden="true"
         style={{
           alignItems: "center",
-          backgroundColor: "#ffffff",
+          backgroundColor: isDark ? DARK_COVER : "#ffffff",
           clipPath: `circle(${r}px at ${x}px ${y}px)`,
           display: "flex",
           inset: 0,
@@ -395,7 +405,9 @@ export function AppTransitionBridge() {
               cy={RING_CENTER}
               fill="none"
               r={RING_RADIUS}
-              stroke="rgba(18, 18, 18, 0.08)"
+              stroke={
+                isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(18, 18, 18, 0.08)"
+              }
               strokeWidth={RING_STROKE}
             />
             <circle
