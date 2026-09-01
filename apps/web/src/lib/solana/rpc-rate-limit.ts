@@ -6,6 +6,7 @@ const FRONTEND_SOLANA_RPC_WINDOW_MS = 1000;
 const FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS = 3;
 const FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS = 250;
 const FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS = 2000;
+const FRONTEND_SOLANA_RPC_RETRY_JITTER_MS = 125;
 const FRONTEND_SOLANA_RPC_MAX_REQUESTS_ENV_NAME =
   "FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND";
 const FRONTEND_SOLANA_RPC_MIN_INTERVAL_ENV_NAME =
@@ -23,11 +24,35 @@ const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
   "getTokenAccountsByOwner",
 ]);
 const RETRYABLE_RPC_METHODS = RECENTLY_CACHEABLE_RPC_METHODS;
+const TRANSACTION_CRITICAL_RPC_METHODS = new Set([
+  "getBlockHeight",
+  "getLatestBlockhash",
+  "getSignatureStatuses",
+  "sendTransaction",
+  "simulateTransaction",
+]);
+const BACKGROUND_RPC_METHODS = new Set(["getSignaturesForAddress"]);
 
 type RpcFetch = typeof fetch;
+type RpcPriority = 0 | 1 | 2;
 
-interface RpcWindowState {
+type RpcQueueEntry = {
+  dispatch: () => Promise<Response>;
+  priority: RpcPriority;
+  reject: (reason?: unknown) => void;
+  resolve: (response: Response) => void;
+  sequence: number;
+};
+
+interface RpcEndpointState {
+  cooldownUntil: number;
   dispatchedAt: number[];
+  nextSequence: number;
+  queue: RpcQueueEntry[];
+  rateLimitFailures: number;
+  rateLimited: boolean;
+  recoveryProbeInFlight: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 interface RpcRequestKey {
@@ -52,7 +77,9 @@ interface RecentRpcResponseSnapshot {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __loyalFrontendSolanaRpcWindow: RpcWindowState | undefined;
+  var __loyalFrontendSolanaRpcEndpoints:
+    | Map<string, RpcEndpointState>
+    | undefined;
   // eslint-disable-next-line no-var
   var __loyalFrontendSolanaRpcInflight:
     | Map<string, Promise<RpcResponseSnapshot>>
@@ -63,12 +90,25 @@ declare global {
     | undefined;
 }
 
-function getWindow() {
-  globalThis.__loyalFrontendSolanaRpcWindow ??= {
-    dispatchedAt: [],
-  };
+function getEndpointState(endpoint: string): RpcEndpointState {
+  globalThis.__loyalFrontendSolanaRpcEndpoints ??= new Map();
+  const existing = globalThis.__loyalFrontendSolanaRpcEndpoints.get(endpoint);
+  if (existing) {
+    return existing;
+  }
 
-  return globalThis.__loyalFrontendSolanaRpcWindow;
+  const state: RpcEndpointState = {
+    cooldownUntil: 0,
+    dispatchedAt: [],
+    nextSequence: 0,
+    queue: [],
+    rateLimitFailures: 0,
+    rateLimited: false,
+    recoveryProbeInFlight: false,
+    timer: null,
+  };
+  globalThis.__loyalFrontendSolanaRpcEndpoints.set(endpoint, state);
+  return state;
 }
 
 function getInflightRequests() {
@@ -167,39 +207,221 @@ function parseRpcRequestKey(
   };
 }
 
-async function runQueuedFetch(
-  fetchImpl: RpcFetch,
-  input: Parameters<RpcFetch>[0],
-  init: Parameters<RpcFetch>[1]
-): Promise<Response> {
-  const window = getWindow();
-  const maxRequests = getFrontendSolanaRpcMaxRequestsPerWindow();
+function getRpcPriority(requestKey: RpcRequestKey | null): RpcPriority {
+  if (requestKey && TRANSACTION_CRITICAL_RPC_METHODS.has(requestKey.method)) {
+    return 0;
+  }
+  if (requestKey && BACKGROUND_RPC_METHODS.has(requestKey.method)) {
+    return 2;
+  }
+  return 1;
+}
 
-  for (;;) {
-    const now = Date.now();
-    while (true) {
-      const oldestDispatch = window.dispatchedAt[0];
-      if (
-        oldestDispatch === undefined ||
-        oldestDispatch > now - FRONTEND_SOLANA_RPC_WINDOW_MS
-      ) {
-        break;
-      }
-      window.dispatchedAt.shift();
-    }
+function getRetryAfterMs(response: Response | null): number | null {
+  const retryAfter = response?.headers.get("retry-after")?.trim();
+  if (!retryAfter) {
+    return null;
+  }
 
-    // The check-and-record below runs synchronously within one event-loop
-    // turn, so concurrent callers cannot both claim the window's last slot.
-    if (window.dispatchedAt.length < maxRequests) {
-      window.dispatchedAt.push(now);
-      return fetchImpl(input, init);
-    }
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.ceil(seconds * 1000);
+  }
 
-    const oldestDispatch = window.dispatchedAt[0];
-    if (oldestDispatch !== undefined) {
-      await wait(oldestDispatch + FRONTEND_SOLANA_RPC_WINDOW_MS - now);
+  const retryAt = Date.parse(retryAfter);
+  if (!Number.isFinite(retryAt)) {
+    return null;
+  }
+
+  const delayMs = retryAt - Date.now();
+  return delayMs > 0 ? delayMs : null;
+}
+
+function getBackoffDelayMs(attempt: number): number {
+  const exponentialDelay =
+    FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS * 2 ** attempt;
+  const jitter = Math.floor(
+    Math.random() * FRONTEND_SOLANA_RPC_RETRY_JITTER_MS
+  );
+  return Math.min(
+    FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS,
+    exponentialDelay + jitter
+  );
+}
+
+function scheduleEndpointPump(state: RpcEndpointState, delayMs: number): void {
+  if (state.timer !== null) {
+    return;
+  }
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    pumpEndpointQueue(state);
+  }, Math.max(0, delayMs));
+}
+
+function selectNextQueueEntry(state: RpcEndpointState): RpcQueueEntry | null {
+  if (state.queue.length === 0) {
+    return null;
+  }
+
+  let selectedIndex = 0;
+  for (let index = 1; index < state.queue.length; index += 1) {
+    const candidate = state.queue[index]!;
+    const selected = state.queue[selectedIndex]!;
+    if (
+      candidate.priority < selected.priority ||
+      (candidate.priority === selected.priority &&
+        candidate.sequence < selected.sequence)
+    ) {
+      selectedIndex = index;
     }
   }
+
+  return state.queue.splice(selectedIndex, 1)[0] ?? null;
+}
+
+function markEndpointRateLimited(
+  state: RpcEndpointState,
+  response: Response | null,
+  isRecoveryProbe: boolean
+): void {
+  if (!state.rateLimited || isRecoveryProbe) {
+    state.rateLimitFailures += 1;
+  }
+  state.rateLimited = true;
+  if (isRecoveryProbe) {
+    state.recoveryProbeInFlight = false;
+  }
+  const retryAfterMs = getRetryAfterMs(response);
+  const cooldownMs =
+    retryAfterMs ?? getBackoffDelayMs(Math.max(0, state.rateLimitFailures - 1));
+  state.cooldownUntil = Math.max(state.cooldownUntil, Date.now() + cooldownMs);
+}
+
+function clearEndpointRateLimit(state: RpcEndpointState): void {
+  state.cooldownUntil = 0;
+  state.rateLimitFailures = 0;
+  state.rateLimited = false;
+  state.recoveryProbeInFlight = false;
+}
+
+function dispatchQueueEntry(
+  state: RpcEndpointState,
+  entry: RpcQueueEntry,
+  isRecoveryProbe: boolean
+): void {
+  state.dispatchedAt.push(Date.now());
+  if (isRecoveryProbe) {
+    state.recoveryProbeInFlight = true;
+  }
+
+  entry
+    .dispatch()
+    .then((response) => {
+      if (response.status === 429) {
+        markEndpointRateLimited(state, response, isRecoveryProbe);
+      } else if (isRecoveryProbe) {
+        clearEndpointRateLimit(state);
+      }
+      entry.resolve(response);
+    })
+    .catch((error: unknown) => {
+      if (error instanceof TypeError) {
+        // Helius' CORS-less preflight 429 is exposed by browsers as TypeError.
+        // Treat it as endpoint pressure so concurrent reads share one probe.
+        markEndpointRateLimited(state, null, isRecoveryProbe);
+      } else if (isRecoveryProbe) {
+        clearEndpointRateLimit(state);
+      }
+      entry.reject(error);
+    })
+    .finally(() => pumpEndpointQueue(state));
+}
+
+function pruneDispatchWindow(state: RpcEndpointState, now: number): void {
+  while (true) {
+    const oldestDispatch = state.dispatchedAt[0];
+    if (
+      oldestDispatch === undefined ||
+      oldestDispatch > now - FRONTEND_SOLANA_RPC_WINDOW_MS
+    ) {
+      return;
+    }
+    state.dispatchedAt.shift();
+  }
+}
+
+function pumpEndpointQueue(state: RpcEndpointState): void {
+  if (state.queue.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  pruneDispatchWindow(state, now);
+  const maxRequests = getFrontendSolanaRpcMaxRequestsPerWindow();
+
+  if (state.rateLimited) {
+    if (state.recoveryProbeInFlight) {
+      return;
+    }
+    const oldestDispatch = state.dispatchedAt[0];
+    const windowReadyAt =
+      state.dispatchedAt.length >= maxRequests && oldestDispatch !== undefined
+        ? oldestDispatch + FRONTEND_SOLANA_RPC_WINDOW_MS
+        : now;
+    const recoveryReadyAt = Math.max(state.cooldownUntil, windowReadyAt);
+    if (recoveryReadyAt > now) {
+      scheduleEndpointPump(state, recoveryReadyAt - now);
+      return;
+    }
+    const recoveryProbe = selectNextQueueEntry(state);
+    if (recoveryProbe) {
+      dispatchQueueEntry(state, recoveryProbe, true);
+    }
+    return;
+  }
+
+  while (
+    state.queue.length > 0 &&
+    state.dispatchedAt.length < maxRequests &&
+    !state.rateLimited
+  ) {
+    const entry = selectNextQueueEntry(state);
+    if (!entry) {
+      return;
+    }
+    dispatchQueueEntry(state, entry, false);
+  }
+
+  const oldestDispatch = state.dispatchedAt[0];
+  if (state.queue.length > 0 && oldestDispatch !== undefined) {
+    scheduleEndpointPump(
+      state,
+      oldestDispatch + FRONTEND_SOLANA_RPC_WINDOW_MS - Date.now()
+    );
+  }
+}
+
+function runQueuedFetch(
+  fetchImpl: RpcFetch,
+  input: Parameters<RpcFetch>[0],
+  init: Parameters<RpcFetch>[1],
+  requestKey: RpcRequestKey | null
+): Promise<Response> {
+  const endpoint = getInputUrl(input) ?? "unknown-solana-rpc-endpoint";
+  const state = getEndpointState(endpoint);
+
+  return new Promise<Response>((resolve, reject) => {
+    state.queue.push({
+      dispatch: async () => fetchImpl(input, init),
+      priority: getRpcPriority(requestKey),
+      reject,
+      resolve,
+      sequence: state.nextSequence,
+    });
+    state.nextSequence += 1;
+    pumpEndpointQueue(state);
+  });
 }
 
 function isRetryableRpcResponse(response: Response): boolean {
@@ -213,32 +435,17 @@ function isRetryableRpcResponse(response: Response): boolean {
 }
 
 function getRetryDelayMs(response: Response | null, attempt: number): number {
-  const retryAfter = response?.headers.get("retry-after")?.trim();
-  if (retryAfter) {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(
-        FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS,
-        Math.max(
-          FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS,
-          Math.ceil(seconds * 1000)
-        )
-      );
-    }
+  return getRetryAfterMs(response) ?? getBackoffDelayMs(attempt);
+}
 
-    const retryAt = Date.parse(retryAfter);
-    if (Number.isFinite(retryAt)) {
-      return Math.min(
-        FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS,
-        Math.max(FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS, retryAt - Date.now())
-      );
-    }
+export class SolanaRpcRateLimitError extends Error {
+  readonly code = "solana_rpc_rate_limited";
+  readonly retryable = true;
+
+  constructor(method: string) {
+    super(`Solana RPC ${method} is rate limited. Please retry.`);
+    this.name = "SolanaRpcRateLimitError";
   }
-
-  return Math.min(
-    FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS,
-    FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS * 2 ** attempt
-  );
 }
 
 async function runRpcFetch(
@@ -247,9 +454,11 @@ async function runRpcFetch(
   init: Parameters<RpcFetch>[1],
   requestKey: RpcRequestKey | null
 ): Promise<Response> {
-  const retryable = Boolean(
+  const retryableMethod =
     requestKey && RETRYABLE_RPC_METHODS.has(requestKey.method)
-  );
+      ? requestKey.method
+      : null;
+  const retryable = retryableMethod !== null;
 
   for (
     let attempt = 0;
@@ -258,23 +467,30 @@ async function runRpcFetch(
   ) {
     let response: Response | null = null;
     try {
-      response = await runQueuedFetch(fetchImpl, input, init);
-      if (
-        !(retryable && isRetryableRpcResponse(response)) ||
-        attempt === FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS - 1
-      ) {
+      response = await runQueuedFetch(fetchImpl, input, init, requestKey);
+      if (!(retryable && isRetryableRpcResponse(response))) {
+        return response;
+      }
+      if (attempt === FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS - 1) {
+        if (response.status === 429) {
+          throw new SolanaRpcRateLimitError(retryableMethod);
+        }
         return response;
       }
     } catch (error) {
-      if (
-        !(retryable && error instanceof TypeError) ||
-        attempt === FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS - 1
-      ) {
+      if (!(retryable && error instanceof TypeError)) {
         throw error;
+      }
+      if (attempt === FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS - 1) {
+        throw new SolanaRpcRateLimitError(retryableMethod);
       }
     }
 
-    await wait(getRetryDelayMs(response, attempt));
+    // Endpoint-wide 429/TypeError cooldown is enforced by the queue. Keep a
+    // local delay only for transient upstream 5xx responses.
+    if (response?.status !== 429 && response !== null) {
+      await wait(getRetryDelayMs(response, attempt));
+    }
   }
 
   throw new Error("Frontend Solana RPC retry loop exhausted unexpectedly.");
@@ -425,7 +641,7 @@ export function getFrontendSolanaRpcFetch(fetchImpl?: RpcFetch): RpcFetch {
   return (async (input, init) => {
     const requestKey = parseRpcRequestKey(input, init);
     if (!requestKey) {
-      return runQueuedFetch(runFetch, input, init);
+      return runQueuedFetch(runFetch, input, init, null);
     }
 
     const recentSnapshot = RECENTLY_CACHEABLE_RPC_METHODS.has(requestKey.method)
