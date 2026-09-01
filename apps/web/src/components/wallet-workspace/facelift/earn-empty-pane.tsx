@@ -49,8 +49,8 @@ export function EarnEmptyPane({
   const target =
     HEADLINE_PRINCIPAL_USD * getEarnForecastTargetMultiplier(apy.apyBps);
   // Earn's own forecast backs the default badge; Earn MAX overrides it.
-  const badgeLabel =
-    apyBadgeLabel ?? `${formatEarnApyLabel(apy.apyBps)} APY`;
+  // formatEarnApyLabel already carries the "APY" suffix.
+  const badgeLabel = apyBadgeLabel ?? formatEarnApyLabel(apy.apyBps);
 
   // The target and APY words derive from the fetched APY; they skeleton until
   // it lands, then reveal with a digit pop (the fallback APY is hardcoded and

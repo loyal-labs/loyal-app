@@ -38,13 +38,19 @@ import {
   splitUsdBalance,
   useWalletDesktopData,
 } from "@/hooks/use-wallet-desktop-data";
-import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
+import {
+  formatEarnApyLabel,
+  formatEarnApyPercent,
+} from "@/lib/kamino/earn-forecast.shared";
 import {
   getStablecoinMintSetForSolanaEnv,
   isStablecoinMint,
 } from "@/lib/wallet/stablecoin-classification";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
+
+// ponytail: rough fee/rent buffer — tune when a real preflight estimate exists
+const LOW_SOL_WARNING_THRESHOLD = 0.01;
 
 // The purple crypto stash mark, drawn at its 40px art size; smaller usages
 // scale the wrapper (the bar offsets are absolute pixels).
@@ -74,6 +80,7 @@ function MobileSummaryRow({
   isRevealed,
   label,
   onSelect,
+  warningLabel,
 }: {
   amount: { balanceFraction: string; balanceWhole: string };
   icon: ReactNode;
@@ -81,6 +88,8 @@ function MobileSummaryRow({
   isRevealed: boolean;
   label: string;
   onSelect: () => void;
+  /** Red triangle after the amount (Figma 5465:83239's low-SOL warning). */
+  warningLabel?: string | null;
 }) {
   return (
     <button
@@ -101,12 +110,23 @@ function MobileSummaryRow({
             />
           </span>
         </span>
-        <SplitAmount
-          fraction={amount.balanceFraction}
-          isHidden={isHidden}
-          isRevealed={isRevealed}
-          whole={amount.balanceWhole}
-        />
+        <span className="flex items-center gap-1">
+          <SplitAmount
+            fraction={amount.balanceFraction}
+            isHidden={isHidden}
+            isRevealed={isRevealed}
+            whole={amount.balanceWhole}
+          />
+          {warningLabel ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              alt={warningLabel}
+              className="size-5 shrink-0"
+              src={`${ASSET_BASE}/icon-warning-triangle.svg`}
+              title={warningLabel}
+            />
+          ) : null}
+        </span>
       </span>
     </button>
   );
@@ -666,6 +686,12 @@ export function WalletHomePage({
                     isRevealed={isWalletDataRevealed}
                     label="Crypto"
                     onSelect={() => onSelectPage("crypto")}
+                    warningLabel={
+                      isWalletDataRevealed &&
+                      (data.totalSol ?? 0) < LOW_SOL_WARNING_THRESHOLD
+                        ? "Not enough SOL to process deposits or withdrawals"
+                        : null
+                    }
                   />
                 </div>
                 <div
@@ -676,8 +702,8 @@ export function WalletHomePage({
                   <MobileProductCard
                     apyBadgeLabel={
                       earnBalanceUsd > 0
-                        ? `${formatEarnApyLabel(earnApy.apyBps)} APY`
-                        : formatEarnApyLabel(earnApy.apyBps)
+                        ? formatEarnApyLabel(earnApy.apyBps)
+                        : formatEarnApyPercent(earnApy.apyBps)
                     }
                     balance={earnBalance}
                     earned30dUsd={earnEarned30dUsd}

@@ -187,7 +187,9 @@ export function WalletHomeBanners({
     }`;
 
   return (
-    <div className="relative col-span-2">
+    // h-full matters outside the desktop grid: the mobile slot is a fixed
+    // 96px box and every slide/art size derives from this root's height.
+    <div className="relative col-span-2 h-full">
       <div
         aria-hidden="true"
         className={`-translate-x-1/2 absolute left-1/2 flex h-4 items-center gap-2 ${
@@ -231,14 +233,33 @@ export function WalletHomeBanners({
               className="pointer-events-none absolute inset-0 size-full object-cover"
               src={banner.bg}
             />
+            {/* Mobile compacts the slide (Figma 5465:83377): the whole
+                banner is the tap target, so the pill hides and this overlay
+                link takes over. */}
+            {banner.href !== null ? (
+              <a
+                aria-label={banner.title}
+                className="absolute inset-0 z-10 min-[796px]:hidden"
+                href={banner.href}
+                rel="noreferrer"
+                target="_blank"
+              />
+            ) : (
+              <button
+                aria-label={banner.title}
+                className="absolute inset-0 z-10 min-[796px]:hidden"
+                onClick={onSetUpAutodeposit}
+                type="button"
+              />
+            )}
             <div className="relative flex min-w-0 flex-1 flex-col items-start justify-between p-4">
-              <h3 className="max-w-[240px] font-semibold text-[20px] text-white leading-5">
+              <h3 className="max-w-[240px] font-semibold text-[20px] text-white leading-5 max-[795px]:text-[16px] max-[795px]:leading-[18px]">
                 <BannerTitleChars title={banner.title} />
               </h3>
               {/* StaggerLine idiom: the wrapper carries the rise so the
                   pill keeps its own t-hover transition untouched. */}
               <div
-                className="t-stagger-line"
+                className="t-stagger-line max-[795px]:hidden"
                 style={{ transitionDelay: "calc(var(--stagger-stagger) * 3)" }}
               >
                 {banner.href !== null ? (

@@ -932,6 +932,10 @@ function EarnMaxMainPane({
                 {EARN_MAX_STRATEGY_NAME}
               </span>
               <ApyBadge label={formatEarnMaxApyLabel(view.forecastApyBps)} />
+              <InfoTooltip
+                placement="bottom"
+                text="Earn steady, real-world yield by looping between tokenized real-world assets (RWAs) and stablecoins. Designed for consistent returns with reduced volatility."
+              />
             </span>
             <div className="relative flex shrink-0 items-center justify-end pl-3">
               <div className="group-hover:pointer-events-none flex flex-col items-end justify-center gap-0.5 py-[11px] transition-opacity duration-150 group-hover:opacity-0">

@@ -30,7 +30,6 @@ import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
-import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import { SettingsSheet } from "@/components/wallet-workspace/facelift/settings-sheet";
 import {
   MiddlePaneSlide,
@@ -156,11 +155,6 @@ export function WorkspaceFaceliftShell() {
   const isNarrowViewport = useIsNarrowViewport();
   useEffect(() => {
     if (!isNarrowViewport && activePage === "wallet") {
-      setActivePage("earn");
-    }
-    // Earn MAX ships desktop-first (ASK-2242) — narrow viewports snap back
-    // to Earn until the mobile layout lands.
-    if (isNarrowViewport && activePage === "earnmax") {
       setActivePage("earn");
     }
   }, [activePage, isNarrowViewport]);
@@ -528,6 +522,7 @@ export function WorkspaceFaceliftShell() {
                     <PaneReveal>
                       <EarnPositionPane
                         data={earnData}
+                        onBack={() => handleSelectPage("wallet")}
                         onDeposit={() => {
                           setDepositSourceKey(null);
                           setMiddleView("deposit");
@@ -617,15 +612,9 @@ export function WorkspaceFaceliftShell() {
                   ) : null}
                 </SheetReveal>
               ) : null}
-              {/* Figma 5459:71296/71363 — the signed-out and first-deposit
-                  screens drop the tab bar (back arrow / connect instead). */}
-              {isEarnRootView && isSignedIn && earnData.hasPosition ? (
-                <MobileTabBar
-                  activeTab="earn"
-                  onSelect={handleSelectPage}
-                  showActivityBadge={hasUnseenActivity}
-                />
-              ) : null}
+              {/* No tab bar here — Earn is a subscreen behind the home's
+                  product card (Figma 5459:71689: back arrow + bottom
+                  Deposit/Withdraw bar instead). */}
             </>
           )}
         </div>
