@@ -178,6 +178,9 @@ export const LIFECYCLE_ERROR_CODES = [
   "invalid_wallet_origin",
   "invalid_wallet_proof_kind",
   "invalid_wallet_signature",
+  // A Sign In With Solana proof reached the backend but did not match the
+  // issued challenge or failed signature verification.
+  "invalid_wallet_signin",
   "wallet_auth_completion_in_progress",
   "smart_account_sponsor_not_configured",
   "smart_account_provisioning_failed",
