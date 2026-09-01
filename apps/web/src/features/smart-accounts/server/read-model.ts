@@ -152,6 +152,7 @@ function getWalletDataClient(solanaEnv: SolanaEnv) {
       commitment: "confirmed",
       fetchImpl: globalThis.fetch,
       rpcEndpoint,
+      solanaEnv,
       websocketEndpoint,
     }),
     activityProvider: {
@@ -193,6 +194,7 @@ function getWalletDataClientWithActivity(solanaEnv: SolanaEnv) {
       commitment: "confirmed",
       fetchImpl: globalThis.fetch,
       rpcEndpoint,
+      solanaEnv,
       websocketEndpoint,
     }),
     env: solanaEnv,
