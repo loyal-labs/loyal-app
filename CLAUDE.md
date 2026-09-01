@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Solana Telegram Transactions enables users to deposit SOL for any Telegram username, which can later be claimed by the verified account owner. It integrates Solana smart contracts with a Telegram mini-app interface.
+Loyal is a Solana wallet product family: the askloyal.com web app (wallet, swap, Earn), a mobile app, a browser extension, an internal admin dashboard, and a Telegram bot for community summaries. The legacy Telegram mini-app is sunset and serves only a wallet-key export page.
 
 ## Commands
 
@@ -39,50 +39,32 @@ bun run build              # Production build (Next.js)
 bun lint                   # Next.js lint
 ```
 
-### Smart Contracts (run from root)
-
-```bash
-anchor build               # Compile programs
-anchor deploy --provider.cluster devnet     # Deploy to devnet
-anchor deploy --provider.cluster localnet   # Deploy to localnet
-```
-
-### Testing Smart Contracts
-
-Requires 3 terminals running simultaneously:
-
-```bash
-# Terminal 1: Start validator
-mb-test-validator --reset
-
-# Terminal 2: Start ephemeral validator
-RUST_LOG=info ephemeral-validator \
-    --accounts-lifecycle ephemeral \
-    --remote-cluster development \
-    --remote-url http://127.0.0.1:8899 \
-    --remote-ws-url ws://127.0.0.1:8900 \
-    --rpc-port 7799
-
-# Terminal 3: Run tests
-EPHEMERAL_PROVIDER_ENDPOINT="http://localhost:7799" \
-EPHEMERAL_WS_ENDPOINT="ws://localhost:7800" \
-anchor test --provider.cluster localnet --skip-local-validator --skip-build --skip-deploy
-```
-
 ### Root Level
 
 ```bash
-bun run lint               # prettier --check
-bun run lint:fix           # prettier -w
-bun run build:grid-packages  # build Grid workspace packages
-bun run build:db-packages  # build shared DB workspace packages
-bun run typecheck:grid-packages  # typecheck Grid workspace packages
-bun run typecheck:db-packages  # typecheck shared DB workspace packages
-bun run guard:shared-boundaries  # ensure shared packages stay app-env agnostic
-bun run guard:admin-shared-schema  # prevent admin-local schema duplication
-bun run admin:dev          # run admin dev server from repo root
-bun run admin:lint         # lint admin workspace from repo root
-bun run admin:build        # build admin workspace from repo root
+bun run lint                         # prettier --check
+bun run lint:fix                     # prettier -w
+bun run build:packages               # build all package workspaces
+bun run build:auth-packages          # build auth-core
+bun run build:db-packages            # build shared DB packages
+bun run build:llm-packages           # build LLM packages
+bun run build:shared-packages        # build shared package
+bun run build:solana-packages        # build Solana packages
+bun run build:wallet-packages        # build wallet-core
+bun run typecheck:auth-packages      # typecheck auth-core
+bun run typecheck:db-packages        # typecheck shared DB packages
+bun run typecheck:llm-packages       # typecheck LLM packages
+bun run typecheck:shared-packages    # typecheck shared package
+bun run typecheck:solana-packages    # typecheck Solana packages
+bun run typecheck:wallet-packages    # typecheck wallet-core
+bun run guard:shared-boundaries      # ensure shared packages stay app-env agnostic
+bun run guard:admin-shared-schema    # prevent admin-local schema duplication
+bun run admin:dev                    # run admin dev server from repo root
+bun run admin:lint                   # lint admin workspace from repo root
+bun run admin:build                  # build admin workspace from repo root
+bun run frontend:dev                 # run Loyal web frontend from repo root
+bun run frontend:lint                # lint Loyal web frontend from repo root
+bun run frontend:build               # build Loyal web frontend from repo root
 ```
 
 ### Git Hooks
@@ -100,82 +82,46 @@ bun run admin:build        # build admin workspace from repo root
 
 ### Directory Structure
 
-- **`/programs`** - Anchor smart contracts (Rust)
-  - `telegram-private-transfer` - Deposit/claim/refund SOL transfers
-  - `telegram-verification` - On-chain Ed25519 Telegram signature verification
-- **`/apps/telegram`** - Next.js 15 frontend + API routes
+- **`/apps/telegram`** - Next.js Telegram mini-app and bot/API service; the mini-app retains the sunset page and wallet-key export
+- **`/apps/web`** - Next.js Loyal web frontend (wallet, swap, and Earn)
 - **`/apps/mobile`** - Expo React Native mobile app (iOS/Android)
-- **`/apps/admin`** - Next.js 15 internal admin dashboard
-- **`/packages`** - Internal shared workspace packages (e.g. `db-core`, `db-adapter-neon`, `grid-core`, `shared`)
-- **`/packages/private-transactions`** - Publishable `@loyal-labs/private-transactions` NPM package
+- **`/apps/extension`** - Browser extension wallet
+- **`/apps/admin`** - Next.js internal admin dashboard
+- **`/apps/dashboard`** - Internal dashboard application
 - **`/apps/userbot`** - Telegram userbot worker service
-- **`/tests`** - Anchor test suite (Mocha/Chai)
-- **`/docs`** - Internal repository/engineering documentation
+- **`/packages`** - Shared workspace packages for auth, databases, LLMs, Solana, wallets, and smart accounts
+- **`/crates`** - Rust CLI and smart-account support crates
+- **`/docs`** - Internal repository and engineering documentation
 - **`/user-docs`** - Mintlify-hosted public/user-facing documentation
 
-### Program Addresses
+### Telegram App Architecture
 
-| Program | Address |
-|---------|---------|
-| `telegram-private-transfer` | `97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV` |
-| `telegram-verification` | `9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz` |
+The Telegram mini-app is a sunset compatibility surface; do not add back the removed private-transfer UI or chain-backed claim/deposit flows.
 
-### Vertical Slice Architecture (Current Implementation + Required Direction)
-
-The current `/apps/telegram/src` architecture is a hybrid vertical-slice implementation. Feature boundaries are primarily expressed by route segments and feature-scoped component folders:
-
-- Route slices: `/apps/telegram/src/app/telegram/*` and `/apps/telegram/src/app/api/*`
-- UI slices: `/apps/telegram/src/components/wallet`, `/apps/telegram/src/components/summaries`, `/apps/telegram/src/components/telegram`
-- Shared cross-slice hooks/types: `/apps/telegram/src/hooks`, `/apps/telegram/src/types`
-- Shared integration/domain modules: `/apps/telegram/src/lib/*`
-
-Current slice mapping:
-
-- **Wallet slice**: `/apps/telegram/src/app/telegram/wallet/page.tsx` + `/apps/telegram/src/components/wallet/*` + Solana/Telegram wallet integrations in `/apps/telegram/src/lib/solana/*` and `/apps/telegram/src/lib/telegram/mini-app/*`
-- **Summaries slice**: `/apps/telegram/src/app/telegram/summaries/*` + `/apps/telegram/src/components/summaries/*` + summaries APIs in `/apps/telegram/src/app/api/summaries/route.ts`
-- **Telegram platform slice**: `/apps/telegram/src/app/telegram/layout.tsx` + `/apps/telegram/src/components/telegram/*` + bot/API modules in `/apps/telegram/src/lib/telegram/*` and `/apps/telegram/src/app/api/telegram/*`
-
-Rules for all new feature work:
-
-- Organize by feature first; do not introduce new horizontal folders by technical layer.
-- Extend an existing slice in-place when behavior belongs to wallet/summaries/telegram/profile flows.
-- Keep route handlers and page files as orchestration layers; move reusable business logic out of route/page files and into slice-owned modules.
-- Avoid deep imports across slices (for example, wallet internals imported from summaries).
-- Shared code must be stable and reused by multiple slices before promotion to `/apps/telegram/src/lib`.
-
-For net-new, substantial features, prefer creating an explicit slice root:
-
-```text
-/apps/telegram/src/features/<feature-name>/
-  index.ts                 # public entrypoints only
-  ui/
-  server/
-  domain/
-  data/
-  integrations/
-  types.ts
-```
+- **Mini-app entry**: `/apps/telegram/src/app/page.tsx` provides the splash redirect, and `/apps/telegram/src/app/telegram/page.tsx` provides the sunset page and wallet-key export.
+- **Bot and summaries**: retained API routes live under `/apps/telegram/src/app/api/**`; shared bot and summary modules live under `/apps/telegram/src/lib/telegram/**`, `/apps/telegram/src/lib/redpill/**`, and `/apps/telegram/src/lib/core/**`.
+- **Wallet support**: the retained Solana modules are under `/apps/telegram/src/lib/solana/rpc/**`, `/apps/telegram/src/lib/solana/token-holdings/**`, and `/apps/telegram/src/lib/solana/wallet/**`.
 
 ### Shared Platform Libraries (`/apps/telegram/src/lib`)
 
-Use `/apps/telegram/src/lib` for cross-slice infrastructure and integration primitives. Existing shared modules include:
+Use `/apps/telegram/src/lib` for retained cross-cutting infrastructure and integration primitives. Existing modules include:
 
 | Module | Purpose |
 |--------|---------|
 | `core/` | HTTP utilities, Neon PostgreSQL + Drizzle ORM |
 | `solana/rpc/` | RPC connections (Helius for mainnet/devnet, localhost for localnet) |
 | `solana/wallet/` | Keypair management via Telegram Cloud Storage |
-| `solana/deposits/` | Deposit/claim/refund logic with PDAs |
-| `solana/verification/` | On-chain Telegram signature verification |
+| `solana/token-holdings/` | Token holdings resolution and display data |
 | `telegram/mini-app/` | Client-side SDK wrappers, Cloud Storage, auth |
 | `telegram/bot-api/` | Server-side bot API (grammy) |
 | `telegram/` | User service, bot thread service, bot API handlers |
 | `magicblock/` | SOL/USD price feed via Pyth oracle |
 | `redpill/` | AI chat summaries |
+| `jupiter/` | Jupiter pricing and swap API clients |
+| `market/` | Server-side token and market data |
 
-- New feature-specific behavior should stay in its owning slice unless it is clearly shared.
-- Promote code into `/apps/telegram/src/lib` only after it is proven reusable across multiple slices.
-- Refactor incrementally by slice (wallet, summaries, telegram, etc.), not by file type alone.
+- Keep feature-specific behavior in its owning app or package unless it is clearly shared.
+- Promote code into `/apps/telegram/src/lib` only when it is proven reusable by the retained Telegram surfaces.
 
 ### Admin Guardrails (`/apps/admin`)
 
@@ -190,7 +136,6 @@ Use `/apps/telegram/src/lib` for cross-slice infrastructure and integration prim
 
 ### Key Patterns
 
-- **PDAs**: Deposit accounts and vault use Program Derived Addresses with seeds `"deposit"`, `"vault"`, `"tg_session"`
 - **Keypair Storage**: User keypairs stored in Telegram Cloud Storage (not localStorage)
 - **Environment Selection**: `NEXT_PUBLIC_SOLANA_ENV` controls RPC endpoint (`mainnet`, `devnet`, `localnet`)
 
@@ -385,28 +330,47 @@ refactor(ui): extract pill button component
 ## Tooling
 
 - **Package Manager**: Bun (preferred)
-- **Anchor Version**: 0.32.1
 - **Solana Version**: 2.1.0
 - **ESLint**: Enforces alphabetical imports via `eslint-plugin-simple-import-sort`
 
 ## Environment Variables
 
-Required for frontend (in `/apps/telegram/.env.local`):
+Use `/apps/telegram/.env.example` as the environment template. Public settings
+are read from the client bundle:
 
 ```env
 NEXT_PUBLIC_TELEGRAM_BOT_ID=<bot_id>
-NEXT_PUBLIC_SOLANA_ENV=devnet  # mainnet, devnet, or localnet
-ASKLOYAL_TGBOT_KEY=<bot_token>  # Telegram Bot API token only
-TELEGRAM_SETUP_SECRET=<route_secret>  # Bearer token for /api/telegram/setup-commands
-REDPILL_AI_API_KEY=<api_key>
-DATABASE_URL=postgresql://...
-MESSAGE_ENCRYPTION_KEY=<base64-32-bytes>  # For encrypted bot messages
+NEXT_PUBLIC_SOLANA_ENV=devnet  # mainnet, testnet, devnet, or localnet
+NEXT_PUBLIC_SERVER_HOST=<api_base_url>
+NEXT_PUBLIC_USE_MOCK_SUMMARIES=false
+NEXT_PUBLIC_MIXPANEL_TOKEN=<token>
+NEXT_PUBLIC_MIXPANEL_PROXY_PATH=/ingest
 ```
 
-Optional:
-- `NEXT_PUBLIC_SERVER_HOST` - API base URL
-- `DEPLOYMENT_PK` - Gasless transaction keypair (base58)
-- `NEXT_PUBLIC_GAS_PUBLIC_KEY` - Gasless payer public key
+Server settings are required by their corresponding Telegram bot, summary,
+market, webhook, and operational features:
+
+```env
+DATABASE_URL=postgresql://...
+NEON_DATABASE_URL=postgresql://...
+ASKLOYAL_TGBOT_KEY=<bot_token>
+TELEGRAM_SETUP_SECRET=<route_secret>
+CRON_SECRET=<cron_secret>
+REDPILL_AI_API_KEY=<api_key>
+JUPITER_API_KEY=<api_key>
+COINGECKO_API_KEY=<api_key>
+IRYS_SOLANA_KEY=<private_key>
+PRIVATE_MAINNET_RPC_URL=<rpc_url>
+HELIUS_API_KEY=<api_key>
+HELIUS_WEBHOOK_SECRET=<webhook_secret>
+HELIUS_WEBHOOK_URL=<webhook_url>
+PUSH_DEBUG_SECRET=<debug_secret>
+LIBRARY_UPLOAD_TOKEN=<upload_token>
+```
+
+Optional server settings include `MESSAGE_ENCRYPTION_KEY`,
+`SLACK_STATS_WEBHOOK_URL`, `TELEGRAM_SUMMARY_PEER_OVERRIDE_FROM`,
+`TELEGRAM_SUMMARY_PEER_OVERRIDE_TO`, and the `AX_SUMMARY_*` overrides.
 
 ### Cloudflare R2/CDN (feature-specific)
 
