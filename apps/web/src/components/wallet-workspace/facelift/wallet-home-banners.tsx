@@ -181,8 +181,10 @@ export function WalletHomeBanners({
     setActiveIndex(Math.min(Math.max(index, 0), BANNERS.length - 1));
   };
 
+  // Mobile compacts the slides (Figma 5465:83377): no pill — the whole
+  // banner is the tap target — so the button only renders from 796px up.
   const buttonClassName = (banner: HomeBanner) =>
-    `t-hover flex min-w-16 items-center justify-center rounded-full px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 ${
+    `t-hover flex min-w-16 items-center justify-center rounded-full px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 max-[795px]:hidden ${
       BUTTON_COLOR_CLASSES[banner.buttonColor]
     }`;
 
@@ -258,8 +260,11 @@ export function WalletHomeBanners({
               </h3>
               {/* StaggerLine idiom: the wrapper carries the rise so the
                   pill keeps its own t-hover transition untouched. */}
+              {/* The pill hides on mobile via its own class — the wrapper
+                  can't carry it (.t-stagger-line's unlayered display:block
+                  outranks the layered hidden utility). */}
               <div
-                className="t-stagger-line max-[795px]:hidden"
+                className="t-stagger-line"
                 style={{ transitionDelay: "calc(var(--stagger-stagger) * 3)" }}
               >
                 {banner.href !== null ? (
