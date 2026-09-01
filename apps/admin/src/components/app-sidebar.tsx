@@ -73,6 +73,16 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Vault integrations",
+    items: [
+      {
+        href: "/vault-integrations/backyard",
+        icon: LandmarkIcon,
+        label: "Backyard vault",
+      },
+    ],
+  },
+  {
     label: "Mobile",
     items: [
       { href: "/dapps", icon: AppWindowIcon, label: "dApps" },
