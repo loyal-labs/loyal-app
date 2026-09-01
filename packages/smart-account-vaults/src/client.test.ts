@@ -1176,16 +1176,24 @@ describe("prepareEarnUsdcDeposit", () => {
     const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
       addresses.map(() => null)
     );
+    const getProgramAccounts = mock(async () => []);
     const getMinimumBalanceForRentExemption = mock(
       async (space: number) => space + 1_000
     );
+    const getLatestBlockhash = mock(async () => ({
+      blockhash: "11111111111111111111111111111111",
+    }));
+    const getFeeForMessage = mock(async () => ({ value: 99_999 }));
     const getBalance = mock(async () => 0);
     const client = createSmartAccountVaultsClient({
       connection: {
         getAccountInfo,
         getBalance,
+        getFeeForMessage,
+        getLatestBlockhash,
         getMinimumBalanceForRentExemption,
         getMultipleAccountsInfo,
+        getProgramAccounts,
       } as never,
       programId,
     });
@@ -1204,6 +1212,14 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(kinds).toContain("token_account_rent");
     expect(kinds).toContain("kamino_setup_top_up");
     expect(kinds).toContain("transaction_fee");
+    expect(getFeeForMessage).not.toHaveBeenCalled();
+    expect(getLatestBlockhash).not.toHaveBeenCalled();
+    expect(getMinimumBalanceForRentExemption).not.toHaveBeenCalled();
+    expect(
+      result.nativeSolRequirement.items
+        .filter((item) => item.kind === "transaction_fee")
+        .map((item) => item.lamports)
+    ).toEqual(["5000", "5000", "5000"]);
     expect(BigInt(result.nativeSolRequirement.deficitLamports)).toBe(
       BigInt(result.nativeSolRequirement.requiredLamports)
     );

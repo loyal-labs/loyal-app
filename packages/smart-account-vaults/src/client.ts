@@ -8052,7 +8052,9 @@ export function createSmartAccountVaultsClient(
       }
     }
     const nativeSolRequirement = await estimateNativeSolRequirement({
+      cluster,
       connection: config.connection,
+      estimateFees: false,
       fixedItems:
         setupRentTopUpLamports > 0
           ? [
@@ -8066,6 +8068,7 @@ export function createSmartAccountVaultsClient(
             ]
           : [],
       payer: args.feePayer,
+      preferStaticMainnetRent: true,
       prepared: [
         ...(policyInitializationOperation
           ? [policyInitializationOperation]

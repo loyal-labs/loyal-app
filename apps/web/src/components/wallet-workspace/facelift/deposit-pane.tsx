@@ -242,20 +242,6 @@ export function DepositPane({
   const isValidAmount = !(isBelowMinimum || isInsufficient);
   const isSubmitting = actions.isDepositPending;
 
-  // Warm the Kamino instruction fetch while the user pauses on a valid
-  // amount, so hitting Deposit skips the prepare's longest network leg.
-  const prefetchDeposit = actions.prefetchDepositPreparation;
-  useEffect(() => {
-    if (!isValidAmount) {
-      return;
-    }
-    const timer = window.setTimeout(
-      () => prefetchDeposit(amount, selectedSource.mint),
-      300
-    );
-    return () => window.clearTimeout(timer);
-  }, [amount, isValidAmount, prefetchDeposit, selectedSource.mint]);
-
   const handleAmountChange = (rawValue: string) => {
     const sanitized = sanitizeBucksAmountInput(rawValue, amount);
     if (sanitized !== null) {

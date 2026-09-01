@@ -175,7 +175,6 @@ export type EarnActions = {
   refreshMainUsdcAmount: () => Promise<void>;
   pendingApproval: PendingEarnApproval | null;
   pendingTransactionSignatures: string[];
-  prefetchDepositPreparation: (amountLabel: string, mint: string) => void;
   requestAutodepositClose: () => void;
   runCleanup: () => Promise<boolean>;
   saveAutodeposit: (keepAmountLabel: string) => Promise<boolean>;
@@ -792,33 +791,6 @@ export function useEarnActions(deps: {
       mint: trackedKaminoUsdcMint ?? null,
     };
   }, [mainUsdc.amount, trackedKaminoUsdcMint, walletAddress]);
-
-  // Warms the Kamino instruction cache while the user is still on the amount
-  // input, so the submit-time prepare skips its longest network leg. Fire and
-  // forget: a miss (target drift, parse failure, API error) just means the
-  // prepare falls back to a live fetch, exactly as without prefetching.
-  const prefetchDepositPreparation = useCallback(
-    (amountLabel: string, mint: string) => {
-      const overview = smartAccountData.overview;
-      if (!overview) {
-        return;
-      }
-      let amountRaw: bigint;
-      try {
-        amountRaw = parseTokenAmountLabelToRaw(
-          amountLabel,
-          depositSource.decimals
-        );
-      } catch {
-        return;
-      }
-      if (amountRaw <= BigInt(0)) {
-        return;
-      }
-      void prepareEarnDepositOnServer({ amountRaw, mint }).catch(() => null);
-    },
-    [depositSource.decimals, smartAccountData.overview]
-  );
 
   const prepareEarnWithdrawInBrowser = useCallback(
     async (
@@ -2725,7 +2697,6 @@ export function useEarnActions(deps: {
     refreshMainUsdcAmount,
     pendingApproval,
     pendingTransactionSignatures,
-    prefetchDepositPreparation,
     requestAutodepositClose,
     runCleanup,
     saveAutodeposit,
