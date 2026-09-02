@@ -31,7 +31,8 @@ function toUnixNano(timestamp: string): string {
   return (BigInt(Date.parse(timestamp)) * BigInt(1_000_000)).toString();
 }
 
-const EXPECTED_LOCAL_WALLET_FAILURES = new Set([
+const EXPECTED_LOCAL_FAILURES = new Set([
+  "insufficient_native_sol",
   "wallet_account_mismatch",
   "wallet_authorization_expired",
   "wallet_connection_failed",
@@ -60,7 +61,7 @@ export function isAlertableLifecycleEvent(
   ) {
     return true;
   }
-  if (event.errorCode && EXPECTED_LOCAL_WALLET_FAILURES.has(event.errorCode)) {
+  if (event.errorCode && EXPECTED_LOCAL_FAILURES.has(event.errorCode)) {
     return false;
   }
   if (event.errorCode !== "request_failed") return true;

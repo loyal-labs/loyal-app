@@ -39,6 +39,7 @@ function severityText(event: NormalizedLifecycleEvent): string | undefined {
 
 describe("lifecycle alert severity", () => {
   test.each([
+    "insufficient_native_sol",
     "wallet_account_mismatch",
     "wallet_authorization_expired",
     "wallet_connection_failed",

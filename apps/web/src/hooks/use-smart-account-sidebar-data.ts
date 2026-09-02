@@ -501,6 +501,7 @@ export type EarnDepositResult = {
   confirmedSlot?: string;
   status?: "executed" | "confirmation_record_failed";
   error?: string;
+  errorCode?: "insufficient_native_sol";
 };
 
 export type EarnDepositBatchRequest = EarnDepositRequest & {
@@ -530,6 +531,7 @@ export type EarnDepositPolicyStageResult = {
   confirmedSlot?: string;
   status?: "confirmation_record_failed" | "executed";
   error?: string;
+  errorCode?: "insufficient_native_sol";
 };
 
 export type EarnWithdrawRequest = {
@@ -6423,7 +6425,11 @@ export function useSmartAccountSidebarData(
         request.preparedDeposit.nativeSolRequirement
       );
       if (nativeSolError) {
-        return { success: false, error: nativeSolError };
+        return {
+          success: false,
+          error: nativeSolError,
+          errorCode: "insufficient_native_sol",
+        };
       }
 
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
@@ -6624,7 +6630,11 @@ export function useSmartAccountSidebarData(
         request.preparedDeposit.nativeSolRequirement
       );
       if (nativeSolError) {
-        return { success: false, error: nativeSolError };
+        return {
+          success: false,
+          error: nativeSolError,
+          errorCode: "insufficient_native_sol",
+        };
       }
 
       setIsActionPending(true);
@@ -6966,7 +6976,11 @@ export function useSmartAccountSidebarData(
           preparedDeposit.nativeSolRequirement
         );
         if (nativeSolError) {
-          return { success: false, error: nativeSolError };
+          return {
+            success: false,
+            error: nativeSolError,
+            errorCode: "insufficient_native_sol",
+          };
         }
         console.log(
           "[executeEarnDeposit] prepared deposit; sending to wallet",

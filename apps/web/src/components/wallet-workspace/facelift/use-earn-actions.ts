@@ -850,8 +850,42 @@ export function useEarnActions(deps: {
       const interactionStartedAtMs = getBrowserPerformanceNow();
       let previewMetricSent = false;
       let walletSubmittedAtMs: number | null = null;
+      let walletSubmissionDiagnostics: {
+        executionMode?: "batch" | "sequential" | "single";
+        policyMode?: "create" | "reuse";
+      } = {};
+      const prepareWalletSubmission = (
+        diagnostics: typeof walletSubmissionDiagnostics
+      ) => {
+        walletSubmissionDiagnostics = diagnostics;
+      };
       const markWalletSubmitted = () => {
-        walletSubmittedAtMs ??= getBrowserPerformanceNow();
+        if (walletSubmittedAtMs !== null) {
+          return;
+        }
+        walletSubmittedAtMs = getBrowserPerformanceNow();
+        tracker.observe("wallet_submit_confirm", {
+          ...walletSubmissionDiagnostics,
+          chainState: "submitted",
+        });
+      };
+      const handleDepositPreflightFailure = (result: {
+        error?: string;
+        errorCode?: string;
+      }): boolean => {
+        if (result.errorCode !== "insufficient_native_sol") {
+          return false;
+        }
+        setDepositError(
+          result.error ?? "Add SOL to the connected wallet before signing."
+        );
+        tracker.fail("preflight", {
+          ...walletSubmissionDiagnostics,
+          chainState: "not_submitted",
+          errorCode: "insufficient_native_sol",
+        });
+        earnToast.error("More SOL required");
+        return true;
       };
 
       const commitDepositSuccess = (commit: {
@@ -1041,8 +1075,7 @@ export function useEarnActions(deps: {
         earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
 
         if (shouldBypassTopUpPreview) {
-          tracker.observe("wallet_submit_confirm", {
-            chainState: "submitted",
+          prepareWalletSubmission({
             executionMode: "single",
             policyMode: "reuse",
           });
@@ -1054,6 +1087,9 @@ export function useEarnActions(deps: {
             preparedDeposit,
           });
           if (!result.success) {
+            if (handleDepositPreflightFailure(result)) {
+              return false;
+            }
             if (result.status === "confirmation_record_failed") {
               tracker.fail("backend_confirm", {
                 chainState: "confirmed",
@@ -1091,8 +1127,7 @@ export function useEarnActions(deps: {
             executionMode: "batch",
             policyMode: "create",
           });
-          tracker.observe("wallet_submit_confirm", {
-            chainState: "submitted",
+          prepareWalletSubmission({
             executionMode: "batch",
             policyMode: "create",
           });
@@ -1123,6 +1158,9 @@ export function useEarnActions(deps: {
                 : {}),
             };
             if (!batchResult.success) {
+              if (handleDepositPreflightFailure(batchResult)) {
+                return false;
+              }
               if (batchResult.status === "confirmation_record_failed") {
                 tracker.fail("backend_confirm", {
                   chainState: "confirmed",
@@ -1164,9 +1202,9 @@ export function useEarnActions(deps: {
               executionMode: "sequential",
               policyMode: "create",
             });
-            tracker.observe("wallet_submit_confirm", {
-              chainState: "submitted",
+            prepareWalletSubmission({
               executionMode: "sequential",
+              policyMode: "create",
             });
             earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
             const result = await smartAccountData.executeEarnDepositPolicyStage(
@@ -1178,6 +1216,9 @@ export function useEarnActions(deps: {
               }
             );
             if (!result.success) {
+              if (handleDepositPreflightFailure(result)) {
+                return false;
+              }
               if (result.status === "confirmation_record_failed") {
                 tracker.fail("backend_confirm", {
                   chainState: "confirmed",
@@ -1216,9 +1257,9 @@ export function useEarnActions(deps: {
             continue;
           }
 
-          tracker.observe("wallet_submit_confirm", {
-            chainState: "submitted",
+          prepareWalletSubmission({
             executionMode: "sequential",
+            policyMode: "create",
           });
           earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
           const result = await smartAccountData.executeEarnDeposit({
@@ -1230,6 +1271,9 @@ export function useEarnActions(deps: {
             preparedDeposit,
           });
           if (!result.success) {
+            if (handleDepositPreflightFailure(result)) {
+              return false;
+            }
             if (result.status === "confirmation_record_failed") {
               tracker.fail("backend_confirm", {
                 chainState: "confirmed",
