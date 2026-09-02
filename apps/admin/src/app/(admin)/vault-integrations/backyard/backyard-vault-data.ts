@@ -4,6 +4,7 @@ import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.serv
 
 const MANIFEST = {
   adaptor: "FSj27QT2PtP7365pQRtgSAwSwk5h2m2ATCBoXQjwTSxW",
+  strategyReceipt: "4sycXz9Xwevedo6eiXR8QEhY8yrQrkNS4G1deY9tAD2Y",
   squadsSettings: "5YQ78RwqukvCcykpmjmgRFmbEUeAgLpuVDxx1xNZnHD6",
   squadsVault: "ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh",
   voltrProgram: "vVoLTRjQmtFpiYoegx285Ze4gsLJ8ZxgFKVcuvmG1a8",
@@ -59,6 +60,7 @@ export type BackyardVaultData =
       routeStatus: string | null;
       settings: VaultSettings;
       squadsIdleRaw: bigint | null;
+      strategyIdleRaw: bigint | null;
       voltrIdleRaw: bigint | null;
       vaultCapRaw: bigint;
       withdrawalWaitSeconds: number;
@@ -244,11 +246,16 @@ export async function getBackyardVaultData(): Promise<BackyardVaultData> {
         { key: "Squads vault", value: MANIFEST.squadsVault },
         { key: "Squads settings", value: MANIFEST.squadsSettings },
         { key: "Adaptor", value: MANIFEST.adaptor },
+        { key: "Strategy receipt", value: MANIFEST.strategyReceipt },
         ...routeSettings,
       ],
       squadsIdleRaw: projectedBigInt(state, [
         "squadsIdleRaw",
         "squads_idle_raw",
+      ]),
+      strategyIdleRaw: projectedBigInt(state, [
+        "voltrStrategyIdleRaw",
+        "voltr_strategy_idle_raw",
       ]),
       voltrIdleRaw: projectedBigInt(state, ["voltrIdleRaw", "voltr_idle_raw"]),
       vaultCapRaw: MANIFEST.vaultCapRaw,
