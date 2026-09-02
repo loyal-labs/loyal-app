@@ -1,7 +1,10 @@
 "use client";
 
-import { useLinkAccount, usePrivy } from "@privy-io/react-auth";
-import { useIdentityToken } from "@privy-io/react-auth";
+import {
+  getIdentityToken,
+  useLinkAccount,
+  usePrivy,
+} from "@privy-io/react-auth";
 import { Mail } from "lucide-react";
 import { useState } from "react";
 
@@ -21,14 +24,15 @@ export function PrivyEmailCard() {
 
 function Inner() {
   const { authenticated, user: privyUser } = usePrivy();
-  const { identityToken } = useIdentityToken();
   const { user, refreshSession } = useAuthSession();
   const [busy, setBusy] = useState(false);
   const { linkEmail } = useLinkAccount({
     onSuccess: async () => {
-      if (!identityToken || !user?.walletAddress) return;
+      if (!user?.walletAddress) return;
       setBusy(true);
       try {
+        const identityToken = await getIdentityToken();
+        if (!identityToken) return;
         await fetch("/api/auth/privy/complete", {
           method: "POST",
           credentials: "include",

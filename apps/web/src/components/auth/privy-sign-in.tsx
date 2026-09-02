@@ -1,6 +1,11 @@
 "use client";
 
-import { useLogin, usePrivy, useIdentityToken } from "@privy-io/react-auth";
+import {
+  getIdentityToken,
+  useLogin,
+  usePrivy,
+  useUser,
+} from "@privy-io/react-auth";
 import { useCreateWallet, useWallets } from "@privy-io/react-auth/solana";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useState } from "react";
@@ -39,7 +44,7 @@ async function exchangePrivySession(
  */
 export function PrivySignIn() {
   const { ready, authenticated, user: privyUser } = usePrivy();
-  const { identityToken } = useIdentityToken();
+  const { refreshUser } = useUser();
   const { createWallet } = useCreateWallet();
   const { ready: walletsReady, wallets: privyWallets } = useWallets();
   const adapter = useWallet();
@@ -54,8 +59,11 @@ export function PrivySignIn() {
 
   const finish = useCallback(
     async (walletAddress: string, hasEmail: boolean) => {
-      if (!identityToken) throw new Error("Privy identity token unavailable.");
       setStep("exchanging");
+      // Read the token at call time: after createWallet() the login-time token
+      // is stale (no embedded wallet in linked_accounts yet).
+      const identityToken = await getIdentityToken();
+      if (!identityToken) throw new Error("Privy identity token unavailable.");
       await exchangePrivySession(identityToken, walletAddress);
       // Privy knows which wallet-standard wallet owns the address; the adapter
       // lists the same wallets by name, so hand it the matching one to sign with.
@@ -80,7 +88,7 @@ export function PrivySignIn() {
       // Account view's "Add your email" card is the first thing they see.
       if (hasEmail) close();
     },
-    [adapter, close, identityToken, privyWallets, refreshSession]
+    [adapter, close, privyWallets, refreshSession]
   );
 
   const { login } = useLogin({
@@ -103,7 +111,7 @@ export function PrivySignIn() {
   // Runs once Privy is authenticated and the identity token + wallets are
   // ready (they arrive a tick after onComplete).
   useEffect(() => {
-    if (!pending || !authenticated || !identityToken || !walletsReady) return;
+    if (!pending || !authenticated || !walletsReady) return;
     setPending(null);
     void (async () => {
       try {
@@ -118,6 +126,8 @@ export function PrivySignIn() {
             setStep("creating_wallet");
             const { wallet } = await createWallet();
             address = wallet.address;
+            // Re-issue the identity token so it lists the new wallet.
+            await refreshUser();
           }
         }
         await finish(address, pending.hasEmail);
@@ -130,9 +140,9 @@ export function PrivySignIn() {
     authenticated,
     createWallet,
     finish,
-    identityToken,
     pending,
     privyWallets,
+    refreshUser,
     walletsReady,
   ]);
 
