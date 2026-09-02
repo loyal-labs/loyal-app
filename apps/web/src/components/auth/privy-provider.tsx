@@ -31,8 +31,52 @@ function PrivyEmbeddedWalletBridge() {
   return null;
 }
 
+// Privy SDK noise we cannot fix: dev-only React warnings inside Privy's own
+// modal, and a stray iframe reply after HMR remounts the provider ("cannot
+// dequeue privy:... event"). Swallow only those, only in the browser.
+function installPrivyNoiseFilter() {
+  if (typeof window === "undefined") return;
+  const w = window as Window & { __privyNoiseFilter__?: true };
+  if (w.__privyNoiseFilter__) return;
+  w.__privyNoiseFilter__ = true;
+
+  const isPrivyNoise = (message: unknown) =>
+    typeof message === "string" &&
+    (message.startsWith("cannot dequeue privy:") ||
+      (process.env.NODE_ENV !== "production" &&
+        ((message.includes('unique "key" prop') &&
+          message.includes("from xe")) ||
+          (message.includes("Updating a style property during rerender") &&
+            message.includes("backgroundSize")))));
+
+  window.addEventListener(
+    "unhandledrejection",
+    (event) => {
+      const reason = event.reason as { message?: unknown } | undefined;
+      if (isPrivyNoise(reason?.message)) event.preventDefault();
+    },
+    true
+  );
+  window.addEventListener(
+    "error",
+    (event) => {
+      if (isPrivyNoise(event.message)) event.preventDefault();
+    },
+    true
+  );
+  if (process.env.NODE_ENV !== "production") {
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      const text = args.map((a) => (typeof a === "string" ? a : "")).join(" ");
+      if (isPrivyNoise(text)) return;
+      original(...args);
+    };
+  }
+}
+
 export function PrivyAuthProvider({ children }: { children: ReactNode }) {
   const { privyAppId } = usePublicEnv();
+  useEffect(installPrivyNoiseFilter, []);
   if (!privyAppId) return children;
 
   return (
