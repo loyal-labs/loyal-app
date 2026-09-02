@@ -1766,9 +1766,13 @@
    viewport center. Shift the modal onto that midline; :has() scopes it to
    the workspace — over the landing it stays viewport-centered. The min()
    keeps the shifted modal (max 480px wide + 16px margin) on screen at
-   narrow sidebar-only widths. */
+   narrow sidebar-only widths. #privy-modal-content is Privy's 360px panel
+   (margin:auto inside a fixed full-viewport flex box), same shift. */
 @media (width >= 1204px) {
   body:has(.facelift-shell) .t-modal-center {
+    margin-left: -24px;
+  }
+  body:has(.facelift-shell) #privy-modal-content {
     margin-left: -24px;
   }
 }
@@ -1787,6 +1791,9 @@
 }
 @media (796px <= width < 1204px) {
   body:has(.facelift-shell) .t-modal-center {
+    margin-left: min(180px, 50vw - 272px);
+  }
+  body:has(.facelift-shell) #privy-modal-content {
     margin-left: min(180px, 50vw - 272px);
   }
 }

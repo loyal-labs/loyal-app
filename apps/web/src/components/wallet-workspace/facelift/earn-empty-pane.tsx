@@ -146,7 +146,7 @@ export function EarnEmptyPane({
                 onClick={openSignIn}
                 type="button"
               >
-                <span className="text-background">Connect to Loyal</span>
+                <span className="text-background">Connect to loyal</span>
               </button>
             );
           }
