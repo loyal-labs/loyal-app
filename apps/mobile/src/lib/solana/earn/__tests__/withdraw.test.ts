@@ -17,6 +17,7 @@ const fetchEarnWithdrawCleanupPrepareContext = jest.fn();
 const fetchEarnWithdrawPrepareContext = jest.fn();
 const executeEarnAutodepositClose = jest.fn();
 const signAndSendPreparedOperations = jest.fn();
+const scanEarnRefunds = jest.fn();
 const observeLifecycle = jest.fn();
 const failFromLifecycle = jest.fn();
 
@@ -119,6 +120,10 @@ jest.mock("../earn-auth", () => ({
   ),
 }));
 
+jest.mock("../refund", () => ({
+  scanEarnRefunds,
+}));
+
 jest.mock("../send-prepared", () => ({
   signAndSendPreparedOperations,
 }));
@@ -215,6 +220,16 @@ describe("executeEarnWithdraw", () => {
     prepareEarnUsdcCleanup.mockResolvedValue({
       prepared: cleanupOperation,
     });
+    scanEarnRefunds.mockResolvedValue({
+      cluster: "mainnet-beta",
+      programId: address,
+      scan: {
+        policies: [],
+        recurringDelegations: [],
+        settingsPda: address,
+        vault: null,
+      },
+    });
     executeEarnAutodepositClose.mockReset();
     executeEarnAutodepositClose.mockResolvedValue({
       policyAccounts: ["autodeposit-policy"],
@@ -262,6 +277,51 @@ describe("executeEarnWithdraw", () => {
       cleanupSignature: "cleanup-signature",
       withdrawalSignatures: ["withdraw-signature"],
     });
+  });
+
+  test("adds only client-classified supplemental refunds to final cleanup", async () => {
+    const supplementalPolicy = new PublicKey(new Uint8Array(32).fill(2));
+    const protectedPolicy = new PublicKey(new Uint8Array(32).fill(3));
+    const recurringDelegation = new PublicKey(new Uint8Array(32).fill(4));
+    scanEarnRefunds.mockResolvedValue({
+      cluster: "mainnet-beta",
+      programId: address,
+      scan: {
+        policies: [
+          {
+            account: supplementalPolicy.toBase58(),
+            blockedReason: null,
+            canRefund: true,
+            lamports: 1,
+          },
+          {
+            account: protectedPolicy.toBase58(),
+            blockedReason: "Active Autoswap policy",
+            canRefund: false,
+            lamports: 1,
+          },
+        ],
+        recurringDelegations: [
+          {
+            account: recurringDelegation.toBase58(),
+            blockedReason: null,
+            canRefund: true,
+            lamports: 1,
+          },
+        ],
+        settingsPda: address,
+        vault: null,
+      },
+    });
+
+    await executeEarnWithdraw({ amountUsd: 1, mode: "full", signer });
+
+    expect(prepareEarnUsdcCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        additionalPolicyAccounts: [supplementalPolicy],
+        refundableRecurringDelegations: [recurringDelegation],
+      })
+    );
   });
 
   test("waits past a stale confirmed Autodeposit close before withdrawing", async () => {

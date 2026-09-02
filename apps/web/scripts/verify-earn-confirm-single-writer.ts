@@ -19,7 +19,6 @@ const behavioralTests = [
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.test.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/prepare/route.test.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.test.ts",
-  "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.test.ts",
   "apps/web/src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts",
 ] as const;
 const mockIsolatedBehavioralTests = new Set([
@@ -32,7 +31,6 @@ const changedWebTypeScriptFiles = [
   "src/app/api/smart-accounts/mobile/earn/autodeposit/close/confirm/route.ts",
   "src/app/api/smart-accounts/mobile/earn/autodeposit/setup/confirm/route.ts",
   "src/app/api/smart-accounts/mobile/earn/deposit/confirm/route.ts",
-  "src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts",
   "src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts",
   "src/app/api/smart-accounts/mobile/earn/withdraw/confirm/route.ts",
   "src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts",
@@ -40,8 +38,6 @@ const changedWebTypeScriptFiles = [
   "src/app/api/smart-accounts/yield-optimization/autodeposit/setup/confirm/route.ts",
   "src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts",
   "src/app/api/smart-accounts/yield-optimization/policies/confirm/route.ts",
-  "src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.test.ts",
-  "src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts",
   "src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.test.ts",
   "src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts",
   "src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.test.ts",
@@ -63,13 +59,11 @@ const requiredRoutes = [
   "apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts",
   "apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts",
-  "apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/setup/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/close/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/policies/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts",
-  "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/autodeposit/setup/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/autodeposit/close/confirm/route.ts",
@@ -80,9 +74,7 @@ const moneyMovementSources = [
   "apps/web/src/lib/yield-optimization/earn-withdraw-input-resolution.server.ts",
   "apps/web/src/lib/yield-optimization/earn-withdraw-confirm.server.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/policies/confirm/route.ts",
-  "apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts",
-  "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts",
 ] as const;
 

@@ -132,6 +132,8 @@ import type {
   SmartAccountCustomInstructionProposalInput,
   SmartAccountEarnUsdcCleanupInput,
   SmartAccountEarnUsdcDepositInput,
+  SmartAccountEarnRefundCandidateInput,
+  SmartAccountEarnRefundCandidateSnapshot,
   SmartAccountEarnVaultRefundInput,
   SmartAccountEarnVaultRefundSnapshot,
   SmartAccountEarnUsdcReserveTargetInput,
@@ -10007,16 +10009,51 @@ export function createSmartAccountVaultsClient(
     const additionalPolicyAccounts = dedupePublicKeys(
       args.additionalPolicyAccounts ?? []
     ).filter((policy) => !standardPolicyAddresses.has(policy.toBase58()));
-    const existingAdditionalPolicyAccounts =
-      additionalPolicyAccounts.length === 0
-        ? new Set<string>()
-        : await getExistingAccountSet({
-            accounts: additionalPolicyAccounts,
-            connection: config.connection,
+    const liveAdditionalPolicyAccounts: PublicKey[] = [];
+    if (additionalPolicyAccounts.length > 0) {
+      const additionalPolicyInfos =
+        await config.connection.getMultipleAccountsInfo(
+          additionalPolicyAccounts,
+          "confirmed"
+        );
+      for (const [index, policyAccount] of additionalPolicyAccounts.entries()) {
+        const account = additionalPolicyInfos[index];
+        if (!account) {
+          // A landed retry may encounter a supplemental policy that the first
+          // cleanup already closed. Missing is idempotent success; an existing
+          // account with changed identity must still fail closed below.
+          continue;
+        }
+        if (!account.owner.equals(smartAccountsClient.programId)) {
+          throw new Error(
+            "Supplemental Earn policy account has an unexpected owner."
+          );
+        }
+        let entry: RawPolicyEntry;
+        try {
+          entry = deserializePolicyAccount({
+            account,
+            pubkey: policyAccount,
           });
-    const liveAdditionalPolicyAccounts = additionalPolicyAccounts.filter(
-      (policy) => existingAdditionalPolicyAccounts.has(policy.toBase58())
-    );
+        } catch {
+          throw new Error(
+            "Supplemental Earn policy account is not a decodable policy."
+          );
+        }
+        const state = entry.policy.policyState;
+        if (
+          !entry.policy.settings.equals(args.settingsPda) ||
+          !entry.policy.rentCollector.equals(args.walletAddress) ||
+          state.__kind !== "ProgramInteraction" ||
+          state.fields[0].accountIndex !== EARN_DEPOSIT_VAULT_INDEX
+        ) {
+          throw new Error(
+            "Supplemental Earn policy does not belong to this wallet's Earn vault."
+          );
+        }
+        liveAdditionalPolicyAccounts.push(policyAccount);
+      }
+    }
     const policyCloseOperation = await prepareCloseLiveYieldRoutingPoliciesSync(
       {
         settingsPda: args.settingsPda,
@@ -10200,6 +10237,144 @@ export function createSmartAccountVaultsClient(
         usdcAta: vaultUsdcAta,
       },
     };
+  }
+
+  // Authoritative client-side inventory for Earn rent recovery. This scans only
+  // the connected Settings account and wallet-to-Earn-vault recurring
+  // delegations. Product activity remains a caller-owned concern: callers must
+  // remove active policy/delegation addresses from this candidate set before
+  // preparing a refund.
+  async function fetchEarnRefundCandidates(
+    args: SmartAccountEarnRefundCandidateInput
+  ): Promise<SmartAccountEarnRefundCandidateSnapshot> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const expectedSubscriptionAuthority = deriveSubscriptionAuthority(
+      args.walletAddress,
+      usdcMint
+    );
+    const [policyEntries, recurringDelegationEntries] = await Promise.all([
+      fetchPolicyAccounts({ settingsPda: args.settingsPda }),
+      getProgramAccountsCompat(config.connection, SUBSCRIPTIONS_PROGRAM_ID, {
+        commitment: "confirmed",
+        filters: [
+          { dataSize: SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN },
+          {
+            memcmp: {
+              offset: SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET,
+              bytes: bs58.encode(
+                Uint8Array.from([
+                  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+                ])
+              ),
+            },
+          },
+          {
+            memcmp: {
+              offset: SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET,
+              bytes: args.walletAddress.toBase58(),
+            },
+          },
+          {
+            memcmp: {
+              offset: SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET,
+              bytes: vaultPda.toBase58(),
+            },
+          },
+        ],
+      }),
+    ]);
+    const policyInfos = await config.connection.getMultipleAccountsInfo(
+      policyEntries.map((entry) => entry.address),
+      "confirmed"
+    );
+    const policies: SmartAccountEarnRefundCandidateSnapshot["policies"] = [];
+    for (const [index, entry] of policyEntries.entries()) {
+      const policyState = entry.policy.policyState;
+      const accountInfo = policyInfos[index];
+      if (
+        !accountInfo ||
+        policyState.__kind !== "ProgramInteraction" ||
+        policyState.fields[0].accountIndex !== EARN_DEPOSIT_VAULT_INDEX ||
+        !entry.policy.rentCollector.equals(args.walletAddress)
+      ) {
+        continue;
+      }
+      policies.push({
+        account: entry.address,
+        accountIndex: policyState.fields[0].accountIndex,
+        lamports: accountInfo.lamports,
+        seed: toBigInt(entry.policy.seed),
+        state: policyState.__kind,
+      });
+    }
+    policies.sort((left, right) =>
+      left.seed === right.seed ? 0 : left.seed > right.seed ? 1 : -1
+    );
+    const recurringDelegations = recurringDelegationEntries
+      .map(({ account, pubkey }) => {
+        const data = account.data;
+        if (
+          !account.owner.equals(SUBSCRIPTIONS_PROGRAM_ID) ||
+          data.length !== SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN ||
+          data[SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET] !==
+            SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR
+        ) {
+          return null;
+        }
+        const authority = readPublicKey(
+          data,
+          SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET
+        );
+        const delegatee = readPublicKey(
+          data,
+          SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET
+        );
+        const delegator = readPublicKey(
+          data,
+          SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET
+        );
+        const mint = readPublicKey(
+          data,
+          SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET
+        );
+        if (
+          !authority.equals(expectedSubscriptionAuthority) ||
+          !delegatee.equals(vaultPda) ||
+          !delegator.equals(args.walletAddress) ||
+          !mint.equals(usdcMint)
+        ) {
+          return null;
+        }
+        return {
+          account: pubkey,
+          amountPerPeriodRaw: readUint64LE(
+            data,
+            SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET
+          ),
+          authority,
+          delegatee,
+          delegator,
+          lamports: account.lamports,
+          mint,
+        };
+      })
+      .filter(
+        (
+          candidate
+        ): candidate is SmartAccountEarnRefundCandidateSnapshot["recurringDelegations"][number] =>
+          candidate !== null
+      )
+      .sort((left, right) =>
+        left.account.toBase58().localeCompare(right.account.toBase58())
+      );
+
+    return { policies, recurringDelegations, vaultPda };
   }
 
   // Chain-first inventory of everything refundable on the Earn vault itself:
@@ -12284,6 +12459,7 @@ export function createSmartAccountVaultsClient(
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,
     prepareEarnUsdcCleanup,
+    fetchEarnRefundCandidates,
     fetchEarnVaultRefundSnapshot,
     prepareEarnVaultAccountsRefund,
     prepareEarnUsdcAutodepositSetup,

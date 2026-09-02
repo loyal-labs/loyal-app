@@ -926,6 +926,36 @@ export type SmartAccountPreparedEarnUsdcCleanup = {
   };
 };
 
+export type SmartAccountEarnRefundPolicyCandidate = {
+  account: PublicKey;
+  accountIndex: number | null;
+  lamports: number;
+  seed: bigint;
+  state: string;
+};
+
+export type SmartAccountEarnRefundRecurringDelegationCandidate = {
+  account: PublicKey;
+  amountPerPeriodRaw: bigint;
+  authority: PublicKey;
+  delegatee: PublicKey;
+  delegator: PublicKey;
+  lamports: number;
+  mint: PublicKey;
+};
+
+export type SmartAccountEarnRefundCandidateSnapshot = {
+  policies: SmartAccountEarnRefundPolicyCandidate[];
+  recurringDelegations: SmartAccountEarnRefundRecurringDelegationCandidate[];
+  vaultPda: PublicKey;
+};
+
+export type SmartAccountEarnRefundCandidateInput = {
+  cluster?: LoyalCluster;
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+};
+
 export type SmartAccountEarnVaultRefundTokenAccount = {
   address: PublicKey;
   amountRaw: bigint;

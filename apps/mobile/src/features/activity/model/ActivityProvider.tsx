@@ -27,13 +27,12 @@ import {
 import {
   EarnApiError,
   fetchEarnAutodepositSweepProgress,
-  fetchEarnRefundScan,
   type EarnAutodepositScheduledSweep,
   type EarnAutodepositSweepProgressState,
   type EarnRefundPrepareRequest,
   type EarnTransactionItem,
 } from "@/lib/solana/earn/earn-api";
-import { executeEarnRefund } from "@/lib/solana/earn/refund";
+import { executeEarnRefund, scanEarnRefunds } from "@/lib/solana/earn/refund";
 import {
   EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
   getVisibleEarnScheduledSweeps,
@@ -244,17 +243,16 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     (autodeposit?.scheduledSweeps ?? []).some(
       (sweep) =>
         /^\d+$/.test(sweep.remainingAmountRaw) &&
-        BigInt(sweep.remainingAmountRaw) >=
-          EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
+        BigInt(sweep.remainingAmountRaw) >= EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW
     );
   const { tokenHoldings, refreshTokenHoldings } = useTokenHoldings(
-    hasScheduledSweepCandidate ? publicKey : null,
+    hasScheduledSweepCandidate ? publicKey : null
   );
   const walletUsdcRaw = useMemo<bigint | null>(() => {
     const holding = tokenHoldings.find(
       (h) =>
         h.mint === SOLANA_USDC_MINT_MAINNET ||
-        h.mint === SOLANA_USDC_MINT_DEVNET,
+        h.mint === SOLANA_USDC_MINT_DEVNET
     );
     if (!holding || !Number.isFinite(holding.balance)) {
       return null;
@@ -269,9 +267,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       getVisibleEarnScheduledSweeps(
         autodeposit?.scheduledSweeps,
         walletUsdcRaw,
-        scheduledSweepFloorRaw,
+        scheduledSweepFloorRaw
       ),
-    [autodeposit, walletUsdcRaw, scheduledSweepFloorRaw],
+    [autodeposit, walletUsdcRaw, scheduledSweepFloorRaw]
   );
 
   const autodepositPausedMissingPosition =
@@ -319,7 +317,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const [expectingScheduledSweep, setExpectingScheduledSweep] = useState(false);
   const expectScheduledSweep = useCallback(
     () => setExpectingScheduledSweep(true),
-    [],
+    []
   );
   const hasVisibleScheduledSweep = earnScheduledSweeps.length > 0;
   useEffect(() => {
@@ -332,7 +330,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     }
     const timeoutId = setTimeout(
       () => setExpectingScheduledSweep(false),
-      EXPECTED_SWEEP_TIMEOUT_MS,
+      EXPECTED_SWEEP_TIMEOUT_MS
     );
     return () => clearTimeout(timeoutId);
   }, [expectingScheduledSweep, hasVisibleScheduledSweep]);
@@ -380,13 +378,13 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     // worker's new result tx.
     const sweeps = earnScheduledSweeps;
     const baselineTxIds = new Set(
-      earnTransactions.filter(isBalanceSweepTx).map((tx) => tx.id),
+      earnTransactions.filter(isBalanceSweepTx).map((tx) => tx.id)
     );
     // A second accepted request must never overwrite an unterminated attempt.
     failPendingSweep();
     const attemptId = ++sweepAttemptIdRef.current;
     pendingSweepMetricRef.current = startMobileLoadingMetric(
-      "earn.autodeposit.execute_now",
+      "earn.autodeposit.execute_now"
     );
     setIsExecutingSweep(true);
     try {
@@ -426,7 +424,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       Alert.alert(
         refusal ? "Deposit can't run" : "Deposit didn't complete",
         refusal ??
-          "The deposit didn't complete this time. Please wait 1 minute and try again.",
+          "The deposit didn't complete this time. Please wait 1 minute and try again."
       );
     } finally {
       setIsExecutingSweep(false);
@@ -450,7 +448,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       return;
     }
     const fresh = earnTransactions.find(
-      (tx) => isBalanceSweepTx(tx) && !sweepMorph.baselineTxIds.has(tx.id),
+      (tx) => isBalanceSweepTx(tx) && !sweepMorph.baselineTxIds.has(tx.id)
     );
     if (fresh) {
       setSweepMorph((m) => (m && !m.resultTx ? { ...m, resultTx: fresh } : m));
@@ -625,7 +623,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       return [];
     }
     try {
-      const { scan } = await fetchEarnRefundScan(publicKey);
+      const { scan } = await scanEarnRefunds(publicKey);
       const items: EarnRefundItem[] = [
         ...(scan?.policies ?? [])
           .filter((policy) => policy.canRefund && (policy.lamports ?? 0) > 0)
@@ -637,7 +635,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         ...(scan?.recurringDelegations ?? [])
           .filter(
             (delegation) =>
-              delegation.canRefund && (delegation.lamports ?? 0) > 0,
+              delegation.canRefund && (delegation.lamports ?? 0) > 0
           )
           .map((delegation) => ({
             kind: "recurring_delegation" as const,
@@ -700,32 +698,32 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
           item.kind === "policy"
             ? { kind: "policy", policyAccount: item.account }
             : item.kind === "recurring_delegation"
-              ? {
-                  kind: "recurring_delegation",
-                  recurringDelegation: item.account,
-                }
-              : { kind: "vault" };
+            ? {
+                kind: "recurring_delegation",
+                recurringDelegation: item.account,
+              }
+            : { kind: "vault" };
         await executeEarnRefund({ signer, request });
         // Drop the row right away, then rescan for anything remaining. The
         // refunded SOL shows up in the wallet balance, not the Earn feed.
         setEarnRefunds((current) =>
-          current.filter((refund) => refund.account !== item.account),
+          current.filter((refund) => refund.account !== item.account)
         );
         void refreshEarnRefunds();
         metric.completeAfterPaint();
       } catch (error) {
         metric.failAfterPaint();
-        // Row stays for a retry; the backend re-verifies on every prepare.
+        // Row stays for a retry; the device re-scans chain state on every prepare.
         console.warn("[earn-refunds] refund failed", error);
         Alert.alert(
           "Refund didn't complete",
-          "Refund didn't complete this time. Please wait 1 minute and try again.",
+          "Refund didn't complete this time. Please wait 1 minute and try again."
         );
       } finally {
         setRefundingAccount(null);
       }
     },
-    [signer, state, refundingAccount, refreshEarnRefunds],
+    [signer, state, refundingAccount, refreshEarnRefunds]
   );
 
   // Escape hatch for the locked-rent row: the Earn tab's Delete control only
@@ -778,7 +776,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
                 console.warn("[earn-refunds] autodeposit delete failed", error);
                 Alert.alert(
                   "Delete didn't complete",
-                  "Autodeposit wasn't deleted this time. Please wait 1 minute and try again.",
+                  "Autodeposit wasn't deleted this time. Please wait 1 minute and try again."
                 );
               } finally {
                 setDeletingAutodeposit(false);
@@ -786,7 +784,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
             })();
           },
         },
-      ],
+      ]
     );
   }, [
     canDeleteLockedRefundAutodeposit,
@@ -817,10 +815,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   }, [earnTransactions]);
 
   const [seenWallet, setSeenWallet] = useState<number | undefined>(() =>
-    getActivityLastSeen("wallet"),
+    getActivityLastSeen("wallet")
   );
   const [seenEarn, setSeenEarn] = useState<number | undefined>(() =>
-    getActivityLastSeen("earn"),
+    getActivityLastSeen("earn")
   );
 
   // First ever launch: seed last-seen to the newest known item so the user's
@@ -850,7 +848,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         setSeenEarn(newestEarnTs);
       }
     },
-    [newestWalletTs, newestEarnTs],
+    [newestWalletTs, newestEarnTs]
   );
 
   const walletUnread = seenWallet !== undefined && newestWalletTs > seenWallet;
@@ -919,7 +917,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       canDeleteLockedRefundAutodeposit,
       deletingAutodeposit,
       deleteAutodepositForRefund,
-    ],
+    ]
   );
 
   return (

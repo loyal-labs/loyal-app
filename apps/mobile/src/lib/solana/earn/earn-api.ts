@@ -696,7 +696,12 @@ export type EarnPosition = {
 };
 
 export type EarnStateResponse = {
+  autoswapPolicyAccounts: string[];
+  autoswapStateAuthoritative: boolean;
+  cluster: string;
   position: EarnPosition | null;
+  programId: string;
+  protectedPolicyAccounts: string[];
   settingsPda: string | null;
   smartAccountAddress: string | null;
 };
@@ -977,12 +982,9 @@ export async function fetchSolanaWeekQuestProgress(
 
 // --- Rent refunds -----------------------------------------------------------
 //
-// Scan for closed Earn accounts still holding refundable rent: dead vault
-// policies, revoked/expired recurring delegations, and the vault itself
-// (stranded setup SOL + token-account rents). Wallet-keyed and read-only —
-// no signature (like `state`), so the auto-scan never prompts
-// Seed Vault. Only `prepare` (which returns a signable transaction) is
-// wallet-signed.
+// Client-side scan result types for closed Earn accounts still holding
+// refundable rent. Candidate discovery and transaction preparation both run
+// on-device; the API only supplies passive Earn product state.
 
 export type EarnRefundScanItem = {
   account: string;
@@ -1007,23 +1009,6 @@ export type EarnRefundScanResponse = {
     vault: EarnRefundScanVault | null;
   } | null;
 };
-
-export async function fetchEarnRefundScan(
-  walletAddress: string
-): Promise<EarnRefundScanResponse> {
-  const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/policy-refunds/scan?walletAddress=${encodeURIComponent(
-      walletAddress
-    )}`,
-    { method: "GET", headers: earnHeaders() }
-  );
-  if (!res.ok) {
-    return throwEarnError(res, "Failed to scan for refunds.");
-  }
-  return (await res.json()) as EarnRefundScanResponse;
-}
 
 export type EarnRefundPrepareRequest =
   | { kind: "policy"; policyAccount: string }
