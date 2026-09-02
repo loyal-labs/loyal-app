@@ -105,8 +105,7 @@ export function PrivyAuthProvider({ children }: { children: ReactNode }) {
     <PrivyProvider
       appId={privyAppId}
       config={{
-        // "google" goes back in once the dashboard has a Google OAuth client.
-        loginMethods: ["email", "wallet"],
+        loginMethods: ["email", "google", "wallet"],
         appearance: {
           ...theme,
           walletChainType: "solana-only",
