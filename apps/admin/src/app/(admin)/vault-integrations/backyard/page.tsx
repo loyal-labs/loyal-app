@@ -98,7 +98,7 @@ export default async function BackyardVaultPage() {
         </Card>
       ) : (
         <>
-          <section className="grid gap-4 md:grid-cols-3">
+          <section className="grid gap-4 md:grid-cols-4">
             <Metric
               title="Current AUM"
               value={formatUsdMicros(data.aumUsdMicros)}
@@ -166,6 +166,11 @@ export default async function BackyardVaultPage() {
               title="Voltr idle"
               value={`${formatRaw(data.voltrIdleRaw)} USDC`}
               description="Strategy idle balance projected by worker"
+            />
+            <Metric
+              title="Strategy idle"
+              value={`${formatRaw(data.strategyIdleRaw)} USDC`}
+              description="Voltr strategy receipt custody"
             />
             <Metric
               title="Squads idle"
