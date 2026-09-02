@@ -96,6 +96,7 @@ export const LIFECYCLE_STAGES = {
     "review",
     "policy",
     "policy_finalize",
+    "preflight",
     "wallet_submit_confirm",
     "slot_resolve",
     "backend_confirm",
