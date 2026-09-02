@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { AnalyticsBootstrap } from "@/components/analytics/AnalyticsBootstrap";
 import { PrivyAuthProvider } from "@/components/auth/privy-provider";
-import { PrivySessionSync } from "@/components/auth/privy-session-sync";
+import { PrivyAuthController } from "@/components/auth/privy-session-sync";
 import { SignInModal } from "@/components/auth/sign-in-modal";
 import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
 import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
@@ -66,16 +66,17 @@ export default function AppLayout({
             <CherrySessionGate>
               <FeatureFlagsProvider>
                 <SignInModalProvider>
-                  <WalletAutoReauth />
-                  <PrivySessionSync />
-                  <CherryAuthPrompt />
-                  <AnalyticsBootstrap />
-                  {/* Header/main nav is hidden for the wallet workspace redesign. */}
-                  <RealtimeSyncProvider>
-                    <AppWorkspaceShell />
-                    {children}
-                  </RealtimeSyncProvider>
-                  <SignInModal />
+                  <PrivyAuthController>
+                    <WalletAutoReauth />
+                    <CherryAuthPrompt />
+                    <AnalyticsBootstrap />
+                    {/* Header/main nav is hidden for the wallet workspace redesign. */}
+                    <RealtimeSyncProvider>
+                      <AppWorkspaceShell />
+                      {children}
+                    </RealtimeSyncProvider>
+                    <SignInModal />
+                  </PrivyAuthController>
                 </SignInModalProvider>
               </FeatureFlagsProvider>
             </CherrySessionGate>
