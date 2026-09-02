@@ -9,12 +9,9 @@
 export const SECURE_MAINNET_RPC_URL =
   "https://beta.helius-rpc.com/?api-key=765be1fd-1402-443f-aba4-f41fe30bae1d";
 
-// Mobile no longer opens any Solana WebSocket subscriptions — incoming
-// transfer pushes come via the Helius enhanced webhook → Expo push
-// path (see /api/webhooks/helius). This endpoint is still passed to
-// Anchor providers, which require a websocketEndpoint config even when
-// they never call onAccountChange/onLogs. The public fallback is fine
-// for that.
+// Mobile does not open Solana WebSocket subscriptions. This endpoint is still
+// passed to Anchor providers, which require a websocketEndpoint config even
+// when they never call onAccountChange/onLogs. The public fallback is fine.
 export const SECURE_MAINNET_RPC_WS = "wss://api.mainnet-beta.solana.com";
 
 export const SECURE_DEVNET_RPC_URL =
