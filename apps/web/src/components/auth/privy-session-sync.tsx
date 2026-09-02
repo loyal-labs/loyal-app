@@ -2,6 +2,7 @@
 
 import {
   getIdentityToken,
+  useLinkAccount,
   useLogin,
   usePrivy,
   useUser,
@@ -90,6 +91,19 @@ function Inner({ children }: { children: ReactNode }) {
     close: closeSignInModal,
     registerHandler,
   } = useSignInModal();
+
+  // Wallet-only users get Privy's "Connect your email" modal right after
+  // sign-in; on success the Loyal session is re-issued so user.email lands.
+  const { linkEmail } = useLinkAccount({
+    onSuccess: async ({ user }) => {
+      const wallet = user.linkedAccounts.find(
+        (a) => a.type === "wallet" && a.chainType === "solana"
+      );
+      if (!wallet || !("address" in wallet)) return;
+      await exchangePrivySession(wallet.address);
+      await refreshSession();
+    },
+  });
 
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -205,15 +219,13 @@ function Inner({ children }: { children: ReactNode }) {
     }
     await refreshSession();
     log("session refreshed");
-    // Wallet-only users have no email yet: land them on the Account view,
-    // whose "Add your email" card is the first thing they see.
-    if (hasEmail) closeSignInModal();
-    else openSignInModal();
+    closeSignInModal();
+    if (!hasEmail) linkEmail();
   }, [
     adapter,
     closeSignInModal,
     createWallet,
-    openSignInModal,
+    linkEmail,
     privyUser,
     privyWallets,
     refreshSession,

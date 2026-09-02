@@ -21,7 +21,6 @@ import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 
-import { PrivyEmailCard } from "./privy-email-card";
 import { PrivySignIn } from "./privy-sign-in";
 import { WalletSignIn } from "./wallet-sign-in";
 
@@ -85,8 +84,6 @@ function ConnectedView() {
           </button>
         ) : null}
       </div>
-
-      {cherryRuntime.mode === "standalone" ? <PrivyEmailCard /> : null}
 
       {cherryRuntime.mode === "standalone" ? (
         <div className="flex flex-col gap-2">
