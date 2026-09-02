@@ -21,6 +21,7 @@ import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 
+import { PrivyAccountPanel } from "./privy-account-panel";
 import { PrivySignIn } from "./privy-sign-in";
 import { WalletSignIn } from "./wallet-sign-in";
 
@@ -84,6 +85,10 @@ function ConnectedView() {
           </button>
         ) : null}
       </div>
+
+      {privyAppId && cherryRuntime.mode === "standalone" ? (
+        <PrivyAccountPanel />
+      ) : null}
 
       {cherryRuntime.mode === "standalone" ? (
         <div className="flex flex-col gap-2">
