@@ -6,9 +6,30 @@ import {
   useStandardWallets,
 } from "@privy-io/react-auth/solana";
 import { registerWallet } from "@wallet-standard/wallet";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+
+// Loyal brand: Background/Primary + Background/Accent from globals.css.
+const LOYAL_THEME = {
+  light: { theme: "#FFFFFF", accentColor: "#F9363C" },
+  dark: { theme: "#1D1B20", accentColor: "#FF5050" },
+} as const;
+
+// Follows html.dark, which use-theme.ts toggles. Privy rebuilds its palette
+// whenever the config prop changes, so this is all the modal needs.
+function usePrivyTheme() {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setIsDark(root.classList.contains("dark"));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark ? LOYAL_THEME.dark : LOYAL_THEME.light;
+}
 
 // Spike (ASK-2262). Bridges Privy's embedded Solana wallet into the existing
 // @solana/wallet-adapter tree by registering it as a Wallet Standard wallet,
@@ -76,6 +97,7 @@ function installPrivyNoiseFilter() {
 
 export function PrivyAuthProvider({ children }: { children: ReactNode }) {
   const { privyAppId } = usePublicEnv();
+  const theme = usePrivyTheme();
   useEffect(installPrivyNoiseFilter, []);
   if (!privyAppId) return children;
 
@@ -86,6 +108,7 @@ export function PrivyAuthProvider({ children }: { children: ReactNode }) {
         // "google" goes back in once the dashboard has a Google OAuth client.
         loginMethods: ["email", "wallet"],
         appearance: {
+          ...theme,
           walletChainType: "solana-only",
           showWalletLoginFirst: true,
           // Only detected wallets: listing "phantom" explicitly as well made
