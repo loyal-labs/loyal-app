@@ -3,7 +3,7 @@
 import { useLogin, usePrivy, useIdentityToken } from "@privy-io/react-auth";
 import { useCreateWallet, useWallets } from "@privy-io/react-auth/solana";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -47,7 +47,7 @@ export function PrivySignIn() {
   const { close } = useSignInModal();
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
-  const pendingRef = useRef<{
+  const [pending, setPending] = useState<{
     address: string | null;
     hasEmail: boolean;
   } | null>(null);
@@ -92,7 +92,7 @@ export function PrivySignIn() {
       const hasEmail = user.linkedAccounts.some(
         (a) => a.type === "email" || a.type === "google_oauth"
       );
-      pendingRef.current = { address, hasEmail };
+      setPending({ address, hasEmail });
     },
     onError: (code) => {
       setError(`Privy login failed: ${code}`);
@@ -103,9 +103,8 @@ export function PrivySignIn() {
   // Runs once Privy is authenticated and the identity token + wallets are
   // ready (they arrive a tick after onComplete).
   useEffect(() => {
-    const pending = pendingRef.current;
     if (!pending || !authenticated || !identityToken || !walletsReady) return;
-    pendingRef.current = null;
+    setPending(null);
     void (async () => {
       try {
         let address = pending.address;
@@ -132,8 +131,8 @@ export function PrivySignIn() {
     createWallet,
     finish,
     identityToken,
+    pending,
     privyWallets,
-    step,
     walletsReady,
   ]);
 
@@ -151,14 +150,12 @@ export function PrivySignIn() {
             const wallet = privyUser.linkedAccounts.find(
               (a) => a.type === "wallet" && a.chainType === "solana"
             );
-            pendingRef.current = {
+            setPending({
               address: wallet && "address" in wallet ? wallet.address : null,
               hasEmail: privyUser.linkedAccounts.some(
                 (a) => a.type === "email" || a.type === "google_oauth"
               ),
-            };
-            // Force the effect to re-run even if deps are unchanged.
-            setStep("exchanging");
+            });
             return;
           }
           login();
