@@ -160,6 +160,9 @@ function resolveTransactionAmountRaw(args: {
   if (kind === "deposit") {
     return event.principalDeltaRaw ?? event.amountRaw;
   }
+  if (kind === "rebalance") {
+    return event.rebalanceAmountRaw ?? event.amountRaw;
+  }
   if (event.principalAmountRaw > BigInt(0)) {
     return event.principalAmountRaw;
   }

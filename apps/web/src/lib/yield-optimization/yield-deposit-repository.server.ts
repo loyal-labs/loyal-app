@@ -102,6 +102,7 @@ export type UserYieldPositionHistoryEventRecord = {
   reserve: string;
   market: string | null;
   principalDeltaRaw: bigint | null;
+  rebalanceAmountRaw?: bigint | null;
   withdrawnAmountRaw?: bigint | null;
   liquidityMint: string;
   sourceReserve?: string | null;
@@ -3861,6 +3862,9 @@ async function findYieldPositionHistoryEventsForPosition(
   const depositIds = chronologicalEvents
     .map((event) => event.sourceDepositId)
     .filter((id): id is bigint => id !== null);
+  const rebalanceDecisionIds = chronologicalEvents
+    .map((event) => event.sourceRebalanceDecisionId)
+    .filter((id): id is bigint => id !== null);
   const depositAmounts =
     depositIds.length > 0
       ? await dependencies.client.db
@@ -3870,6 +3874,16 @@ async function findYieldPositionHistoryEventsForPosition(
           })
           .from(userYieldPositionDeposits)
           .where(inArray(userYieldPositionDeposits.id, depositIds))
+      : [];
+  const rebalanceAmounts =
+    rebalanceDecisionIds.length > 0
+      ? await dependencies.client.db
+          .select({
+            amountRaw: rebalanceDecisions.amountRaw,
+            id: rebalanceDecisions.id,
+          })
+          .from(rebalanceDecisions)
+          .where(inArray(rebalanceDecisions.id, rebalanceDecisionIds))
       : [];
   const withdrawals =
     withdrawalIds.length > 0
@@ -3885,6 +3899,9 @@ async function findYieldPositionHistoryEventsForPosition(
       : [];
   const depositAmountById = new Map(
     depositAmounts.map((deposit) => [deposit.id, deposit.principalAmountRaw])
+  );
+  const rebalanceAmountById = new Map(
+    rebalanceAmounts.map((rebalance) => [rebalance.id, rebalance.amountRaw])
   );
   const withdrawalById = new Map(
     withdrawals.map((withdrawal) => [withdrawal.id, withdrawal])
@@ -3965,6 +3982,10 @@ async function findYieldPositionHistoryEventsForPosition(
       market: event.market,
       principalDeltaRaw: event.principalDeltaRaw,
       principalAmountRaw,
+      rebalanceAmountRaw:
+        event.sourceRebalanceDecisionId === null
+          ? null
+          : rebalanceAmountById.get(event.sourceRebalanceDecisionId) ?? null,
       positionId: position.id,
       reserve: event.reserve,
       signature:
