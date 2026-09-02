@@ -40,8 +40,15 @@ const PRIORITY_FEE_MICRO_LAMPORTS = 100_000;
 // the RPC would reject it anyway. When that happens, send without the fee:
 // landing slowly beats not signing at all.
 const MAX_TRANSACTION_BYTES = 1232;
-// How often to re-broadcast the signed tx while waiting for confirmation.
-const REBROADCAST_INTERVAL_MS = 2000;
+// Rebroadcast cadence and hard ceilings. Every resend is a paid Helius
+// `sendTransactionWithStake` call, and an uncapped 2s loop burned ~269K
+// credits/day (ASK-2258). With the priority fee above, a 4s cadence still
+// keeps the tx in front of leaders; the count/time caps guarantee a stuck
+// confirmation (or an orphaned batch loop) can never resend forever. The
+// 60s deadline matches blockhash validity — past it, resends are dead weight.
+export const REBROADCAST_INTERVAL_MS = 4000;
+export const REBROADCAST_MAX_RESENDS = 10;
+export const REBROADCAST_MAX_ELAPSED_MS = 60_000;
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -170,11 +177,11 @@ type InFlightTransaction = {
   stop: () => Promise<void>;
 };
 
-// Sends an already-signed transaction and keeps re-broadcasting it until
-// `stop()` — under load, RPCs drop a pending tx and `confirmTransaction` never
-// re-sends; it just waits out the blockhash and reports expiry. Re-broadcasting
-// the signed raw tx every couple seconds keeps it in front of leaders until it
-// lands.
+// Sends an already-signed transaction and re-broadcasts it until `stop()` or
+// the resend caps — under load, RPCs drop a pending tx and `confirmTransaction`
+// never re-sends; it just waits out the blockhash and reports expiry.
+// Re-broadcasting the signed raw tx keeps it in front of leaders until it
+// lands. Callers stop the loop on confirmation, on-chain failure, or expiry.
 async function startSendingSignedTransaction(
   connection: Connection,
   transaction: VersionedTransaction,
@@ -188,6 +195,7 @@ async function startSendingSignedTransaction(
   });
 
   let rebroadcasting = true;
+  const deadline = Date.now() + REBROADCAST_MAX_ELAPSED_MS;
   let wakeRebroadcast: (() => void) | null = null;
   const waitForRebroadcast = (): Promise<void> =>
     new Promise((resolve) => {
@@ -202,9 +210,9 @@ async function startSendingSignedTransaction(
       };
     });
   const rebroadcast = (async () => {
-    while (rebroadcasting) {
+    for (let resend = 0; resend < REBROADCAST_MAX_RESENDS; resend++) {
       await waitForRebroadcast();
-      if (!rebroadcasting) {
+      if (!rebroadcasting || Date.now() >= deadline) {
         return;
       }
       try {
