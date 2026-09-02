@@ -81,11 +81,27 @@ export function PrivySignIn() {
     const hasEmail = linked.some(
       (a) => a.type === "email" || a.type === "google_oauth"
     );
+    // Only wallets linked to this Privy user count. `privyWallets` also lists
+    // wallets merely connected in the browser (e.g. another extension that
+    // belongs to a different Privy user).
+    const linkedSolana = linked.filter(
+      (a) => a.type === "wallet" && a.chainType === "solana"
+    );
+    const linkedAddresses = new Set(
+      linkedSolana.map((a) => ("address" in a ? a.address : ""))
+    );
+    const external = linkedSolana.find(
+      (a) => "walletClientType" in a && a.walletClientType !== "privy"
+    );
+    const embedded = linkedSolana.find(
+      (a) => "walletClientType" in a && a.walletClientType === "privy"
+    );
     let address =
-      loginAddressRef.current ??
-      privyWallets.find((w) => w.standardWallet.name !== "Privy")?.address ??
-      privyWallets.find((w) => w.standardWallet.name === "Privy")?.address ??
-      null;
+      (loginAddressRef.current && linkedAddresses.has(loginAddressRef.current)
+        ? loginAddressRef.current
+        : null) ??
+      (external && "address" in external ? external.address : null) ??
+      (embedded && "address" in embedded ? embedded.address : null);
     loginAddressRef.current = null;
 
     if (!address) {
