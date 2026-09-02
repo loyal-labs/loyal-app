@@ -18,8 +18,11 @@ import {
 import { useAuthCapability } from "@/lib/auth/capability";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 
+import { PrivyEmailCard } from "./privy-email-card";
+import { PrivySignIn } from "./privy-sign-in";
 import { WalletSignIn } from "./wallet-sign-in";
 
 function ConnectedView() {
@@ -82,6 +85,8 @@ function ConnectedView() {
         ) : null}
       </div>
 
+      {cherryRuntime.mode === "standalone" ? <PrivyEmailCard /> : null}
+
       {cherryRuntime.mode === "standalone" ? (
         <div className="flex flex-col gap-2">
           {hasAuthSession ? (
@@ -120,6 +125,7 @@ export function SignInModal() {
   const { isOpen, close } = useSignInModal();
   const { hasAuthSession } = useAuthCapability();
   const cherryRuntime = useCherryRuntime();
+  const { privyAppId } = usePublicEnv();
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -165,7 +171,11 @@ export function SignInModal() {
                 </DialogDescription>
               </DialogHeader>
               <div className="px-6 pb-6">
-                <WalletSignIn />
+                {privyAppId && cherryRuntime.mode !== "cherry_embedded" ? (
+                  <PrivySignIn />
+                ) : (
+                  <WalletSignIn />
+                )}
               </div>
             </>
           )}

@@ -10,6 +10,7 @@ export type CurrentUserPrincipal = {
   authMethod: "wallet";
   subjectAddress: string;
   walletAddress: string;
+  email?: string;
 };
 
 export type AppUser = {
@@ -79,6 +80,7 @@ function createAppUserDependencies(): AppUserDependencies {
           .values({
             provider: principal.provider,
             subjectAddress: principal.subjectAddress,
+            ...(principal.email ? { email: principal.email } : {}),
             createdAt: now,
             updatedAt: now,
           })
@@ -98,11 +100,12 @@ function createAppUserDependencies(): AppUserDependencies {
         throw error;
       }
     },
-    updateUserMetadata: async (user, _principal, now) => {
+    updateUserMetadata: async (user, principal, now) => {
       await db
         .update(appUsers)
         .set({
           updatedAt: now,
+          ...(principal.email ? { email: principal.email } : {}),
         })
         .where(eq(appUsers.id, user.id));
     },

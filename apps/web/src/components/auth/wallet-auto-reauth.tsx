@@ -32,11 +32,13 @@ export function WalletAutoReauth() {
   const { isOpen: isSignInModalOpen } = useSignInModal();
   const { connected, publicKey, signIn, signMessage, disconnect, wallet } =
     useWallet();
-  const { captcha } = usePublicEnv();
+  const { captcha, privyAppId } = usePublicEnv();
 
   // Silent re-auth has no captcha UI. It is available only when local
-  // development explicitly disables captcha server-side.
-  const captchaDisabled = captcha.mode === "disabled";
+  // development explicitly disables captcha server-side. With Privy on, the
+  // legacy proof flow must not fire: its signMessage races Privy's SIWS
+  // signMessage in the extension, which keeps only one pending request.
+  const captchaDisabled = captcha.mode === "disabled" && !privyAppId;
 
   const attemptedAddressRef = useRef<string | null>(null);
   const failedRef = useRef(false);
