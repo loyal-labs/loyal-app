@@ -69,7 +69,7 @@ function ConnectedView() {
 
         {address ? (
           <button
-            className="mt-4 flex w-full items-center gap-2 rounded-full bg-card px-4 py-3 text-left transition hover:bg-card/90"
+            className="t-hover mt-4 flex w-full items-center gap-2 rounded-full bg-card px-4 py-3 text-left hover:bg-accent-selected"
             onClick={handleCopy}
             title="Copy address"
             type="button"
@@ -94,7 +94,7 @@ function ConnectedView() {
         <div className="flex flex-col gap-2">
           {hasAuthSession ? (
             <button
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background text-sm transition hover:bg-foreground/90"
+              className="t-hover flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-4 font-medium text-background text-sm hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
               onClick={async () => {
                 await Promise.allSettled([logout(), disconnect()]);
                 close();
@@ -107,7 +107,7 @@ function ConnectedView() {
           ) : null}
           {hasWalletConnection && !privyAppId ? (
             <button
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-destructive/15 px-4 font-medium text-destructive text-sm transition hover:bg-destructive/25"
+              className="t-hover flex h-12 w-full items-center justify-center gap-2 rounded-full bg-destructive/15 px-4 font-medium text-destructive text-sm hover:bg-destructive/25"
               onClick={async () => {
                 await disconnect();
                 close();
@@ -182,7 +182,7 @@ export function SignInModal() {
               </div>
             </>
           )}
-          <DialogClose className="absolute top-5 right-5 flex h-11 w-11 items-center justify-center rounded-full bg-accent text-muted-foreground transition hover:bg-accent-active hover:text-foreground">
+          <DialogClose className="t-hover absolute top-5 right-5 flex h-11 w-11 items-center justify-center rounded-full bg-accent text-muted-foreground hover:bg-accent-active hover:text-foreground">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </DialogClose>

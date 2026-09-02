@@ -13,6 +13,7 @@ import { useUpdateEmail } from "@privy-io/react-auth/ui";
 import { KeyRound, Mail, ShieldCheck, Wallet } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 
@@ -94,11 +95,11 @@ export function PrivyAccountPanel() {
   const mfaEnabled = (appConfig?.mfa_methods?.length ?? 0) > 0;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1">
       <Row
         action={email ? (canUnlink ? "Remove" : "Change") : "Add"}
         disabled={busy}
-        icon={<Mail className="h-5 w-5" />}
+        icon={<Mail className="size-6" />}
         onClick={() =>
           email
             ? canUnlink
@@ -132,7 +133,7 @@ export function PrivyAccountPanel() {
         <Row
           action="Export"
           disabled={busy}
-          icon={<KeyRound className="h-5 w-5" />}
+          icon={<KeyRound className="size-6" />}
           onClick={() => exportWallet({ address: embedded.address })}
           subtitle="Copy the private key of your loyal wallet."
           title="Wallet key"
@@ -140,7 +141,7 @@ export function PrivyAccountPanel() {
       ) : (
         <Row
           disabled
-          icon={<Wallet className="h-5 w-5" />}
+          icon={<Wallet className="size-6" />}
           subtitle="Signed in with your own wallet."
           title="Wallet"
         />
@@ -149,7 +150,7 @@ export function PrivyAccountPanel() {
         <Row
           action={mfaOn ? "Manage" : "Enable"}
           disabled={busy}
-          icon={<ShieldCheck className="h-5 w-5" />}
+          icon={<ShieldCheck className="size-6" />}
           onClick={showMfaEnrollmentModal}
           subtitle={
             mfaOn
@@ -179,24 +180,30 @@ function Row({
   title: string;
 }) {
   const interactive = Boolean(onClick && action);
+  // Same row recipe as the sidebar links: t-hover + hover:bg-accent, 44px
+  // icon slot, tertiary icon. Static rows keep the layout but no hover.
   return (
     <button
-      className="flex w-full items-center gap-3 rounded-[20px] bg-secondary px-4 py-3 text-left transition enabled:hover:bg-secondary/80 disabled:cursor-default disabled:opacity-60"
+      className="t-hover flex w-full items-center rounded-2xl px-4 text-left enabled:hover:bg-accent disabled:cursor-default"
       disabled={disabled || !interactive}
       onClick={() => void onClick?.()}
       type="button"
     >
-      <span className="shrink-0 text-muted-foreground">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block font-medium text-foreground text-sm">
+      <span className="mr-3 flex size-11 shrink-0 items-center justify-center text-tertiary">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 py-2">
+        <span className="block font-medium text-[16px] text-foreground leading-5">
           {title}
         </span>
-        <span className="block truncate text-muted-foreground text-xs">
+        <span className="block truncate text-muted-foreground text-[13px] leading-4">
           {subtitle}
         </span>
       </span>
       {action ? (
-        <span className="shrink-0 text-muted-foreground text-sm">{action}</span>
+        <span className="ml-3 shrink-0 rounded-full bg-accent px-4 py-2.5 text-center font-medium text-[13px] text-foreground leading-4">
+          <TextSwap text={action} />
+        </span>
       ) : null}
     </button>
   );
@@ -204,7 +211,7 @@ function Row({
 
 function GoogleMark() {
   return (
-    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
+    <svg aria-hidden="true" className="size-6" viewBox="0 0 24 24">
       <path
         d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.4Z"
         fill="#4285F4"
