@@ -168,9 +168,12 @@ export function isWalletCancellation(error: unknown): boolean {
 
 // app-wallet-workspace.tsx:3351-3357
 export function getEarnWithdrawDraftAmountRaw(
-  draft: EarnWithdrawDraft
+  draft: Pick<
+    EarnWithdrawDraft,
+    "amountLabel" | "isSourceMax" | "mode" | "source" | "tokenDecimals"
+  >
 ): bigint {
-  return draft.mode === "full"
+  return draft.isSourceMax || draft.mode === "full"
     ? BigInt(draft.source.amountRaw)
     : parseTokenAmountLabelToRaw(draft.amountLabel, draft.tokenDecimals);
 }
