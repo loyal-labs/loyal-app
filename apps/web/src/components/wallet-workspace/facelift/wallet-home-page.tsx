@@ -79,7 +79,7 @@ export function WalletHomePage({
   // whenever either side is live.
   const canDisconnect = isAuthenticated || isWalletConnected;
   const { isBalanceHidden, toggleBalanceHidden } = useBalanceVisibility();
-  const { open: openSignIn } = useSignInModal();
+  const { open: openSignIn, openAccount } = useSignInModal();
 
   const handleDisconnect = () => {
     void Promise.allSettled([logout(), disconnect()]);
@@ -247,6 +247,19 @@ export function WalletHomePage({
                     src={`${ASSET_BASE}/icon-globe.svg`}
                   />
                 </a>
+                {publicEnv.privyAppId && isAuthenticated ? (
+                  <button
+                    aria-label="Account settings"
+                    className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
+                    onClick={openAccount}
+                    type="button"
+                  >
+                    <ThemedIcon
+                      className="size-6 text-tertiary"
+                      src={`${ASSET_BASE}/icon-gear.svg`}
+                    />
+                  </button>
+                ) : null}
                 {cherryRuntime.mode === "standalone" ? (
                   <button
                     aria-label="Disconnect wallet"
