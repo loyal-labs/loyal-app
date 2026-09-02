@@ -34,6 +34,7 @@ type PrivyAuthState = {
 };
 
 const PrivyAuthContext = createContext<PrivyAuthState | null>(null);
+const WANTS_SESSION_KEY = "loyal:privy-wants-session";
 
 export function usePrivyAuth(): PrivyAuthState | null {
   return useContext(PrivyAuthContext);
@@ -103,7 +104,18 @@ function Inner({ children }: { children: ReactNode }) {
 
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [wantsSession, setWantsSession] = useState(false);
+  // OAuth (Google) is a full-page redirect, so the "finish the Loyal sign-in
+  // once Privy is authenticated" intent has to survive a reload.
+  const [wantsSession, setWantsSessionState] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      sessionStorage.getItem(WANTS_SESSION_KEY) === "1"
+  );
+  const setWantsSession = useCallback((next: boolean) => {
+    setWantsSessionState(next);
+    if (next) sessionStorage.setItem(WANTS_SESSION_KEY, "1");
+    else sessionStorage.removeItem(WANTS_SESSION_KEY);
+  }, []);
   const loginAddressRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   const wasAuthenticatedRef = useRef(false);
@@ -129,7 +141,7 @@ function Inner({ children }: { children: ReactNode }) {
       setStep("privy");
       login();
     }
-  }, [authenticated, login]);
+  }, [authenticated, login, setWantsSession]);
 
   // "Connect" anywhere on the page goes straight to Privy while signed out;
   // signed in, the modal shows the Account view as before.
@@ -231,6 +243,7 @@ function Inner({ children }: { children: ReactNode }) {
     isAuthenticated,
     openSignInModal,
     privyUser,
+    setWantsSession,
     walletsReady,
     wantsSession,
   ]);
