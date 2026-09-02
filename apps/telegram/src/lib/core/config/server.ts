@@ -145,18 +145,6 @@ export const serverEnv = {
   get slackStatsWebhookUrl(): string | undefined {
     return getOptionalEnv("SLACK_STATS_WEBHOOK_URL");
   },
-  get privateMainnetRpcUrl(): string {
-    return getRequiredEnv("PRIVATE_MAINNET_RPC_URL");
-  },
-  get heliusApiKey(): string {
-    return getRequiredEnv("HELIUS_API_KEY");
-  },
-  get heliusWebhookSecret(): string {
-    return getRequiredEnv("HELIUS_WEBHOOK_SECRET");
-  },
-  get heliusWebhookUrl(): string {
-    return getRequiredEnv("HELIUS_WEBHOOK_URL");
-  },
   get telegramSummaryPeerOverride(): TelegramSummaryPeerOverride | null {
     return getTelegramSummaryPeerOverride();
   },

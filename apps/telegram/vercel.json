@@ -14,10 +14,6 @@
     {
       "path": "/api/cron/summaries",
       "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/cron/helius-webhook-resync",
-      "schedule": "0 4 * * *"
     }
   ]
 }

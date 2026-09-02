@@ -857,11 +857,8 @@ export const pushNotificationTickets = pgTable(
 );
 
 /**
- * @deprecated 2026-05-22 — superseded by Helius enhanced webhooks
- * (see `heliusWebhooks` / `heliusWebhookAddresses` / `heliusWebhookDeliveries`).
- * The old per-wallet polling cron that populated this cursor has been
- * removed; the table is kept for one release window to preserve a
- * rollback path, then dropped in a follow-up migration.
+ * @deprecated 2026-05-22 — the per-wallet polling cron was removed. This
+ * historical cursor is retained only for rollback/audit compatibility.
  */
 export const walletPushSyncState = pgTable("wallet_push_sync_state", {
   walletPublicKey: text("wallet_public_key").primaryKey(),
@@ -878,6 +875,7 @@ export const walletPushSyncState = pgTable("wallet_push_sync_state", {
     .notNull(),
 });
 
+// Retained as historical audit data after incoming-transfer push retirement.
 export const heliusWebhooks = pgTable(
   "helius_webhooks",
   {
