@@ -29,6 +29,16 @@ describe("earn cleanup UI state", () => {
     ).toBe("earn");
   });
 
+  test("keeps cleanup visible after a confirmed full exit loses its projected policy", () => {
+    expect(
+      hasEarnCleanupCandidate({
+        hasEarnPolicy: false,
+        hasEarnPosition: false,
+        hasPendingFullExitCleanup: true,
+      })
+    ).toBe(true);
+  });
+
   test("keeps true empty Earn state deposit-only", () => {
     expect(
       hasEarnCleanupCandidate({

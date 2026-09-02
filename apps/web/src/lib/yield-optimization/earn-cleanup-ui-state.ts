@@ -8,11 +8,13 @@ export type EarnPortfolioOpenTarget = "earn" | "earnDeposit";
 export function hasEarnCleanupCandidate({
   hasEarnPolicy,
   hasEarnPosition,
+  hasPendingFullExitCleanup = false,
 }: {
   hasEarnPolicy: boolean;
   hasEarnPosition: boolean;
+  hasPendingFullExitCleanup?: boolean;
 }): boolean {
-  return hasEarnPolicy && !hasEarnPosition;
+  return !hasEarnPosition && (hasEarnPolicy || hasPendingFullExitCleanup);
 }
 
 export function resolveEarnDetailHeaderActionMode({

@@ -533,6 +533,15 @@ export type PreparedEarnUsdcCleanup = SmartAccountPreparedEarnUsdcCleanup & {
   estimatedRefundLamports: number | null;
 };
 
+export type EarnCleanupPolicyIdentity = {
+  account: string;
+  seed: string;
+  setupPolicy?: {
+    account: string;
+    seed: string;
+  };
+};
+
 export type EarnCleanupRequest = {
   minContextSlot?: string;
   onWalletSubmitted?: () => void;
@@ -1214,6 +1223,7 @@ export type SmartAccountSidebarData = {
   ) => Promise<SmartAccountPreparedEarnUsdcWithdraw>;
   prepareEarnCleanup: (request?: {
     minContextSlot?: number;
+    yieldRoutingPolicy?: EarnCleanupPolicyIdentity;
   }) => Promise<PreparedEarnUsdcCleanup>;
   prepareEarnAutodepositSetup: (
     request: Omit<EarnAutodepositSetupRequest, "preparedSetup">
@@ -7116,7 +7126,10 @@ export function useSmartAccountSidebarData(
 
   const prepareEarnCleanup = useCallback(
     async (
-      request: { minContextSlot?: number } = {}
+      request: {
+        minContextSlot?: number;
+        yieldRoutingPolicy?: EarnCleanupPolicyIdentity;
+      } = {}
     ): Promise<PreparedEarnUsdcCleanup> => {
       const context = getEarnAutodepositPrepareContext();
       const currentEarnState = await fetchEarnState({ strict: true });
@@ -7129,19 +7142,24 @@ export function useSmartAccountSidebarData(
           ? mergeEarnVaultIntoOverview(current, currentEarnState)
           : current
       );
-      const policy = await resolveRequiredClientEarnPolicy({
-        currentState: currentEarnState,
-        expectedSettingsPda: context.settingsPda.toBase58(),
-        onRefreshed: (nextEarnState) => {
-          setEarnState(nextEarnState);
-          setOverview((current) =>
-            current
-              ? mergeEarnVaultIntoOverview(current, nextEarnState)
-              : current
-          );
-        },
-        refreshState: () => fetchEarnState({ strict: true }),
-      });
+      const policy = currentEarnState.policy
+        ? await resolveRequiredClientEarnPolicy({
+            currentState: currentEarnState,
+            expectedSettingsPda: context.settingsPda.toBase58(),
+            onRefreshed: (nextEarnState) => {
+              setEarnState(nextEarnState);
+              setOverview((current) =>
+                current
+                  ? mergeEarnVaultIntoOverview(current, nextEarnState)
+                  : current
+              );
+            },
+            refreshState: () => fetchEarnState({ strict: true }),
+          })
+        : request.yieldRoutingPolicy;
+      if (!policy) {
+        throw new Error("Earn policy is unavailable. Refresh and try again.");
+      }
       const [snapshot, refundCandidates] = await Promise.all([
         context.client.fetchEarnVaultRefundSnapshot({
           cluster: context.cluster,

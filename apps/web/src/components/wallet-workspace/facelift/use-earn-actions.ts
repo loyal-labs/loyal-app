@@ -106,6 +106,7 @@ import {
   EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+  type EarnCleanupPolicyIdentity,
   EarnPolicyUpdateRequiredClientError,
   getEarnDepositUserErrorMessage,
   isConfirmedSlotUnavailableError,
@@ -323,6 +324,8 @@ export function useEarnActions(deps: {
   const [isDepositPending, setIsDepositPending] = useState(false);
   const [isWithdrawPending, setIsWithdrawPending] = useState(false);
   const [isCleanupPending, setIsCleanupPending] = useState(false);
+  const [hasPendingFullExitCleanup, setHasPendingFullExitCleanup] =
+    useState(false);
   const [isAutodepositPending, setIsAutodepositPending] = useState(false);
   const [isExecuteNowPending, setIsExecuteNowPending] = useState(false);
   const [executeNowError, setExecuteNowError] = useState<string | null>(null);
@@ -340,6 +343,9 @@ export function useEarnActions(deps: {
   } | null>(null);
   const withdrawTrackerRef = useRef<LifecycleTracker | null>(null);
   const fullWithdrawalConfirmedSlotRef = useRef<string | null>(null);
+  const pendingFullExitPolicyRef = useRef<EarnCleanupPolicyIdentity | null>(
+    null
+  );
   const autodepositTrackerRef = useRef<LifecycleTracker | null>(null);
   const autodepositClosePreparedRef =
     useRef<SmartAccountPreparedEarnUsdcAutodepositClose | null>(null);
@@ -608,6 +614,9 @@ export function useEarnActions(deps: {
     const registry = earnMutationRegistryRef.current;
     registry?.reset();
     earnMutationSequenceRef.current = 0;
+    setHasPendingFullExitCleanup(false);
+    fullWithdrawalConfirmedSlotRef.current = null;
+    pendingFullExitPolicyRef.current = null;
     return () => registry?.reset();
   }, [earnRealtimeScope]);
   // Execute-now progress plumbing (app-wallet-workspace.tsx:2018-2302): SSE
@@ -1690,6 +1699,19 @@ export function useEarnActions(deps: {
           if (draft.mode === "full") {
             fullWithdrawalConfirmedSlotRef.current =
               result.confirmedSlot ?? null;
+            pendingFullExitPolicyRef.current = {
+              account: preparedWithdraw.policy.account.toBase58(),
+              seed: preparedWithdraw.policy.seed.toString(),
+              ...(preparedWithdraw.setupPolicy
+                ? {
+                    setupPolicy: {
+                      account: preparedWithdraw.setupPolicy.account.toBase58(),
+                      seed: preparedWithdraw.setupPolicy.seed.toString(),
+                    },
+                  }
+                : {}),
+            };
+            setHasPendingFullExitCleanup(true);
             // The flow stays open: the rent-cleanup phase completes it.
             tracker.observe("full_exit_verify", {
               chainState: "confirmed",
@@ -1779,6 +1801,7 @@ export function useEarnActions(deps: {
   const cleanupCandidate = hasEarnCleanupCandidate({
     hasEarnPolicy: Boolean(smartAccountData.earnPolicy),
     hasEarnPosition: hasPosition,
+    hasPendingFullExitCleanup,
   });
   const runCleanup = useCallback(async (): Promise<boolean> => {
     // ponytail: the monolith splits prepare ("Close policies") and sign
@@ -1814,7 +1837,13 @@ export function useEarnActions(deps: {
           flowId: tracker.flowId,
           operation: "earn.close",
           rpcEndpoint: connection.rpcEndpoint,
-          run: () => smartAccountData.prepareEarnCleanup(),
+          run: () =>
+            smartAccountData.prepareEarnCleanup({
+              minContextSlot: fullWithdrawalConfirmedSlotRef.current
+                ? Number(fullWithdrawalConfirmedSlotRef.current)
+                : undefined,
+              yieldRoutingPolicy: pendingFullExitPolicyRef.current ?? undefined,
+            }),
         });
       } catch (error) {
         tracker.fail("full_exit_verify", {
@@ -1897,6 +1926,8 @@ export function useEarnActions(deps: {
       });
       withdrawTrackerRef.current = null;
       fullWithdrawalConfirmedSlotRef.current = null;
+      pendingFullExitPolicyRef.current = null;
+      setHasPendingFullExitCleanup(false);
       earnToast.success("Policies closed");
       return true;
     } catch (error) {
