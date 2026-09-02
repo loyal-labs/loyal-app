@@ -96,12 +96,12 @@ function buildVaultRefundEntry(args: {
   const blockedReason = holdsChainFunds
     ? "Vault still holds funds on chain"
     : dbState.hasActivePosition
-      ? "Active Earn position"
-      : dbState.hasActiveAutodeposit
-        ? "Active Autodeposit"
-        : dbState.hasActiveManagedVault
-          ? "Active Earn vault policy"
-          : null;
+    ? "Active Earn position"
+    : dbState.hasActiveAutodeposit
+    ? "Active Autodeposit"
+    : dbState.hasActiveManagedVault
+    ? "Active Earn vault policy"
+    : null;
   const totalRefundableLamports =
     Number(snapshot.lamports) +
     snapshot.tokenAccounts.reduce(

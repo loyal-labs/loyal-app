@@ -67,6 +67,7 @@ function cleanupPolicyMetadataMatches(args: {
   );
 }
 
+// Compatibility endpoint for cached web builds. Current web clients confirm cleanup in-browser.
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 

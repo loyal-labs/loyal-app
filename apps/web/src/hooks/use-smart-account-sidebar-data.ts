@@ -533,6 +533,15 @@ export type PreparedEarnUsdcCleanup = SmartAccountPreparedEarnUsdcCleanup & {
   estimatedRefundLamports: number | null;
 };
 
+export type EarnCleanupPolicyIdentity = {
+  account: string;
+  seed: string;
+  setupPolicy?: {
+    account: string;
+    seed: string;
+  };
+};
+
 export type EarnCleanupRequest = {
   minContextSlot?: string;
   onWalletSubmitted?: () => void;
@@ -1214,6 +1223,7 @@ export type SmartAccountSidebarData = {
   ) => Promise<SmartAccountPreparedEarnUsdcWithdraw>;
   prepareEarnCleanup: (request?: {
     minContextSlot?: number;
+    yieldRoutingPolicy?: EarnCleanupPolicyIdentity;
   }) => Promise<PreparedEarnUsdcCleanup>;
   prepareEarnAutodepositSetup: (
     request: Omit<EarnAutodepositSetupRequest, "preparedSetup">
@@ -6923,7 +6933,6 @@ export function useSmartAccountSidebarData(
           connection,
           signature,
         });
-
         return {
           success: true,
           signature,
@@ -7117,30 +7126,108 @@ export function useSmartAccountSidebarData(
 
   const prepareEarnCleanup = useCallback(
     async (
-      request: { minContextSlot?: number } = {}
+      request: {
+        minContextSlot?: number;
+        yieldRoutingPolicy?: EarnCleanupPolicyIdentity;
+      } = {}
     ): Promise<PreparedEarnUsdcCleanup> => {
       const context = getEarnAutodepositPrepareContext();
-      const policy = await resolveRequiredClientEarnPolicy({
-        currentState: earnState,
-        expectedSettingsPda: context.settingsPda.toBase58(),
-        onRefreshed: (nextEarnState) => {
-          setEarnState(nextEarnState);
-          setOverview((current) =>
-            current
-              ? mergeEarnVaultIntoOverview(current, nextEarnState)
-              : current
-          );
-        },
-        refreshState: () => fetchEarnState({ strict: true }),
-      });
-      const snapshot = await context.client.fetchEarnVaultRefundSnapshot({
-        cluster: context.cluster,
-        minContextSlot: request.minContextSlot,
-        settingsPda: context.settingsPda,
-      });
+      const currentEarnState = await fetchEarnState({ strict: true });
+      if (!currentEarnState) {
+        throw new Error("Earn state is unavailable. Refresh and try again.");
+      }
+      setEarnState(currentEarnState);
+      setOverview((current) =>
+        current
+          ? mergeEarnVaultIntoOverview(current, currentEarnState)
+          : current
+      );
+      const policy = currentEarnState.policy
+        ? await resolveRequiredClientEarnPolicy({
+            currentState: currentEarnState,
+            expectedSettingsPda: context.settingsPda.toBase58(),
+            onRefreshed: (nextEarnState) => {
+              setEarnState(nextEarnState);
+              setOverview((current) =>
+                current
+                  ? mergeEarnVaultIntoOverview(current, nextEarnState)
+                  : current
+              );
+            },
+            refreshState: () => fetchEarnState({ strict: true }),
+          })
+        : request.yieldRoutingPolicy;
+      if (!policy) {
+        throw new Error("Earn policy is unavailable. Refresh and try again.");
+      }
+      const [snapshot, refundCandidates] = await Promise.all([
+        context.client.fetchEarnVaultRefundSnapshot({
+          cluster: context.cluster,
+          minContextSlot: request.minContextSlot,
+          settingsPda: context.settingsPda,
+        }),
+        context.client.fetchEarnRefundCandidates({
+          cluster: context.cluster,
+          settingsPda: context.settingsPda,
+          walletAddress: context.walletAddress,
+        }),
+      ]);
+      if (!refundCandidates.vaultPda.equals(snapshot.vaultPda)) {
+        throw new Error(
+          "Refund inventory does not match the connected Earn vault."
+        );
+      }
+      const standardPolicyAccounts = new Set([
+        policy.account,
+        ...(policy.setupPolicy ? [policy.setupPolicy.account] : []),
+      ]);
+      const protectedPolicyAccounts = new Set([
+        ...(currentEarnState.autodeposit?.policyAccount
+          ? [currentEarnState.autodeposit.policyAccount]
+          : []),
+        ...(currentEarnState.autoswap?.boundPolicies.map(
+          (entry) => entry.account
+        ) ?? []),
+        ...(currentEarnState.autoswapIndex?.policies.map(
+          (entry) => entry.account
+        ) ?? []),
+        ...(currentEarnState.onboarding.policy
+          ? [currentEarnState.onboarding.policy.account]
+          : []),
+        ...(currentEarnState.onboarding.setupPolicy
+          ? [currentEarnState.onboarding.setupPolicy.account]
+          : []),
+      ]);
+      const automationStateIsAuthoritative =
+        !currentEarnState.loadErrors.autodeposit &&
+        !currentEarnState.loadErrors.autoswap &&
+        currentEarnState.autoswapIndex?.state !== "ambiguous";
+      const additionalPolicies = automationStateIsAuthoritative
+        ? refundCandidates.policies.filter((entry) => {
+            const account = entry.account.toBase58();
+            return (
+              !standardPolicyAccounts.has(account) &&
+              !protectedPolicyAccounts.has(account)
+            );
+          })
+        : [];
+      const protectedRecurringDelegation =
+        currentEarnState.autodeposit?.recurringDelegation ?? null;
+      const refundableRecurringDelegations = automationStateIsAuthoritative
+        ? refundCandidates.recurringDelegations.filter(
+            (delegation) =>
+              delegation.account.toBase58() !== protectedRecurringDelegation
+          )
+        : [];
       const preparedCleanup = await context.client.prepareEarnUsdcCleanup({
+        additionalPolicyAccounts: additionalPolicies.map(
+          (entry) => entry.account
+        ),
         cluster: context.cluster,
         feePayer: context.feePayer,
+        refundableRecurringDelegations: refundableRecurringDelegations.map(
+          (delegation) => delegation.account
+        ),
         policySigner: context.policySigner,
         settingsPda: context.settingsPda,
         vaultTokenAccounts: snapshot.tokenAccounts.map((account) => ({
@@ -7167,10 +7254,15 @@ export function useSmartAccountSidebarData(
         snapshot.tokenAccounts.reduce(
           (sum, account) => sum + account.lamports,
           0
+        ) +
+        additionalPolicies.reduce((sum, entry) => sum + entry.lamports, 0) +
+        refundableRecurringDelegations.reduce(
+          (sum, delegation) => sum + delegation.lamports,
+          0
         );
       return { ...preparedCleanup, estimatedRefundLamports };
     },
-    [earnState, getEarnAutodepositPrepareContext]
+    [getEarnAutodepositPrepareContext]
   );
 
   const prepareEarnAutodepositSetup = useCallback(

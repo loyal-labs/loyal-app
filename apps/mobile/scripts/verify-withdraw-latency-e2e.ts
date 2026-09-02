@@ -1317,21 +1317,6 @@ async function verifyCompletedWithdrawLifecycle(): Promise<void> {
     10_000,
     10
   );
-  await waitFor(
-    "recorded cleanup persistence lifecycle",
-    () =>
-      lifecycleEvents.find(
-        (event) =>
-          event.flowId === completed.flowId &&
-          event.outcome === "observed" &&
-          event.stage === "cleanup_backend_confirm" &&
-          event.chainState === "confirmed" &&
-          event.persistenceState === "recorded" &&
-          event.recoveryRequired !== true
-      ) ?? false,
-    10_000,
-    10
-  );
 }
 
 function verifyRealLoyalApiCoverage(): void {
@@ -1344,7 +1329,6 @@ function verifyRealLoyalApiCoverage(): void {
       "POST",
       "/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context",
     ],
-    ["POST", "/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm"],
   ] as const;
   for (const [method, pathname] of requiredRequests) {
     const request = apiTimings.find(

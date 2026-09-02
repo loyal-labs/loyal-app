@@ -46,7 +46,6 @@ import {
 import {
   type EarnPolicyRefundRecurringDelegation,
   type EarnPolicyRefundScanPolicy,
-  type EarnPolicyRefundScanResponse,
   type EarnPolicyRefundVaultEntry,
 } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 import {
@@ -1688,7 +1687,7 @@ export function EarnTransactionsPane({
     policyRefundRecurringDelegations,
     setPolicyRefundRecurringDelegations,
   ] = useState<EarnPolicyRefundRecurringDelegation[] | null>(null);
-  const [isScanningPolicies, setIsScanningPolicies] = useState(false);
+  const isScanningPolicies = false;
   const [refundingPolicyAccount, setRefundingPolicyAccount] = useState<
     string | null
   >(null);
@@ -1898,56 +1897,14 @@ export function EarnTransactionsPane({
     onSelectTransaction(buildEarnTransactionDetail(item, displayTimeZone));
   };
 
-  const readApiError = async (response: Response, fallback: string) => {
-    try {
-      const payload = (await response.json()) as {
-        error?: { message?: string };
-      };
-      return payload.error?.message ?? fallback;
-    } catch {
-      return fallback;
-    }
-  };
-
   const handleScanPolicies = async () => {
-    setIsScanningPolicies(true);
-    setPolicyRefundError(null);
-    try {
-      const response = await fetch(
-        "/api/smart-accounts/yield-optimization/policy-refunds/scan",
-        {
-          method: "POST",
-        }
-      );
-      if (!response.ok) {
-        throw new Error(
-          await readApiError(response, "Failed to scan policies.")
-        );
-      }
-      const payload = (await response.json()) as EarnPolicyRefundScanResponse;
-      if (!(payload.cluster && payload.programId)) {
-        throw new Error("Refund scan is missing client preparation context.");
-      }
-      setPolicyRefundPolicies(payload.policies);
-      setPolicyRefundRecurringDelegations(payload.recurringDelegations);
-      setPolicyRefundVault(payload.vault);
-      setPolicyRefundContext({
-        cluster: payload.cluster,
-        programId: payload.programId,
-        settingsPda: payload.settingsPda,
-      });
-    } catch (error) {
-      console.warn("[earn-policy-refunds] scan failed", error);
-      setPolicyRefundPolicies([]);
-      setPolicyRefundRecurringDelegations([]);
-      setPolicyRefundVault(null);
-      setPolicyRefundContext(null);
-      setPolicyRefundError(
-        error instanceof Error ? error.message : "Failed to scan policies."
-      );
-    } finally {
-      setIsScanningPolicies(false);
-    }
+    setPolicyRefundPolicies([]);
+    setPolicyRefundRecurringDelegations([]);
+    setPolicyRefundVault(null);
+    setPolicyRefundContext(null);
+    setPolicyRefundError(
+      "Rent recovery now runs automatically during final Earn cleanup."
+    );
   };
 
   const handleRefundPolicy = async (policy: EarnPolicyRefundScanPolicy) => {

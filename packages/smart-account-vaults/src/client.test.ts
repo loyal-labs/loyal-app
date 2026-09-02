@@ -9,6 +9,13 @@ import {
   RiskBasket,
   STABLECOIN_MINTS,
   Stablecoin,
+  SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN,
+  SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET,
   SUBSCRIPTIONS_PROGRAM_ID,
 } from "@loyal-labs/actions";
 import {
@@ -518,8 +525,24 @@ function createSerializedSubscriptionAuthorityAccount(initId = BigInt(1)) {
 }
 
 function createSerializedRecurringDelegationAccount() {
+  const data = Buffer.alloc(SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN);
+  data[SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET] =
+    SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR;
+  walletAddress
+    .toBuffer()
+    .copy(data, SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET);
+  deriveVault()
+    .toBuffer()
+    .copy(data, SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET);
+  deriveSubscriptionAuthority(walletAddress, STABLECOIN_MINTS[Stablecoin.USDC])
+    .toBuffer()
+    .copy(data, SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET);
+  STABLECOIN_MINTS[Stablecoin.USDC]
+    .toBuffer()
+    .copy(data, SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET);
+
   return {
-    data: Buffer.alloc(211),
+    data,
     executable: false,
     lamports: 1,
     owner: SUBSCRIPTIONS_PROGRAM_ID,
@@ -4005,5 +4028,150 @@ describe("prepareEarnUsdcAutodeposit", () => {
       policyAccount: policyAccount.toBase58(),
       walletAddress: walletAddress.toBase58(),
     });
+  });
+});
+
+describe("Earn supplemental rent cleanup", () => {
+  test("validates and packs multiple policies plus a recurring delegation", async () => {
+    const supplementalPolicyOne = new PublicKey(
+      "1111111111111111111111111111111C"
+    );
+    const supplementalPolicyTwo = new PublicKey(
+      "1111111111111111111111111111111D"
+    );
+    const supplementalPolicyThree = new PublicKey(
+      "1111111111111111111111111111111E"
+    );
+    const supplementalPolicyFour = new PublicKey(
+      "1111111111111111111111111111111F"
+    );
+    const policyInfo = createSerializedEarnPolicyAccount(new BN(9));
+    const delegationInfo = createSerializedRecurringDelegationAccount();
+    const connection = {
+      getAccountInfo: async () => policyInfo,
+      getBalance: async () => 0,
+      getMultipleAccountsInfo: async (addresses: PublicKey[]) =>
+        addresses.map((address) =>
+          address.equals(recurringDelegation) ? delegationInfo : policyInfo
+        ),
+    };
+    const client = createSmartAccountVaultsClient({
+      connection: connection as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcCleanup({
+      additionalPolicyAccounts: [
+        supplementalPolicyOne,
+        supplementalPolicyTwo,
+        supplementalPolicyThree,
+        supplementalPolicyFour,
+      ],
+      cluster: LoyalCluster.MainnetBeta,
+      feePayer,
+      policySigner: backendSigner,
+      refundableRecurringDelegations: [recurringDelegation],
+      settingsPda,
+      vaultTokenAccounts: [],
+      walletAddress,
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+        setupPolicy: {
+          account: setupPolicyAccount,
+          seed: BigInt(8),
+        },
+      },
+    });
+
+    expect(result.persistence.additionalClosedPolicyAccounts).toEqual([
+      supplementalPolicyOne.toBase58(),
+      supplementalPolicyTwo.toBase58(),
+      supplementalPolicyThree.toBase58(),
+      supplementalPolicyFour.toBase58(),
+    ]);
+    expect(result.persistence.refundedRecurringDelegations).toEqual([
+      recurringDelegation.toBase58(),
+    ]);
+    expect(
+      result.prepared.instructions[0]?.programId.equals(
+        SUBSCRIPTIONS_PROGRAM_ID
+      )
+    ).toBe(true);
+    const message = new TransactionMessage({
+      instructions: [...result.prepared.instructions],
+      payerKey: feePayer,
+      recentBlockhash: PublicKey.default.toBase58(),
+    }).compileToV0Message([...result.prepared.lookupTableAccounts]);
+    expect(
+      new VersionedTransaction(message).serialize().length
+    ).toBeLessThanOrEqual(1232);
+  });
+
+  test("rejects an existing supplemental policy owned by another program", async () => {
+    const foreignPolicy = new PublicKey("1111111111111111111111111111111C");
+    const connection = {
+      getBalance: async () => 0,
+      getMultipleAccountsInfo: async () => [
+        {
+          ...createSerializedEarnPolicyAccount(new BN(9)),
+          owner: SystemProgram.programId,
+        },
+      ],
+    };
+    const client = createSmartAccountVaultsClient({
+      connection: connection as never,
+      programId,
+    });
+
+    await expect(
+      client.prepareEarnUsdcCleanup({
+        additionalPolicyAccounts: [foreignPolicy],
+        cluster: LoyalCluster.MainnetBeta,
+        feePayer,
+        policySigner: backendSigner,
+        settingsPda,
+        vaultTokenAccounts: [],
+        walletAddress,
+        yieldRoutingPolicy: {
+          account: policyAccount,
+          seed: BigInt(7),
+        },
+      })
+    ).rejects.toThrow("unexpected owner");
+  });
+});
+
+describe("fetchEarnRefundCandidates", () => {
+  test("returns only wallet-funded Earn policy accounts from the chain scan", async () => {
+    const policyInfo = createSerializedEarnPolicyAccount(new BN(9));
+    const connection = {
+      getMultipleAccountsInfo: async () => [policyInfo],
+      getProgramAccounts: async (owner: PublicKey) =>
+        owner.equals(programId)
+          ? [{ account: policyInfo, pubkey: policyAccount }]
+          : [],
+    };
+    const client = createSmartAccountVaultsClient({
+      connection: connection as never,
+      programId,
+    });
+
+    const snapshot = await client.fetchEarnRefundCandidates({
+      cluster: LoyalCluster.MainnetBeta,
+      settingsPda,
+      walletAddress,
+    });
+
+    expect(snapshot.policies).toHaveLength(1);
+    expect(snapshot.policies[0]).toMatchObject({
+      account: policyAccount,
+      accountIndex: 1,
+      lamports: 1,
+      seed: BigInt(9),
+      state: "ProgramInteraction",
+    });
+    expect(snapshot.recurringDelegations).toEqual([]);
+    expect(snapshot.vaultPda.equals(deriveVault())).toBe(true);
   });
 });

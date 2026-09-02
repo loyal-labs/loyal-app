@@ -82,6 +82,7 @@ function parseMobileEarnCleanupConfirmFields(
   };
 }
 
+// Compatibility endpoint for released mobile builds. New clients confirm cleanup on-device.
 export async function POST(request: Request) {
   let body: unknown;
   try {

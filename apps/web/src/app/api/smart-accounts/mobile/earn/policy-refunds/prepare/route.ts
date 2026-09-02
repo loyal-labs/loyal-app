@@ -51,6 +51,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
+// Compatibility endpoint for released mobile builds. New clients prepare refunds on-device.
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -141,8 +142,8 @@ export async function POST(request: Request) {
         parsed.kind === "recurring_delegation"
           ? parsed.recurringDelegation
           : parsed.kind === "vault"
-            ? "vault"
-            : parsed.policyAccount,
+          ? "vault"
+          : parsed.policyAccount,
       settings: settingsPda,
       walletAddress,
     });

@@ -47,6 +47,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
+// Compatibility endpoint for cached web builds. Current web clients prepare refunds in-browser.
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
@@ -99,8 +100,8 @@ export async function POST(request: Request) {
         parsed.kind === "recurring_delegation"
           ? parsed.recurringDelegation
           : parsed.kind === "vault"
-            ? "vault"
-            : parsed.policyAccount,
+          ? "vault"
+          : parsed.policyAccount,
       settings: principal.settingsPda,
       walletAddress: principal.walletAddress,
     });

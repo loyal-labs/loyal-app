@@ -757,6 +757,8 @@ export type SmartAccountEarnUsdcCleanupInput = {
   feePayer: PublicKey;
   policySigner: PublicKey;
   cluster?: LoyalCluster;
+  additionalPolicyAccounts?: PublicKey[];
+  refundableRecurringDelegations?: PublicKey[];
   vaultTokenAccounts: Array<{
     address: PublicKey;
     amountRaw: bigint;
@@ -898,6 +900,8 @@ export type SmartAccountEarnUsdcCleanupMetadata = {
   idleTransferAmountRaw: string;
   closedVaultUsdcAta: boolean;
   closedCollateralAtas: string[];
+  additionalClosedPolicyAccounts?: string[];
+  refundedRecurringDelegations?: string[];
   autodepositClose?: SmartAccountEarnUsdcAutodepositCloseMetadata | null;
 };
 
@@ -920,6 +924,36 @@ export type SmartAccountPreparedEarnUsdcCleanup = {
     pubkey: PublicKey;
     usdcAta: PublicKey;
   };
+};
+
+export type SmartAccountEarnRefundPolicyCandidate = {
+  account: PublicKey;
+  accountIndex: number | null;
+  lamports: number;
+  seed: bigint;
+  state: string;
+};
+
+export type SmartAccountEarnRefundRecurringDelegationCandidate = {
+  account: PublicKey;
+  amountPerPeriodRaw: bigint;
+  authority: PublicKey;
+  delegatee: PublicKey;
+  delegator: PublicKey;
+  lamports: number;
+  mint: PublicKey;
+};
+
+export type SmartAccountEarnRefundCandidateSnapshot = {
+  policies: SmartAccountEarnRefundPolicyCandidate[];
+  recurringDelegations: SmartAccountEarnRefundRecurringDelegationCandidate[];
+  vaultPda: PublicKey;
+};
+
+export type SmartAccountEarnRefundCandidateInput = {
+  cluster?: LoyalCluster;
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
 };
 
 export type SmartAccountEarnVaultRefundTokenAccount = {

@@ -37,6 +37,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
+// Compatibility endpoint for cached web builds. Current web clients scan refunds in-browser.
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 

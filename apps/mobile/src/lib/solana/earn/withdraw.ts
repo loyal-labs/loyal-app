@@ -18,6 +18,7 @@ import {
 } from "@/services/observability";
 
 import { executeEarnAutodepositClose } from "./autodeposit";
+import { scanEarnRefunds } from "./refund";
 import { withConnectionRetry } from "./connection-retry";
 import { tokenProgramForEarnMint } from "./earn-product-mints";
 import {
@@ -182,13 +183,24 @@ function hydrateEarnWithdrawInput(
 
 function hydrateEarnWithdrawCleanupInput(
   context: EarnWithdrawCleanupPrepareContext,
-  walletAddress: PublicKey
+  walletAddress: PublicKey,
+  supplementalRefunds?: {
+    policies: string[];
+    recurringDelegations: string[];
+  }
 ): SmartAccountEarnUsdcCleanupInput {
   const wire = context.cleanupInput;
   return {
+    additionalPolicyAccounts: supplementalRefunds?.policies.map(
+      (account) => new PublicKey(account)
+    ),
     cluster: normalizeLoyalCluster(context.cluster),
     feePayer: walletAddress,
     policySigner: new PublicKey(wire.policySigner),
+    refundableRecurringDelegations:
+      supplementalRefunds?.recurringDelegations.map(
+        (account) => new PublicKey(account)
+      ),
     vaultTokenAccounts: wire.vaultTokenAccounts.map((account) => ({
       address: new PublicKey(account.address),
       amountRaw: BigInt(account.amountRaw),
@@ -551,6 +563,35 @@ async function runEarnWithdraw(
         connection: getConnection(),
         programId: new PublicKey(cleanupContext.programId),
       });
+      const refundScan = await scanEarnRefunds(
+        args.signer.publicKey.toBase58()
+      );
+      if (
+        refundScan.cluster !== cleanupContext.cluster ||
+        refundScan.programId !== cleanupContext.programId ||
+        refundScan.scan?.settingsPda !== cleanupContext.settingsPda
+      ) {
+        throw new Error(
+          "Refund inventory does not match the connected Earn vault."
+        );
+      }
+      const standardPolicyAccounts = new Set([
+        cleanupContext.cleanupInput.yieldRoutingPolicy.account,
+        ...(cleanupContext.cleanupInput.yieldRoutingPolicy.setupPolicy
+          ? [cleanupContext.cleanupInput.yieldRoutingPolicy.setupPolicy.account]
+          : []),
+      ]);
+      const supplementalRefunds = {
+        policies: refundScan.scan.policies
+          .filter(
+            (policy) =>
+              policy.canRefund && !standardPolicyAccounts.has(policy.account)
+          )
+          .map((policy) => policy.account),
+        recurringDelegations: refundScan.scan.recurringDelegations
+          .filter((delegation) => delegation.canRefund)
+          .map((delegation) => delegation.account),
+      };
       const preparedCleanup = await withConnectionRetry(
         "device cleanup prepare",
         WITHDRAW_NETWORK_MESSAGE,
@@ -558,7 +599,8 @@ async function runEarnWithdraw(
           cleanupClient.prepareEarnUsdcCleanup(
             hydrateEarnWithdrawCleanupInput(
               cleanupContext,
-              args.signer.publicKey
+              args.signer.publicKey,
+              supplementalRefunds
             )
           )
       );

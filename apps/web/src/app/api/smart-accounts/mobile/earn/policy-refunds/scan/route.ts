@@ -46,6 +46,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
+// Compatibility endpoint for released mobile builds. New clients scan refunds on-device.
 export async function GET(request: Request) {
   const walletAddress =
     new URL(request.url).searchParams.get("walletAddress")?.trim() ?? "";

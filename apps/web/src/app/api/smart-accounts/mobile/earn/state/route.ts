@@ -10,9 +10,13 @@ import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
+import { getServerEnv } from "@/lib/core/config/server";
 import { getCurrentReserveUpdatesByReserve } from "@/lib/kamino/timescale-reserve-client.server";
+import { findEarnCrossMintSnapshot } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
 import {
   findActiveYieldPositionsForVault,
+  findActiveYieldRoutePolicyPair,
+  findCurrentEarnDepositOnboardingAttempt,
   findReconciledActiveYieldPositionForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -115,10 +119,14 @@ async function loadCurrentSupplyApyBps(
     const rows = await getCurrentReserveUpdatesByReserve({
       reserves: [reserve],
     });
-    const match = rows.find((row) => row.reserve === reserve) ?? rows[0] ?? null;
+    const match =
+      rows.find((row) => row.reserve === reserve) ?? rows[0] ?? null;
     return match ? toApyBps(match.supplyApy) : null;
   } catch (error) {
-    console.warn("[mobile-earn-state] APY lookup failed; returning null", error);
+    console.warn(
+      "[mobile-earn-state] APY lookup failed; returning null",
+      error
+    );
     return null;
   }
 }
@@ -139,8 +147,15 @@ export async function GET(request: Request) {
     return jsonError(400, "invalid_request", "walletAddress is invalid.");
   }
 
+  const cluster = resolveConfiguredCluster();
+  const programId = getServerEnv().loyalSmartAccounts.programId;
   const emptyState = {
+    autoswapPolicyAccounts: [],
+    autoswapStateAuthoritative: true,
+    protectedPolicyAccounts: [],
+    cluster,
     position: null,
+    programId,
     settingsPda: null,
     smartAccountAddress: null,
   };
@@ -164,16 +179,58 @@ export async function GET(request: Request) {
       return NextResponse.json(emptyState);
     }
 
-    const cluster = resolveConfiguredCluster();
-    const position = await findReconciledActiveYieldPositionForVault({
-      cluster,
-      settings: account.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress,
-    });
+    const [position, autoswapSnapshot, policyPair, onboardingAttempt] =
+      await Promise.all([
+        findReconciledActiveYieldPositionForVault({
+          cluster,
+          settings: account.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          walletAddress,
+        }),
+        findEarnCrossMintSnapshot({
+          authority: walletAddress,
+          cluster,
+          settings: account.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: account.smartAccountAddress,
+        }),
+        findActiveYieldRoutePolicyPair({
+          authority: walletAddress,
+          cluster,
+          settings: account.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: account.smartAccountAddress,
+        }),
+        findCurrentEarnDepositOnboardingAttempt({
+          settings: account.settingsPda,
+          vaultIndex: EARN_VAULT_INDEX,
+          vaultPubkey: account.smartAccountAddress,
+          walletAddress,
+        }),
+      ]);
+    const autoswapPolicyAccounts = autoswapSnapshot.autoswapIndex.policies.map(
+      (policy) => policy.account
+    );
+    const autoswapStateAuthoritative =
+      autoswapSnapshot.autoswapIndex.state !== "ambiguous";
+    const protectedPolicyAccounts = Array.from(
+      new Set(
+        [
+          policyPair?.routePolicy.policyAccount,
+          policyPair?.setupPolicy?.policyAccount,
+          onboardingAttempt?.policyAccount,
+          onboardingAttempt?.setupPolicyAccount,
+        ].filter((value): value is string => Boolean(value))
+      )
+    );
     if (!position) {
       return NextResponse.json({
+        autoswapPolicyAccounts,
+        autoswapStateAuthoritative,
+        cluster,
         position: null,
+        programId,
+        protectedPolicyAccounts,
         settingsPda: account.settingsPda,
         smartAccountAddress: account.smartAccountAddress,
       });
@@ -190,12 +247,17 @@ export async function GET(request: Request) {
     ]);
 
     return NextResponse.json({
+      autoswapPolicyAccounts,
+      autoswapStateAuthoritative,
+      cluster,
       position: {
         currentAmountRaw: currentTotalAmountRaw.toString(),
         currentSupplyApyBps,
         principalAmountRaw: position.principalAmountRaw.toString(),
         status: position.status,
       },
+      programId,
+      protectedPolicyAccounts,
       settingsPda: account.settingsPda,
       smartAccountAddress: account.smartAccountAddress,
     });
