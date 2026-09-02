@@ -233,6 +233,7 @@ export type EarnWithdrawDraft = {
   // a wallet can hold USDC in a second Kamino market, and leaving one behind
   // strands it and fails the post-withdrawal zero proof.
   fullExitSources: EarnWithdrawSourceOption[];
+  isSourceMax?: boolean;
   mode: "partial" | "full";
   source: EarnWithdrawSourceOption;
   symbol: string;
@@ -339,6 +340,15 @@ function formatBucksAmount(value: number) {
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
   });
+}
+
+export function formatEarnWithdrawMaxAmountLabel(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0";
+  }
+
+  const roundedToCents = value.toFixed(2);
+  return Number(roundedToCents) > 0 ? roundedToCents : value.toFixed(6);
 }
 
 // Sanitizes free-form amount typing. This helper never compares against a
@@ -3538,6 +3548,7 @@ export function EarnWithdrawView({
       fullExitSources: sourceOptions.filter(
         (source) => source.type === "reserve"
       ),
+      isSourceMax: !hasWithdrawAmount,
       mode: effectiveWithdrawMode,
       source: selectedSource,
       symbol: "USDC",

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import { getEarnWithdrawDraftAmountRaw } from "@/components/wallet-workspace/facelift/earn-actions-support";
+
 import {
   deriveEarnWithdrawMode,
   type EarnWithdrawSourceOption,
+  formatEarnWithdrawMaxAmountLabel,
   selectEarnFullExitSources,
 } from "./earn-detail-view";
 
@@ -68,6 +71,44 @@ describe("Earn withdraw mode derivation", () => {
         sources: [secondReserve, reserveSource("dust", 0.000_001)],
       })
     ).toBe("partial");
+  });
+});
+
+describe("Earn withdraw MAX amounts", () => {
+  test("rounds a one-micro-unit Kamino shortfall to the displayed balance", () => {
+    expect(formatEarnWithdrawMaxAmountLabel(0.999_999)).toBe("1.00");
+  });
+
+  test("keeps sub-cent positions actionable", () => {
+    expect(formatEarnWithdrawMaxAmountLabel(0.001_585)).toBe("0.001585");
+  });
+
+  test("submits the exact selected source when its MAX label rounds up", () => {
+    const source = reserveSource("rounding", 0.999_999);
+
+    expect(
+      getEarnWithdrawDraftAmountRaw({
+        amountLabel: "1.00",
+        isSourceMax: true,
+        mode: "full",
+        source,
+        tokenDecimals: 6,
+      })
+    ).toBe(BigInt(999_999));
+  });
+
+  test("submits the exact selected source when other holdings make MAX partial", () => {
+    const source = reserveSource("rounding", 0.999_999);
+
+    expect(
+      getEarnWithdrawDraftAmountRaw({
+        amountLabel: "1.00",
+        isSourceMax: true,
+        mode: "partial",
+        source,
+        tokenDecimals: 6,
+      })
+    ).toBe(BigInt(999_999));
   });
 });
 

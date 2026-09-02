@@ -13,6 +13,7 @@ import {
   deriveEarnWithdrawMode,
   type EarnWithdrawDraft,
   type EarnWithdrawSourceOption,
+  formatEarnWithdrawMaxAmountLabel,
   sanitizeBucksAmountInput,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
@@ -170,6 +171,7 @@ export function WithdrawPane({
   onBack: () => void;
 }) {
   const [amount, setAmount] = useState("");
+  const [maxSourceKey, setMaxSourceKey] = useState<string | null>(null);
   // Preselects the positions-row source that opened the screen; otherwise
   // defaults to the first eligible source (options[0] fallback below).
   const [selectedKey, setSelectedKey] = useState(initialSourceKey ?? "");
@@ -225,13 +227,19 @@ export function WithdrawPane({
     options[0] ??
     null;
   const fromBalance = splitUsdBalance(selectedOption?.usd ?? 0);
-
-  const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
+  const isSourceMax =
+    selectedOption !== null && maxSourceKey === selectedOption.key;
+  const amountInputValue = isSourceMax
+    ? formatEarnWithdrawMaxAmountLabel(selectedOption.usd)
+    : amount;
+  const typedAmountUsd =
+    Number.parseFloat(amountInputValue.replace(/,/g, "")) || 0;
+  const amountUsd = isSourceMax ? selectedOption.usd : typedAmountUsd;
   const amountLabel = amountUsd.toLocaleString("en-US", {
     maximumFractionDigits: 2,
   });
-  // Same mode derivation as the old workspace: compared against the floored
-  // TOTAL of all sources, so the visible max registers as a full exit.
+  // Same mode derivation as the old workspace: compare the exact selected
+  // source balance for MAX even when its two-decimal label rounds differently.
   const withdrawMode = deriveEarnWithdrawMode({ amount: amountUsd, sources });
   const fullExitSources = useMemo(
     () => sources.filter((source) => source.type === "reserve"),
@@ -263,9 +271,10 @@ export function WithdrawPane({
     data.actions.hasCleanupCandidate && sources.length === 0;
 
   const handleAmountChange = (rawValue: string) => {
-    const sanitized = sanitizeBucksAmountInput(rawValue, amount);
+    const sanitized = sanitizeBucksAmountInput(rawValue, amountInputValue);
     if (sanitized !== null) {
       setAmount(sanitized);
+      setMaxSourceKey(null);
     }
   };
   const selectSource = (key: string) => {
@@ -278,9 +287,10 @@ export function WithdrawPane({
     }
     const draft: EarnWithdrawDraft = {
       amount: amountUsd,
-      amountLabel: amount,
+      amountLabel: amountInputValue,
       destination: data.actions.depositSource,
       fullExitSources,
+      isSourceMax,
       mode: withdrawMode,
       source: draftSource,
       symbol: selectedSymbol,
@@ -377,7 +387,7 @@ export function WithdrawPane({
                     }}
                     placeholder="0"
                     type="text"
-                    value={amount}
+                    value={amountInputValue}
                   />
                 </span>
               </label>
@@ -503,17 +513,8 @@ export function WithdrawPane({
                 <button
                   className="t-hover min-w-16 rounded-full bg-accent px-4 py-2.5 text-center font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                   onClick={() => {
-                    const usd = selectedOption?.usd ?? 0;
-                    if (usd > 0) {
-                      // Floor to cents so the label never rounds above the
-                      // real balance (full exits withdraw the exact raw).
-                      // Sub-cent dust floors to $0.00 and blocks the exit;
-                      // use the exact 6-decimal amount so the position can
-                      // still close (ASK-2207).
-                      const floored = Math.floor(usd * 100) / 100;
-                      handleAmountChange(
-                        floored > 0 ? floored.toFixed(2) : usd.toFixed(6)
-                      );
+                    if (selectedOption && selectedOption.usd > 0) {
+                      setMaxSourceKey(selectedOption.key);
                     }
                   }}
                   type="button"
