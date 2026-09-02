@@ -50,7 +50,6 @@ export async function POST(request: Request) {
     const cookies = createAuthSessionCookieService({
       getConfig: () => getServerEnv(),
     });
-    console.info("[privy-complete] ok", parsed.data.walletAddress.slice(0, 6));
     const response = NextResponse.json({ user: result.user });
     response.cookies.set({
       name: cookies.getSessionCookieName(request),

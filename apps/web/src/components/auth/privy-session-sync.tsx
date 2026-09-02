@@ -24,10 +24,6 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 
-// Temporary diagnostics for ASK-2263; remove before merge.
-const log = (...args: unknown[]) =>
-  console.info("[privy-auth]", new Date().toISOString().slice(11, 23), ...args);
-
 type Step = "idle" | "privy" | "creating_wallet" | "exchanging";
 
 type PrivyAuthState = {
@@ -113,15 +109,13 @@ function Inner({ children }: { children: ReactNode }) {
   const wasAuthenticatedRef = useRef(false);
 
   const { login } = useLogin({
-    onComplete: ({ loginAccount, wasAlreadyAuthenticated }) => {
-      log("onComplete", { wasAlreadyAuthenticated, loginAccount });
+    onComplete: ({ loginAccount }) => {
       loginAddressRef.current =
         loginAccount && loginAccount.type === "wallet"
           ? loginAccount.address
           : null;
     },
     onError: (code) => {
-      log("onError", code);
       setWantsSession(false);
       setStep("idle");
       setError(`Privy login failed: ${code}`);
@@ -129,7 +123,6 @@ function Inner({ children }: { children: ReactNode }) {
   });
 
   const start = useCallback(() => {
-    log("start", { authenticated });
     setError(null);
     setWantsSession(true);
     if (!authenticated) {
@@ -152,17 +145,6 @@ function Inner({ children }: { children: ReactNode }) {
   const completeSignIn = useCallback(async () => {
     if (!privyUser) return;
     const linked = privyUser.linkedAccounts;
-    log("completeSignIn", {
-      linked: linked.map(
-        (a) => a.type + ("address" in a ? ":" + a.address.slice(0, 6) : "")
-      ),
-      privyWallets: privyWallets.map(
-        (w) => w.standardWallet.name + ":" + w.address.slice(0, 6)
-      ),
-      adapterWallets: adapter.wallets.map(
-        (w) => w.adapter.name + ":" + w.readyState
-      ),
-    });
     const hasEmail = linked.some(
       (a) => a.type === "email" || a.type === "google_oauth"
     );
@@ -188,7 +170,6 @@ function Inner({ children }: { children: ReactNode }) {
       (external && "address" in external ? external.address : null) ??
       (embedded && "address" in embedded ? embedded.address : null);
     loginAddressRef.current = null;
-    log("chosen address", address);
 
     if (!address) {
       setStep("creating_wallet");
@@ -200,7 +181,6 @@ function Inner({ children }: { children: ReactNode }) {
 
     setStep("exchanging");
     await exchangePrivySession(address);
-    log("exchange ok");
 
     // Privy knows which wallet-standard wallet owns the address; the adapter
     // lists the same wallets by name, so hand it the matching one to sign with.
@@ -210,7 +190,6 @@ function Inner({ children }: { children: ReactNode }) {
           (w) => w.adapter.name === owner.standardWallet.name
         )
       : undefined;
-    log("adapter entry", entry?.adapter.name ?? null, entry?.adapter.connected);
     if (entry) {
       adapter.select(entry.adapter.name);
       if (!entry.adapter.connected) {
@@ -218,7 +197,6 @@ function Inner({ children }: { children: ReactNode }) {
       }
     }
     await refreshSession();
-    log("session refreshed");
     closeSignInModal();
     if (!hasEmail) linkEmail();
   }, [
@@ -239,7 +217,6 @@ function Inner({ children }: { children: ReactNode }) {
     runningRef.current = true;
     void completeSignIn()
       .catch((e) => {
-        log("error", e);
         setError(e instanceof Error ? e.message : String(e));
         openSignInModal();
       })
