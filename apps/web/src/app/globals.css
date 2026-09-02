@@ -1767,14 +1767,15 @@
    the workspace — over the landing it stays viewport-centered. The min()
    keeps the shifted modal (max 480px wide + 16px margin) on screen at
    narrow sidebar-only widths. The Privy selector targets its 360px panel
-   (the element carrying the shadow: margin:auto inside a fixed flex box,
-   two levels above #privy-modal-content, no stable id of its own). */
+   (the element carrying the shadow, two levels above #privy-modal-content,
+   no stable id of its own). It centers with margin:auto, so shift it with
+   transform rather than margin. */
 @media (width >= 1204px) {
   body:has(.facelift-shell) .t-modal-center {
     margin-left: -24px;
   }
   body:has(.facelift-shell) #privy-dialog > div > div:has(> * > #privy-modal-content) {
-    margin-left: -24px;
+    transform: translateX(-24px);
   }
 }
 
@@ -1795,7 +1796,7 @@
     margin-left: min(180px, 50vw - 272px);
   }
   body:has(.facelift-shell) #privy-dialog > div > div:has(> * > #privy-modal-content) {
-    margin-left: min(180px, 50vw - 272px);
+    transform: translateX(min(180px, 50vw - 272px));
   }
 }
 
