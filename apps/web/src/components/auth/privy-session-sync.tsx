@@ -85,7 +85,11 @@ function Inner({ children }: { children: ReactNode }) {
   const { ready: walletsReady, wallets: privyWallets } = useWallets();
   const adapter = useWallet();
   const { isHydrated, isAuthenticated, refreshSession } = useAuthSession();
-  const { open: openSignInModal, close: closeSignInModal } = useSignInModal();
+  const {
+    openAccount: openSignInModal,
+    close: closeSignInModal,
+    registerHandler,
+  } = useSignInModal();
 
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +123,17 @@ function Inner({ children }: { children: ReactNode }) {
       login();
     }
   }, [authenticated, login]);
+
+  // "Connect" anywhere on the page goes straight to Privy while signed out;
+  // signed in, the modal shows the Account view as before.
+  useEffect(() => {
+    registerHandler(() => {
+      if (isAuthenticated || !ready) return false;
+      start();
+      return true;
+    });
+    return () => registerHandler(null);
+  }, [isAuthenticated, ready, registerHandler, start]);
 
   const completeSignIn = useCallback(async () => {
     if (!privyUser) return;

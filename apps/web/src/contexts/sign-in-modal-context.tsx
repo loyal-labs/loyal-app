@@ -1,48 +1,49 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 
 type SignInModalContextValue = {
   isOpen: boolean;
   open: () => void;
   close: () => void;
-  /** Register an external handler (e.g. sidebar) to intercept open/close */
-  registerHandler: (handler: { open: () => void; close: () => void } | null) => void;
+  /** Open the modal itself, bypassing any registered sign-in handler. */
+  openAccount: () => void;
+  /**
+   * Register a sign-in handler. When set, `open()` calls it instead of
+   * showing the modal (Privy opens its own modal). Return false to fall
+   * through to the modal.
+   */
+  registerHandler: (handler: (() => boolean) | null) => void;
 };
 
 const SignInModalContext = createContext<SignInModalContextValue | null>(null);
 
 export function SignInModalProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
-  const handlerRef = useRef<{ open: () => void; close: () => void } | null>(null);
+  const handlerRef = useRef<(() => boolean) | null>(null);
 
   const open = useCallback(() => {
-    if (handlerRef.current) {
-      handlerRef.current.open();
-    } else {
-      setIsOpen(true);
-    }
+    if (handlerRef.current?.()) return;
+    setIsOpen(true);
   }, []);
+  const openAccount = useCallback(() => setIsOpen(true), []);
+  const close = useCallback(() => setIsOpen(false), []);
 
-  const close = useCallback(() => {
-    if (handlerRef.current) {
-      handlerRef.current.close();
-    } else {
-      setIsOpen(false);
-    }
+  const registerHandler = useCallback((handler: (() => boolean) | null) => {
+    handlerRef.current = handler;
   }, []);
-
-  const registerHandler = useCallback(
-    (handler: { open: () => void; close: () => void } | null) => {
-      handlerRef.current = handler;
-    },
-    []
-  );
 
   const value = useMemo(
-    () => ({ isOpen, open, close, registerHandler }),
-    [isOpen, open, close, registerHandler]
+    () => ({ isOpen, open, close, openAccount, registerHandler }),
+    [isOpen, open, close, openAccount, registerHandler]
   );
 
   return (
