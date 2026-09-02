@@ -47,11 +47,22 @@ Create a `.env.local` file with required API keys (see `.env.example`).
 Wallet auth and wallet session refresh are fully owned by this frontend. The
 local auth surface is:
 
-- `POST /api/auth/wallet/challenge`
-- `POST /api/auth/wallet/complete`
+- `POST /api/auth/privy/complete` (Privy login: email or external Solana wallet)
+- `POST /api/auth/wallet/challenge` (Cherry embed only)
+- `POST /api/auth/wallet/complete` (Cherry embed only)
 - `GET /api/auth/session`
 - `POST /api/auth/session/refresh`
 - `POST /api/auth/logout`
+
+Sign-in goes through Privy when `NEXT_PUBLIC_PRIVY_APP_ID` is set (and
+`PRIVY_APP_SECRET` on the server). The client posts Privy's identity token to
+`/api/auth/privy/complete`, which verifies it, checks the wallet is linked to
+that Privy user, and issues the same Loyal session cookie as before. Identity
+stays wallet-keyed (`app_users.provider = 'solana'`); email-only users get a
+Privy embedded Solana wallet, exposed to `@solana/wallet-adapter` through a
+Wallet Standard bridge (`components/auth/privy-provider.tsx`). Wallet-only
+users are asked to link an email right after sign-in. Without the Privy env,
+the legacy SIWS flow is used.
 
 Wallet sign-in provisions or reconciles the sponsored smart account before the
 session cookie is issued. The HttpOnly wallet session cookie uses a 7 day TTL
