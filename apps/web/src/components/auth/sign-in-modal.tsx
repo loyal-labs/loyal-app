@@ -148,7 +148,18 @@ export function SignInModal() {
     <Dialog onOpenChange={handleOpenChange} open={isOpen}>
       <DialogPortal>
         <DialogOverlay className="t-modal-overlay" />
-        <DialogPrimitive.Content className="t-modal t-modal-center fixed top-[50%] left-[50%] z-[70] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[32px] border border-border bg-card text-card-foreground shadow-[0_24px_70px_rgba(0,0,0,0.2)] outline-none sm:max-w-[480px]">
+        <DialogPrimitive.Content
+          className="t-modal t-modal-center fixed top-[50%] left-[50%] z-[70] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[32px] border border-border bg-card text-card-foreground shadow-[0_24px_70px_rgba(0,0,0,0.2)] outline-none sm:max-w-[480px]"
+          // Privy's modals (login, link email, export key, MFA) stack on top
+          // of this one but pass pointer events through their backdrop, so a
+          // click on Privy's backdrop lands on our overlay and Radix reads it
+          // as an outside click. While Privy is up, nothing counts as outside.
+          onInteractOutside={(event) => {
+            if (document.querySelector("#privy-dialog")) {
+              event.preventDefault();
+            }
+          }}
+        >
           {hasAuthSession ? (
             <>
               <DialogHeader className="px-6 pt-6 pb-5 text-left">
