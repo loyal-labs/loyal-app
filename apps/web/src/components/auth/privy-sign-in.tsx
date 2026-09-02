@@ -38,7 +38,7 @@ async function exchangePrivySession(
  * - Email login with no wallet -> create a Privy embedded wallet first.
  */
 export function PrivySignIn() {
-  const { ready, authenticated } = usePrivy();
+  const { ready, authenticated, user: privyUser } = usePrivy();
   const { identityToken } = useIdentityToken();
   const { createWallet } = useCreateWallet();
   const { ready: walletsReady, wallets: privyWallets } = useWallets();
@@ -65,7 +65,15 @@ export function PrivySignIn() {
             (w) => w.adapter.name === owner.standardWallet.name
           )
         : undefined;
-      if (entry) adapter.select(entry.adapter.name);
+      if (entry) {
+        adapter.select(entry.adapter.name);
+        // Privy just connected this wallet, so the adapter's connect resolves
+        // without a prompt; on a first-ever connect (e.g. Jupiter) the wallet
+        // may still ask, so wait for it instead of finishing half-connected.
+        if (!entry.adapter.connected) {
+          await entry.adapter.connect();
+        }
+      }
       await refreshSession();
       setStep("idle");
       // Wallet-only users have no email yet: keep the modal open so the
@@ -125,6 +133,7 @@ export function PrivySignIn() {
     finish,
     identityToken,
     privyWallets,
+    step,
     walletsReady,
   ]);
 
@@ -136,6 +145,22 @@ export function PrivySignIn() {
         disabled={!ready || busy}
         onClick={() => {
           setError(null);
+          if (authenticated && privyUser) {
+            // Privy session survived a Loyal logout/expiry: skip the modal and
+            // resume with the wallet Privy already knows (external first).
+            const wallet = privyUser.linkedAccounts.find(
+              (a) => a.type === "wallet" && a.chainType === "solana"
+            );
+            pendingRef.current = {
+              address: wallet && "address" in wallet ? wallet.address : null,
+              hasEmail: privyUser.linkedAccounts.some(
+                (a) => a.type === "email" || a.type === "google_oauth"
+              ),
+            };
+            // Force the effect to re-run even if deps are unchanged.
+            setStep("exchanging");
+            return;
+          }
           login();
         }}
         type="button"

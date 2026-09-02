@@ -31,6 +31,7 @@ function ConnectedView() {
   const { close } = useSignInModal();
   const { hasAuthSession, hasWalletConnection } = useAuthCapability();
   const cherryRuntime = useCherryRuntime();
+  const { privyAppId } = usePublicEnv();
   const [copied, setCopied] = useState(false);
   const address = publicKey?.toBase58() ?? user?.displayAddress ?? "";
 
@@ -102,7 +103,7 @@ function ConnectedView() {
               Sign out
             </button>
           ) : null}
-          {hasWalletConnection ? (
+          {hasWalletConnection && !privyAppId ? (
             <button
               className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-destructive/15 px-4 font-medium text-destructive text-sm transition hover:bg-destructive/25"
               onClick={async () => {
