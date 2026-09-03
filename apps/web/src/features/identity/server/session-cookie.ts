@@ -280,8 +280,19 @@ export function createAuthSessionCookieService(
   };
 }
 
+export const PREVIEW_WALLET_SESSION_COOKIE_NAME = "loyal_preview_session";
+
+// Branch previews live under *.preview.askloyal.com, so the prod cookie
+// (Domain=askloyal.com) reaches them too. A distinct name keeps a prod login
+// from being read as the preview's session — and vice versa.
+function isPreviewHost(request: Request): boolean {
+  const host =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  return /(^|\.)preview\.askloyal\.com$/i.test(host?.split(":")[0] ?? "");
+}
+
 export function getSessionCookieName(request: Request): string {
-  return hasCherryEmbedContext(request)
-    ? CHERRY_WALLET_SESSION_COOKIE_NAME
-    : WALLET_AUTH_SESSION_COOKIE_NAME;
+  if (hasCherryEmbedContext(request)) return CHERRY_WALLET_SESSION_COOKIE_NAME;
+  if (isPreviewHost(request)) return PREVIEW_WALLET_SESSION_COOKIE_NAME;
+  return WALLET_AUTH_SESSION_COOKIE_NAME;
 }

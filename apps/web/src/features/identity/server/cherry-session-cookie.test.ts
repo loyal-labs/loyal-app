@@ -7,6 +7,7 @@ const { CHERRY_EMBED_CONTEXT_COOKIE_NAME, CHERRY_WALLET_SESSION_COOKIE_NAME } =
 const {
   createAuthSessionCookieService,
   getSessionCookieName,
+  PREVIEW_WALLET_SESSION_COOKIE_NAME,
   WALLET_AUTH_SESSION_COOKIE_NAME,
 } = await import("./session-cookie");
 
@@ -67,5 +68,27 @@ describe("Cherry partitioned wallet session", () => {
         request(`${CHERRY_EMBED_CONTEXT_COOKIE_NAME}=1`)
       )
     ).toMatchObject({ maxAge: 0, partitioned: true, sameSite: "none" });
+  });
+});
+
+describe("Branch preview wallet session", () => {
+  // Prod sets its cookie with Domain=askloyal.com, so *.preview.askloyal.com
+  // receives it. A different cookie name on preview hosts keeps a prod login
+  // from being read as (or overwritten by) a preview session.
+  test("preview hosts use their own cookie name; prod and vercel.app do not", () => {
+    const at = (host: string) =>
+      getSessionCookieName(
+        new Request("https://x/api/auth/session", {
+          headers: { host, cookie: `${WALLET_AUTH_SESSION_COOKIE_NAME}=prod` },
+        })
+      );
+    expect(at("ask-2263-privy-login.preview.askloyal.com")).toBe(
+      PREVIEW_WALLET_SESSION_COOKIE_NAME
+    );
+    expect(at("askloyal.com")).toBe(WALLET_AUTH_SESSION_COOKIE_NAME);
+    expect(at("app.askloyal.com")).toBe(WALLET_AUTH_SESSION_COOKIE_NAME);
+    expect(at("loyal-frontend-abc-loyal-team.vercel.app")).toBe(
+      WALLET_AUTH_SESSION_COOKIE_NAME
+    );
   });
 });
