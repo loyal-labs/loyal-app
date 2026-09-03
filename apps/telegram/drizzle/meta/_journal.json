@@ -211,6 +211,13 @@
       "when": 1788364024058,
       "tag": "0029_privy_user_email",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1788427297930,
+      "tag": "0030_evm_deposit_address",
+      "breakpoints": true
     }
   ]
 }
