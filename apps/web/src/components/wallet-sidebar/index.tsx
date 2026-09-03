@@ -203,7 +203,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [props.smartAccountData.approvals, selectedApprovalId]
   );
 
-  const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
+  const { search: searchTokens } = usePopularTokens({
     enabled: shouldLoadPopularTokens,
   });
 
@@ -242,14 +242,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     return tokens;
   }, [props.walletDesktopData.positions]);
 
-  // Merge user's held tokens with popular tokens for swap target selection
-  const swapTargetTokens = useMemo<SwapToken[]>(() => {
-    const heldMints = new Set(derivedTokens.map((t) => t.mint).filter(Boolean));
-    const extras = popularTokens.filter(
-      (t) => t.mint && !heldMints.has(t.mint)
-    );
-    return [...derivedTokens, ...extras];
-  }, [derivedTokens, popularTokens]);
+  // Held tokens only: the selector renders the trending list as its own
+  // section, so inlining popular tokens here would both empty that section
+  // (they'd count as owned) and mislabel them "Your tokens".
+  const swapTargetTokens = derivedTokens;
   const selectedVaultSwapTokens = useMemo<SwapToken[]>(
     () =>
       selectedVault
@@ -260,15 +256,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         : [],
     [selectedVault]
   );
-  const vaultSwapTargetTokens = useMemo<SwapToken[]>(() => {
-    const heldMints = new Set(
-      selectedVaultSwapTokens.map((token) => token.mint).filter(Boolean)
-    );
-    const extras = popularTokens.filter(
-      (token) => token.mint && !heldMints.has(token.mint)
-    );
-    return [...selectedVaultSwapTokens, ...extras];
-  }, [popularTokens, selectedVaultSwapTokens]);
+  const vaultSwapTargetTokens = selectedVaultSwapTokens;
   const executeVaultSwap = props.smartAccountData.executeVaultSwap;
   const selectedVaultSwapExecutionContext = useMemo<
     SwapExecutionContext | undefined

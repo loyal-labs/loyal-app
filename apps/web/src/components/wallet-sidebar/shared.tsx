@@ -5,10 +5,14 @@ import { ArrowRight, Search, X } from "lucide-react";
 export function SearchInput({
   value,
   onChange,
+  onFocus,
+  onKeyDown,
   placeholder = "Search",
 }: {
   value: string;
   onChange: (v: string) => void;
+  onFocus?: () => void;
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   placeholder?: string;
 }) {
   return (
@@ -30,6 +34,8 @@ export function SearchInput({
         />
         <input
           onChange={(e) => onChange(e.target.value)}
+          onFocus={onFocus}
+          onKeyDown={onKeyDown}
           placeholder={placeholder}
           style={{
             flex: 1,

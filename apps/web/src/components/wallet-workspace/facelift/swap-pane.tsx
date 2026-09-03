@@ -1,7 +1,14 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
 import type { SwapToken } from "@/components/wallet-sidebar/types";
@@ -24,9 +31,22 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap } from "@/hooks/use-swap";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
 import { trackWalletSwapPressed } from "@/lib/core/analytics";
+import {
+  getCachedTrendingTokens,
+  prefetchTrendingTokens,
+  rankSearchResults,
+  searchTokens,
+  type TokenSearchResult,
+} from "@/lib/market/token-search.client";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
+
+// Typeahead cadence: two characters before a remote search starts (as the OG
+// token-select did), after a debounce short enough to stay attached to the
+// keystrokes.
+const SEARCH_DEBOUNCE_MS = 120;
+const SEARCH_MIN_QUERY_LENGTH = 2;
 
 // $63.83 / $0.99866 — two decimals above a dollar, significant digits below.
 function formatTokenPrice(price: number): string {
@@ -608,10 +628,32 @@ export function SwapPane({
   );
 }
 
+// `rankSearchResults` tiers on the richer `TokenSearchResult` shape, so held
+// tokens are lifted into it: `mcap: null` keeps their own list order within a
+// tier, and a missing mint becomes "" so it can never mint-match.
+function toSelectorToken(
+  token: SwapToken,
+  nameByMint: Record<string, string>
+): TokenSearchResult {
+  return {
+    balance: token.balance,
+    icon: token.icon,
+    isVerified: true,
+    mint: token.mint ?? "",
+    mcap: null,
+    name: (token.mint ? nameByMint[token.mint] : undefined) ?? token.symbol,
+    price: token.price,
+    symbol: token.symbol,
+  };
+}
+
 // Token selector (Figma 4819:414935 right pane / 4819:413827 <1204 overlay):
-// search + token list with prices. Local filter over the passed list plus the
-// OG token-select's debounced remote Jupiter search merged in (deduped by
-// mint). Held tokens surface their portfolio names via nameByMint.
+// search + token list with prices. The local filter over the passed list stays
+// instant; a debounced remote Jupiter search merges into it (deduped by mint)
+// and the merged rows are tiered by rankSearchResults. An empty query lists
+// trending tokens above the holdings, and while a typeahead is live the
+// top-ranked row is the active suggestion (Enter/Tab commit it). Held tokens
+// surface their portfolio names via nameByMint.
 export function SwapTokenSelectPane({
   earnEligibleMints,
   nameByMint,
@@ -626,6 +668,14 @@ export function SwapTokenSelectPane({
   earnEligibleMints?: ReadonlySet<string>;
   nameByMint: Record<string, string>;
   onClose: () => void;
+  /**
+   * Opt-in to the remote search and the Trending section. Presence is the
+   * switch: the request lifecycle (debounce, abort, stale guarding) is owned
+   * here and calls `searchTokens` directly, so the callback itself is never
+   * invoked — it stays accepted for callers passing `usePopularTokens().search`.
+   * Selectors that pass none (Send's asset picker, swap's from side) stay
+   * holdings-only.
+   */
   onSearch?: (query: string) => Promise<SwapToken[]>;
   onSelect: (token: SwapToken) => void;
   side: "from" | "to";
@@ -634,11 +684,25 @@ export function SwapTokenSelectPane({
   tokens: SwapToken[];
 }) {
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<SwapToken[]>([]);
-  const searchTimerRef = useRef<number | null>(null);
+  // Superseded results stay painted until the next set commits.
+  const [searchResults, setSearchResults] = useState<TokenSearchResult[]>([]);
+  const [trending, setTrending] = useState<TokenSearchResult[]>(() =>
+    onSearch ? getCachedTrendingTokens() ?? [] : []
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
   const { isBalanceHidden } = useBalanceVisibility();
 
-  const query = search.trim().toLowerCase();
+  // Raw (case-preserved) for the remote search and ranking — base58 mints are
+  // case-sensitive — lowercased for the local symbol/name filter.
+  const rawQuery = search.trim();
+  const query = rawQuery.toLowerCase();
+  const isRemoteSearchEnabled = Boolean(onSearch);
+  // Read back when a response lands, so a late resolver can't commit for a
+  // query the user has already moved past.
+  const latestQueryRef = useRef(rawQuery);
+  latestQueryRef.current = rawQuery;
+
   const localFiltered = useMemo(
     () =>
       tokens.filter((token) => {
@@ -655,32 +719,189 @@ export function SwapTokenSelectPane({
     [nameByMint, query, tokens]
   );
 
-  useEffect(() => {
-    if (searchTimerRef.current !== null) {
-      window.clearTimeout(searchTimerRef.current);
+  const heldMints = useMemo(
+    () => new Set(tokens.map((token) => token.mint).filter(Boolean)),
+    [tokens]
+  );
+  const ownedTokens = useMemo(
+    () => localFiltered.map((token) => toSelectorToken(token, nameByMint)),
+    [localFiltered, nameByMint]
+  );
+  const remoteTokens = useMemo(
+    () => searchResults.filter((token) => !heldMints.has(token.mint)),
+    [heldMints, searchResults]
+  );
+  // Trending fills an empty query only, and never repeats a held token.
+  const trendingRows = useMemo(() => {
+    if (!isRemoteSearchEnabled || query) {
+      return [];
     }
-    if (!onSearch || search.trim().length < 2) {
+    return trending.filter((token) => !heldMints.has(token.mint));
+  }, [heldMints, isRemoteSearchEnabled, query, trending]);
+
+  // With a query the merged rows are tiered (exact symbol, then symbol/name
+  // prefix, then mint); empty keeps the holdings order — ranking by mcap would
+  // reshuffle the user's own assets.
+  const list = useMemo(() => {
+    if (!query) {
+      return [...trendingRows, ...ownedTokens];
+    }
+    return rankSearchResults(rawQuery, [...ownedTokens, ...remoteTokens]);
+  }, [ownedTokens, query, rawQuery, remoteTokens, trendingRows]);
+
+  const activeSuggestion =
+    query.length >= SEARCH_MIN_QUERY_LENGTH && list.length > 0
+      ? Math.min(activeIndex, list.length - 1)
+      : null;
+  const activeToken = activeSuggestion === null ? null : list[activeSuggestion];
+
+  // Trending warms on mount and again on focus (the pane can sit open long
+  // enough for the cache to go stale); the sync cache read paints instantly
+  // and the prefetch promise fills it in.
+  const refreshTrending = useCallback(() => {
+    if (!isRemoteSearchEnabled) {
+      return;
+    }
+    const cached = getCachedTrendingTokens();
+    if (cached) {
+      setTrending(cached);
+    }
+    void prefetchTrendingTokens()
+      .then((result) => setTrending(result))
+      .catch(() => {});
+  }, [isRemoteSearchEnabled]);
+
+  useEffect(() => {
+    refreshTrending();
+  }, [refreshTrending]);
+
+  // Debounced remote search. Each keystroke aborts the request before it; a
+  // failed or aborted one leaves the previous results on screen.
+  useEffect(() => {
+    if (!isRemoteSearchEnabled || rawQuery.length < SEARCH_MIN_QUERY_LENGTH) {
+      searchAbortRef.current?.abort();
+      searchAbortRef.current = null;
       setSearchResults([]);
       return;
     }
-    searchTimerRef.current = window.setTimeout(() => {
-      void onSearch(search.trim()).then((results) => {
-        const localMints = new Set(
-          tokens.map((token) => token.mint).filter(Boolean)
-        );
-        setSearchResults(
-          results.filter((token) => token.mint && !localMints.has(token.mint))
-        );
-      });
-    }, 300);
+    let isCurrent = true;
+    const timer = window.setTimeout(() => {
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      void searchTokens(rawQuery, controller.signal)
+        .then((results) => {
+          if (!isCurrent || latestQueryRef.current !== rawQuery) {
+            return;
+          }
+          setSearchResults(results.filter((token) => token.isVerified));
+        })
+        .catch(() => {});
+    }, SEARCH_DEBOUNCE_MS);
     return () => {
-      if (searchTimerRef.current !== null) {
-        window.clearTimeout(searchTimerRef.current);
-      }
+      isCurrent = false;
+      window.clearTimeout(timer);
+      searchAbortRef.current?.abort();
     };
-  }, [onSearch, search, tokens]);
+  }, [isRemoteSearchEnabled, rawQuery]);
 
-  const list = [...localFiltered, ...searchResults];
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    // Don't swallow keys an IME is still composing with.
+    if (event.nativeEvent.isComposing || activeSuggestion === null) {
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((current) =>
+        Math.max(
+          0,
+          Math.min(
+            list.length - 1,
+            current + (event.key === "ArrowDown" ? 1 : -1)
+          )
+        )
+      );
+      return;
+    }
+    // Enter/Tab commit the highlighted suggestion straight away; the input
+    // keeps whatever the user typed.
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      onSelect(list[activeSuggestion]);
+    }
+  };
+
+  const renderTokenRow = (token: TokenSearchResult) => (
+    <button
+      className={`t-hover flex w-full shrink-0 items-center rounded-2xl px-4 text-left hover:bg-accent ${
+        token === activeToken ? "bg-accent" : ""
+      }`}
+      key={token.mint || token.symbol}
+      onClick={() => onSelect(token)}
+      type="button"
+    >
+      <span className="flex shrink-0 items-center py-2 pr-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt=""
+          className="size-11 rounded-full object-cover"
+          src={token.icon || getTokenIconUrl(token.symbol)}
+        />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
+            {(token.mint ? nameByMint[token.mint] : undefined) ?? token.symbol}
+          </span>
+          {side === "to" && token.mint && earnEligibleMints?.has(token.mint) ? (
+            <span className="shrink-0 rounded-md bg-positive/[0.14] px-1.5 py-0.5 font-medium text-[11px] text-positive leading-3">
+              Can earn
+            </span>
+          ) : null}
+        </span>
+        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+          {token.symbol}
+        </span>
+      </span>
+      {side === "from" ? (
+        // Figma 4852:39653 — the source side lists what you hold:
+        // USD value on top (gray fraction), token amount below.
+        <span className="flex shrink-0 flex-col items-end justify-center gap-0.5 py-[11px] pl-3">
+          <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
+            <ScrambleText
+              isHidden={isBalanceHidden}
+              text={splitUsdBalance(token.balance * token.price).balanceWhole}
+            />
+            <span className="text-tertiary">
+              <ScrambleText
+                isHidden={isBalanceHidden}
+                text={
+                  splitUsdBalance(token.balance * token.price).balanceFraction
+                }
+              />
+            </span>
+          </span>
+          <span className="whitespace-nowrap text-right text-[13px] leading-4 text-muted-foreground">
+            <ScrambleText
+              isHidden={isBalanceHidden}
+              text={formatTokenAmount(token.balance)}
+            />
+          </span>
+        </span>
+      ) : (
+        <span className="flex shrink-0 items-center justify-end pl-3">
+          <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
+            ${formatTokenPrice(token.price)}
+          </span>
+        </span>
+      )}
+    </button>
+  );
+
+  const renderSectionLabel = (label: string) => (
+    <p className="px-4 pb-1 pt-2 text-[13px] leading-4 text-muted-foreground">
+      {label}
+    </p>
+  );
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col">
@@ -713,7 +934,12 @@ export function SwapTokenSelectPane({
           />
           <input
             className="min-w-0 flex-1 bg-transparent py-3 text-[16px] text-foreground leading-5 outline-none placeholder:text-muted-foreground"
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setActiveIndex(0);
+            }}
+            onFocus={refreshTrending}
+            onKeyDown={handleSearchKeyDown}
             placeholder="Search assets"
             type="text"
             value={search}
@@ -725,78 +951,17 @@ export function SwapTokenSelectPane({
           <p className="px-4 py-8 text-center text-[14px] leading-5 text-muted-foreground">
             No tokens found
           </p>
+        ) : query ? (
+          list.map(renderTokenRow)
+        ) : trendingRows.length > 0 ? (
+          <>
+            {renderSectionLabel("Trending")}
+            {trendingRows.map(renderTokenRow)}
+            {renderSectionLabel("Your assets")}
+            {ownedTokens.map(renderTokenRow)}
+          </>
         ) : (
-          list.map((token) => (
-            <button
-              className="t-hover flex w-full shrink-0 items-center rounded-2xl px-4 text-left hover:bg-accent"
-              key={token.mint ?? token.symbol}
-              onClick={() => onSelect(token)}
-              type="button"
-            >
-              <span className="flex shrink-0 items-center py-2 pr-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  className="size-11 rounded-full object-cover"
-                  src={token.icon || getTokenIconUrl(token.symbol)}
-                />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
-                    {(token.mint ? nameByMint[token.mint] : undefined) ??
-                      token.symbol}
-                  </span>
-                  {side === "to" &&
-                  token.mint &&
-                  earnEligibleMints?.has(token.mint) ? (
-                    <span className="shrink-0 rounded-md bg-positive/[0.14] px-1.5 py-0.5 font-medium text-[11px] text-positive leading-3">
-                      Can earn
-                    </span>
-                  ) : null}
-                </span>
-                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
-                  {token.symbol}
-                </span>
-              </span>
-              {side === "from" ? (
-                // Figma 4852:39653 — the source side lists what you hold:
-                // USD value on top (gray fraction), token amount below.
-                <span className="flex shrink-0 flex-col items-end justify-center gap-0.5 py-[11px] pl-3">
-                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
-                    <ScrambleText
-                      isHidden={isBalanceHidden}
-                      text={
-                        splitUsdBalance(token.balance * token.price)
-                          .balanceWhole
-                      }
-                    />
-                    <span className="text-tertiary">
-                      <ScrambleText
-                        isHidden={isBalanceHidden}
-                        text={
-                          splitUsdBalance(token.balance * token.price)
-                            .balanceFraction
-                        }
-                      />
-                    </span>
-                  </span>
-                  <span className="whitespace-nowrap text-right text-[13px] leading-4 text-muted-foreground">
-                    <ScrambleText
-                      isHidden={isBalanceHidden}
-                      text={formatTokenAmount(token.balance)}
-                    />
-                  </span>
-                </span>
-              ) : (
-                <span className="flex shrink-0 items-center justify-end pl-3">
-                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
-                    ${formatTokenPrice(token.price)}
-                  </span>
-                </span>
-              )}
-            </button>
-          ))
+          ownedTokens.map(renderTokenRow)
         )}
       </div>
     </div>
