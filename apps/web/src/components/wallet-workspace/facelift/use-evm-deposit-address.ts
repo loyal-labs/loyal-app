@@ -61,6 +61,7 @@ export function useEvmDepositAddress(walletAddress: string | null) {
       ).json()) as {
         address?: string | null;
         toSign?: unknown;
+        requestExpiry?: number;
         chains?: readonly string[];
         assets?: readonly string[];
         minimums?: Record<string, number>;
@@ -85,7 +86,10 @@ export function useEvmDepositAddress(walletAddress: string | null) {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ signature }),
+        body: JSON.stringify({
+          signature,
+          requestExpiry: read.requestExpiry,
+        }),
       });
       const body = (await res.json().catch(() => null)) as
         | (EvmDepositInfo & { error?: undefined })

@@ -7,6 +7,7 @@ import {
   EVM_DEPOSIT_ASSETS,
   EVM_DEPOSIT_CHAINS,
   EVM_DEPOSIT_MIN_USD_ETHEREUM,
+  EVM_DEPOSIT_SIGN_WINDOW_MS,
   findEvmDepositAddress,
   resolveEmbeddedWalletId,
 } from "@/features/funding/server/evm-deposit";
@@ -18,7 +19,10 @@ import { getServerEnv } from "@/lib/core/config/server";
 
 // Two-step: GET returns the stored address, or the Privy request the user must
 // sign; POST takes that signature and creates the address.
-const bodySchema = z.object({ signature: z.string().min(1) });
+const bodySchema = z.object({
+  signature: z.string().min(1),
+  requestExpiry: z.number().int().positive(),
+});
 
 function meta() {
   return {
@@ -64,9 +68,11 @@ export function GET(request: Request) {
     }
     const walletId = await resolveEmbeddedWalletId(p.walletAddress);
     const { privyAppId } = getServerEnv();
+    const requestExpiry = Date.now() + EVM_DEPOSIT_SIGN_WINDOW_MS;
     return Response.json({
       address: null,
-      toSign: buildEvmDepositRequest(walletId, privyAppId ?? ""),
+      toSign: buildEvmDepositRequest(walletId, privyAppId ?? "", requestExpiry),
+      requestExpiry,
       ...meta(),
     });
   });
@@ -92,6 +98,7 @@ export function POST(request: Request) {
       walletId,
       appId: privyAppId ?? "",
       signature: parsed.data.signature,
+      requestExpiry: parsed.data.requestExpiry,
     });
     return Response.json({ address, ...meta() });
   });

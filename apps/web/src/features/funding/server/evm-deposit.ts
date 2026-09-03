@@ -36,7 +36,12 @@ const SOURCE_ASSETS = EVM_DEPOSIT_CHAINS.flatMap((chain) =>
  * user-owned; with Privy as auth provider the server cannot mint a user key).
  * Client and server both build it from here so the signed bytes match.
  */
-export function buildEvmDepositRequest(walletId: string, appId: string) {
+export function buildEvmDepositRequest(
+  walletId: string,
+  appId: string,
+  /** Unix ms; must be identical when signing and when sending. */
+  requestExpiry: number
+) {
   return {
     version: 1 as const,
     method: "POST" as const,
@@ -46,9 +51,15 @@ export function buildEvmDepositRequest(walletId: string, appId: string) {
       source: { mode: "include", values: SOURCE_ASSETS },
       destination: { asset: "usdc", chain: "solana" },
     },
-    headers: { "privy-app-id": appId },
+    headers: {
+      "privy-app-id": appId,
+      "privy-request-expiry": String(requestExpiry),
+    },
   };
 }
+
+// Long enough for the user to approve in the Privy iframe.
+export const EVM_DEPOSIT_SIGN_WINDOW_MS = 10 * 60 * 1000;
 
 export async function resolveEmbeddedWalletId(walletAddress: string) {
   const privy = getPrivyClient();
@@ -96,9 +107,20 @@ export async function createEvmDepositAddress(args: {
   appId: string;
   /** User's authorization signature over buildEvmDepositRequest(). */
   signature: string;
+  requestExpiry: number;
 }): Promise<string> {
+  if (args.requestExpiry <= Date.now()) {
+    throw new WalletAuthError("Signature expired, try again.", {
+      code: "evm_deposit_signature_expired",
+      status: 400,
+    });
+  }
   const privy = getPrivyClient();
-  const req = buildEvmDepositRequest(args.walletId, args.appId);
+  const req = buildEvmDepositRequest(
+    args.walletId,
+    args.appId,
+    args.requestExpiry
+  );
   // @privy-io/node@0.32 types predate the `asset`/`chain` aliases the API
   // and docs use (they want asset_address/caip2); the wire format is fine.
   const created = (await privy
@@ -106,6 +128,7 @@ export async function createEvmDepositAddress(args: {
     .depositAccounts.crypto.create(args.walletId, {
       ...req.body,
       authorization_context: { signatures: [args.signature] },
+      request_expiry: args.requestExpiry,
     } as unknown as Parameters<ReturnType<typeof privy.wallets>["depositAccounts"]["crypto"]["create"]>[1])) as unknown as {
     deposit_accounts?: { deposit_address: string }[];
     deposit_addresses?: { deposit_address: string }[];
