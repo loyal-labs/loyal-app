@@ -1800,6 +1800,22 @@
   }
 }
 
+/* Privy dark modal, Loyal surfaces. Privy derives its greys from a preset
+   (navy #1A2230 elevated, near-invisible border) and hardcodes a light-grey
+   panel shadow, none of it exposed as props — so override the CSS variables
+   it sets on the dialog and the panel shadow, matching our own sign-in modal. */
+.dark #privy-dialog {
+  --privy-color-background-2: var(--secondary); /* Background/Tertiary #2B2930 */
+  --privy-color-background-3: var(--popover);
+  --privy-color-border-default: var(--border);
+  --privy-color-foreground-3: var(--muted-foreground);
+  --privy-color-foreground-4: var(--border); /* list-row + input borders */
+  --privy-color-foreground-disabled: var(--muted-foreground);
+}
+.dark #privy-dialog > div > div:has(> * > #privy-modal-content) {
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
 /* Surfaces that stay centered on mobile (sign-in modal) keep the scale
    in/out at all widths — the sheet slide assumes a bottom-anchored surface. */
 @media (width < 640px) {
