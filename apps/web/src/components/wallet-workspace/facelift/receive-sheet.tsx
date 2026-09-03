@@ -5,10 +5,20 @@ import { useEffect, useState } from "react";
 
 import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
+import { SlidingTabs } from "@/components/wallet-workspace/facelift/sliding-tabs";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
+import { useEvmDepositAddress } from "@/components/wallet-workspace/facelift/use-evm-deposit-address";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
+const TABS = ["Solana", "Other chains"] as const;
+type Tab = (typeof TABS)[number];
+const CHAIN_LABELS: Record<string, string> = {
+  ethereum: "Ethereum",
+  base: "Base",
+  arbitrum: "Arbitrum",
+  polygon: "Polygon",
+};
 
 // Facelift take on the OG Receive view (receive-content.tsx): Solana-only
 // warning, QR card with the mascot in the center and the raw address, and a
@@ -23,6 +33,15 @@ export function ReceiveSheet({
   walletAddress: string | null;
 }) {
   const [copied, setCopied] = useState(false);
+  const [tab, setTab] = useState<Tab>("Solana");
+  const evm = useEvmDepositAddress(walletAddress);
+  // Privy provisions the 0x address on first request; only ask once the
+  // user actually opens the tab.
+  useEffect(() => {
+    if (isOpen && tab === "Other chains") void evm.load();
+  }, [evm, isOpen, tab]);
+  const isEvmTab = tab === "Other chains";
+  const shownAddress = isEvmTab ? evm.info?.address ?? null : walletAddress;
 
   useEffect(() => {
     if (!isOpen) {
@@ -39,10 +58,10 @@ export function ReceiveSheet({
   }, [isOpen, onClose]);
 
   const handleCopy = () => {
-    if (!walletAddress) {
+    if (!shownAddress) {
       return;
     }
-    void copyTextToClipboard(walletAddress).then((didCopy) => {
+    void copyTextToClipboard(shownAddress).then((didCopy) => {
       if (didCopy) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 2000);
@@ -74,19 +93,35 @@ export function ReceiveSheet({
         </button>
       </header>
       <div className="flex w-full flex-col items-center gap-6 px-6 pt-2 pb-2">
-        <p className="max-w-[300px] text-center text-[13px] leading-4 text-muted-foreground">
-          Use to receive tokens on the Solana network only. Other assets will
-          be lost forever.
-        </p>
+        {evm.eligible ? (
+          <SlidingTabs activeTab={tab} onSelect={setTab} tabs={TABS} />
+        ) : null}
+        {isEvmTab ? (
+          <p className="max-w-[300px] text-center text-[13px] leading-4 text-muted-foreground">
+            Send USDC, USDT or ETH on{" "}
+            {(evm.info?.chains ?? [])
+              .map((c) => CHAIN_LABELS[c] ?? c)
+              .join(", ")}
+            . It arrives as USDC in your loyal wallet in a few minutes.
+            {evm.info?.minimums.ethereum
+              ? ` Minimum on Ethereum: $${evm.info.minimums.ethereum}.`
+              : null}
+          </p>
+        ) : (
+          <p className="max-w-[300px] text-center text-[13px] leading-4 text-muted-foreground">
+            Use to receive tokens on the Solana network only. Other assets will
+            be lost forever.
+          </p>
+        )}
         <div className="flex w-full max-w-[280px] flex-col items-center gap-4 rounded-[20px] border border-border p-8">
-          {walletAddress ? (
+          {shownAddress ? (
             <div className="relative">
               <QRCodeSVG
                 bgColor="transparent"
                 fgColor="var(--foreground)"
                 level="M"
                 size={192}
-                value={walletAddress}
+                value={shownAddress}
               />
               <span className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2 flex h-8 w-10 items-center justify-center rounded bg-card p-0.5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -102,14 +137,17 @@ export function ReceiveSheet({
             <div className="size-48 rounded-lg bg-accent" />
           )}
           <p className="break-all text-center text-[13px] leading-4 text-muted-foreground">
-            {walletAddress ?? "No wallet connected"}
+            {shownAddress ??
+              (isEvmTab
+                ? evm.error ?? "Preparing your deposit address…"
+                : "No wallet connected")}
           </p>
         </div>
       </div>
       <div className="w-full px-5 pt-2 pb-4">
         <button
           className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90 enabled:active:translate-y-0 disabled:opacity-40"
-          disabled={!walletAddress}
+          disabled={!shownAddress}
           onClick={handleCopy}
           type="button"
         >
