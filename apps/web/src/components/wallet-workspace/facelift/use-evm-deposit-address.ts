@@ -1,7 +1,7 @@
 "use client";
 
-import { getAccessToken, usePrivy } from "@privy-io/react-auth";
-import { useCallback, useEffect, useState } from "react";
+import { useAuthorizationSignature, usePrivy } from "@privy-io/react-auth";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 
@@ -21,6 +21,7 @@ export type EvmDepositInfo = {
 export function useEvmDepositAddress(walletAddress: string | null) {
   const { privyAppId } = usePublicEnv();
   const { user } = usePrivy();
+  const { generateAuthorizationSignature } = useAuthorizationSignature();
   const [info, setInfo] = useState<EvmDepositInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,18 +43,49 @@ export function useEvmDepositAddress(walletAddress: string | null) {
     setError(null);
   }, [walletAddress]);
 
+  const attemptedRef = useRef(false);
+  useEffect(() => {
+    attemptedRef.current = false;
+  }, [walletAddress]);
+
   const load = useCallback(async () => {
-    if (!eligible || info || loading) return;
+    if (!eligible || info || loading || attemptedRef.current) return;
+    attemptedRef.current = true;
     setLoading(true);
     setError(null);
     try {
-      const privyAccessToken = await getAccessToken();
-      if (!privyAccessToken) throw new Error("Not signed in with Privy.");
+      const read = (await (
+        await fetch("/api/funding/evm-deposit-address", {
+          credentials: "include",
+        })
+      ).json()) as {
+        address?: string | null;
+        toSign?: unknown;
+        chains?: readonly string[];
+        assets?: readonly string[];
+        minimums?: Record<string, number>;
+        error?: { message?: string };
+      };
+      if (read.error) throw new Error(read.error.message ?? "Request failed.");
+      if (read.address) {
+        setInfo({
+          address: read.address,
+          chains: read.chains ?? [],
+          assets: read.assets ?? [],
+          minimums: read.minimums ?? {},
+        });
+        return;
+      }
+      // First time: the wallet is user-owned, so the user signs the exact
+      // Privy request with their key and the server forwards the signature.
+      const { signature } = await generateAuthorizationSignature(
+        read.toSign as Parameters<typeof generateAuthorizationSignature>[0]
+      );
       const res = await fetch("/api/funding/evm-deposit-address", {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ privyAccessToken }),
+        body: JSON.stringify({ signature }),
       });
       const body = (await res.json().catch(() => null)) as
         | (EvmDepositInfo & { error?: undefined })
@@ -71,7 +103,7 @@ export function useEvmDepositAddress(walletAddress: string | null) {
     } finally {
       setLoading(false);
     }
-  }, [eligible, info, loading]);
+  }, [eligible, generateAuthorizationSignature, info, loading]);
 
   return { eligible, info, error, loading, load };
 }

@@ -31,13 +31,48 @@ const SOURCE_ASSETS = EVM_DEPOSIT_CHAINS.flatMap((chain) =>
   ).map((asset) => ({ asset, chain }))
 );
 
-export async function getOrCreateEvmDepositAddress(args: {
+/**
+ * The exact Privy request the user must sign in the browser (the wallet is
+ * user-owned; with Privy as auth provider the server cannot mint a user key).
+ * Client and server both build it from here so the signed bytes match.
+ */
+export function buildEvmDepositRequest(walletId: string, appId: string) {
+  return {
+    version: 1 as const,
+    method: "POST" as const,
+    url: `https://api.privy.io/v1/wallets/${walletId}/deposit_accounts/crypto`,
+    body: {
+      type: "inline_route",
+      source: { mode: "include", values: SOURCE_ASSETS },
+      destination: { asset: "usdc", chain: "solana" },
+    },
+    headers: { "privy-app-id": appId },
+  };
+}
+
+export async function resolveEmbeddedWalletId(walletAddress: string) {
+  const privy = getPrivyClient();
+  let wallet;
+  try {
+    wallet = await privy
+      .wallets()
+      .getWalletByAddress({ address: walletAddress });
+  } catch {
+    wallet = null;
+  }
+  if (!wallet || wallet.chain_type !== "solana") {
+    throw new WalletAuthError(
+      "Deposits from other chains need a Loyal-created wallet.",
+      { code: "evm_deposit_external_wallet", status: 409 }
+    );
+  }
+  return wallet.id;
+}
+
+export async function findEvmDepositAddress(args: {
   userId: string;
   walletAddress: string;
-  /** Privy access token of the signed-in user; the wallet is user-owned so
-   *  Privy needs their signature to attach a deposit route to it. */
-  privyAccessToken: string;
-}): Promise<string> {
+}) {
   const db = getDatabase();
   const row = await db.query.appUserWallets.findFirst({
     where: and(
@@ -52,34 +87,25 @@ export async function getOrCreateEvmDepositAddress(args: {
       status: 403,
     });
   }
-  if (row.evmDepositAddress) return row.evmDepositAddress;
+  return row;
+}
 
+export async function createEvmDepositAddress(args: {
+  rowId: string;
+  walletId: string;
+  appId: string;
+  /** User's authorization signature over buildEvmDepositRequest(). */
+  signature: string;
+}): Promise<string> {
   const privy = getPrivyClient();
-  let wallet;
-  try {
-    wallet = await privy
-      .wallets()
-      .getWalletByAddress({ address: args.walletAddress });
-  } catch {
-    wallet = null;
-  }
-  if (!wallet || wallet.chain_type !== "solana") {
-    throw new WalletAuthError(
-      "Deposits from other chains need a Loyal-created wallet.",
-      { code: "evm_deposit_external_wallet", status: 409 }
-    );
-  }
-
+  const req = buildEvmDepositRequest(args.walletId, args.appId);
   // @privy-io/node@0.32 types predate the `asset`/`chain` aliases the API
   // and docs use (they want asset_address/caip2); the wire format is fine.
   const created = (await privy
     .wallets()
-    .depositAccounts.crypto.create(wallet.id, {
-      type: "inline_route",
-      source: { mode: "include", values: SOURCE_ASSETS },
-      destination: { asset: "usdc", chain: "solana" },
-      authorization_context: { user_jwts: [args.privyAccessToken] },
-      idempotency_key: `evm-deposit:${wallet.id}`,
+    .depositAccounts.crypto.create(args.walletId, {
+      ...req.body,
+      authorization_context: { signatures: [args.signature] },
     } as unknown as Parameters<ReturnType<typeof privy.wallets>["depositAccounts"]["crypto"]["create"]>[1])) as unknown as {
     deposit_accounts?: { deposit_address: string }[];
     deposit_addresses?: { deposit_address: string }[];
@@ -92,10 +118,9 @@ export async function getOrCreateEvmDepositAddress(args: {
       status: 502,
     });
   }
-
-  await db
+  await getDatabase()
     .update(appUserWallets)
     .set({ evmDepositAddress: evm.deposit_address, updatedAt: new Date() })
-    .where(eq(appUserWallets.id, row.id));
+    .where(eq(appUserWallets.id, args.rowId));
   return evm.deposit_address;
 }
