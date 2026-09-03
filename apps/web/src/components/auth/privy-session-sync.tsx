@@ -248,6 +248,39 @@ function Inner({ children }: { children: ReactNode }) {
     wantsSession,
   ]);
 
+  // Reload: the Loyal session names a wallet, but wallet-adapter starts
+  // disconnected (or on whatever it auto-connected to). Earn actions require
+  // the connected wallet to equal the session wallet, so re-select the one
+  // Privy says owns the address — same step completeSignIn does at login.
+  const { user } = useAuthSession();
+  useEffect(() => {
+    if (!isHydrated || !isAuthenticated || !walletsReady) return;
+    const address = user?.walletAddress;
+    if (!address || adapter.publicKey?.toBase58() === address) return;
+    if (adapter.connecting) return;
+    const owner = privyWallets.find((w) => w.address === address);
+    const entry = owner
+      ? adapter.wallets.find(
+          (w) => w.adapter.name === owner.standardWallet.name
+        )
+      : undefined;
+    if (!entry) return;
+    if (adapter.wallet?.adapter.name !== entry.adapter.name) {
+      adapter.select(entry.adapter.name);
+      return; // effect re-runs once the selection lands
+    }
+    if (!adapter.connected) {
+      void adapter.connect().catch(() => undefined);
+    }
+  }, [
+    adapter,
+    isAuthenticated,
+    isHydrated,
+    privyWallets,
+    user?.walletAddress,
+    walletsReady,
+  ]);
+
   // Sign-out: Loyal session gone while Privy still authenticated.
   useEffect(() => {
     if (!isHydrated || !ready) return;
