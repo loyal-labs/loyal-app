@@ -233,20 +233,21 @@ export function CryptoPage({
     () => new Set(earnProductAssets.map((asset) => asset.mint)),
     [earnProductAssets]
   );
+  // Receive-side picker list: held tokens plus Earn stables nothing else lists.
+  // Trending tokens are no longer inlined here — the selector renders them as
+  // its own "Trending" section and would otherwise list them twice. They still
+  // count as listed, so a trending Earn stable is not synthesized below.
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
     );
-    const extras = popularTokens.filter(
-      (token) => token.mint && !heldMints.has(token.mint)
-    );
-    // Earn stables missing from held+popular (e.g. CASH) still belong in
+    // Earn stables missing from held+trending (e.g. CASH) still belong in
     // the receive list: synthesize them from the canonical product assets.
     // The picker price is indicative only (quotes come by mint), so a flat
     // $1 for a USD stable is fine.
     const listedMints = new Set([
       ...heldMints,
-      ...extras.map((token) => token.mint),
+      ...popularTokens.map((token) => token.mint),
     ]);
     const missingEarnStables = earnProductAssets
       .filter((asset) => !listedMints.has(asset.mint))
@@ -266,7 +267,7 @@ export function CryptoPage({
         ? 1
         : 2;
 
-    return [...derivedTokens, ...extras, ...missingEarnStables].sort(
+    return [...derivedTokens, ...missingEarnStables].sort(
       (a, b) => rank(a) - rank(b)
     );
   }, [derivedTokens, earnEligibleMints, earnProductAssets, popularTokens]);

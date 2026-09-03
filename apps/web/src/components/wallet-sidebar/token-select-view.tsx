@@ -2,17 +2,52 @@
 
 import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+
+import {
+  getCachedTrendingTokens,
+  prefetchTrendingTokens,
+  rankSearchResults,
+  searchTokens,
+  type TokenSearchResult,
+} from "@/lib/market/token-search.client";
 
 import { SearchInput } from "./shared";
 import type { SwapToken } from "./types";
 
+// Typeahead is user-perceived latency; debounce only long enough to collapse a
+// burst of keystrokes into a single request.
+const SEARCH_DEBOUNCE_MS = 120;
+// Remote search and trending only kick in from 2 chars, as before.
+const MIN_SEARCH_LENGTH = 2;
+
+function SectionLabel({ children }: { children: string }) {
+  return (
+    <div
+      style={{
+        fontFamily: "var(--font-geist-sans), sans-serif",
+        fontSize: "11px",
+        fontWeight: 600,
+        lineHeight: "16px",
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        color: "rgba(60, 60, 67, 0.6)",
+        padding: "12px 12px 4px",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function SelectableTokenRow({
   token,
+  isActive,
   isSelected,
   onClick,
 }: {
   token: SwapToken;
+  isActive: boolean;
   isSelected: boolean;
   onClick: () => void;
 }) {
@@ -30,9 +65,11 @@ function SelectableTokenRow({
         borderRadius: "16px",
         width: "100%",
         overflow: "visible",
-        background: isSelected
-          ? "rgba(0, 0, 0, 0.04)"
-          : hovered
+        // The keyboard-active suggestion reads slightly stronger than hover or
+        // the already-selected token so Enter's target is never ambiguous.
+        background: isActive
+          ? "rgba(0, 0, 0, 0.06)"
+          : isSelected || hovered
           ? "rgba(0, 0, 0, 0.04)"
           : "transparent",
         transition: "background-color 0.15s ease",
@@ -193,49 +230,163 @@ export function TokenSelectView({
   onBack: () => void;
   onClose: () => void;
   tokens: SwapToken[];
+  /**
+   * Opts this picker into remote token search (and therefore trending).
+   * Search is run in here via `searchTokens`, so the callback itself is unused
+   * beyond acting as the flag — kept so existing callers keep compiling.
+   */
   onSearch?: (query: string) => Promise<SwapToken[]>;
   isTokenSelected?: (token: SwapToken) => boolean;
 }) {
+  const remoteSearchEnabled = Boolean(onSearch);
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<SwapToken[]>([]);
+  const [remoteResults, setRemoteResults] = useState<TokenSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  // Hydrated from cache so a warm picker paints trending on the first render.
+  const [trending, setTrending] = useState<TokenSearchResult[]>(() =>
+    remoteSearchEnabled ? getCachedTrendingTokens() ?? [] : []
+  );
+  const [isTrendingLoading, setIsTrendingLoading] = useState(
+    remoteSearchEnabled && !getCachedTrendingTokens()
+  );
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
-  const query = search.toLowerCase();
+  // Warm trending on mount; focus re-runs it, which is free while fresh and
+  // revalidates in the background once the cached list goes stale.
+  useEffect(() => {
+    if (!remoteSearchEnabled) return;
+
+    let cancelled = false;
+    setIsTrendingLoading(!getCachedTrendingTokens());
+    void prefetchTrendingTokens()
+      .then((result) => {
+        if (cancelled) return;
+        setTrending(result);
+        setIsTrendingLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setIsTrendingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteSearchEnabled]);
+
+  const query = search.trim().toLowerCase();
+  const hasQuery = query.length >= MIN_SEARCH_LENGTH;
+
   const localFiltered = tokens.filter(
     (t) =>
       t.symbol.toLowerCase().includes(query) ||
       (t.mint && t.mint.toLowerCase().includes(query))
   );
 
-  // Debounced remote search when local results are sparse
+  // Debounced remote typeahead. Each keystroke aborts the in-flight request,
+  // previous results stay painted while a newer one runs, and a response only
+  // commits if its query is still the one in the input.
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (!onSearch || search.length < 2) {
-      setSearchResults([]);
+    if (!remoteSearchEnabled || !hasQuery) {
+      setRemoteResults([]);
       setIsSearching(false);
       return;
     }
+
     setIsSearching(true);
     searchTimerRef.current = setTimeout(() => {
-      void onSearch(search)
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      void searchTokens(search, controller.signal)
         .then((results) => {
-          // Exclude tokens already in local list
+          if (controller.signal.aborted) return;
+          // Keep the picker's verified-only contract and drop owned tokens.
           const localMints = new Set(tokens.map((t) => t.mint).filter(Boolean));
-          setSearchResults(
-            results.filter((t) => t.mint && !localMints.has(t.mint))
+          setRemoteResults(
+            results.filter(
+              (t) => t.mint && t.isVerified && !localMints.has(t.mint)
+            )
           );
         })
-        .catch(() => setSearchResults([]))
-        .finally(() => setIsSearching(false));
-    }, 300);
+        .catch(() => {
+          if (!controller.signal.aborted) setRemoteResults([]);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsSearching(false);
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchAbortRef.current?.abort();
     };
-  }, [search, onSearch, tokens]);
+  }, [search, hasQuery, remoteSearchEnabled, tokens]);
 
-  const allResults =
-    search.length >= 2 ? [...localFiltered, ...searchResults] : localFiltered;
+  // Trending only complements an empty query, and hides tokens already listed.
+  // Mock positions carry no mint, so symbol is the fallback identity.
+  const showTrending = remoteSearchEnabled && query.length === 0;
+  const ownedKeys = new Set(
+    tokens.flatMap((t) => [
+      ...(t.mint ? [t.mint.toLowerCase()] : []),
+      t.symbol.toLowerCase(),
+    ])
+  );
+  const trendingRows = showTrending
+    ? trending.filter(
+        (t) =>
+          !ownedKeys.has(t.mint.toLowerCase()) &&
+          !ownedKeys.has(t.symbol.toLowerCase())
+      )
+    : [];
+
+  // Owned matches stay first in their incoming order; remote hits are ranked
+  // behind them so a token the user holds always wins the top suggestion.
+  const sections: { label: string | null; tokens: SwapToken[] }[] = showTrending
+    ? [
+        ...(localFiltered.length > 0
+          ? [{ label: "Your tokens", tokens: localFiltered }]
+          : []),
+        ...(trendingRows.length > 0
+          ? [{ label: "Trending", tokens: trendingRows }]
+          : []),
+      ]
+    : [
+        {
+          label: null,
+          tokens: [
+            ...localFiltered,
+            ...rankSearchResults(query, remoteResults),
+          ],
+        },
+      ];
+
+  const rows = sections.flatMap((section) =>
+    section.tokens.map((token) => ({ label: section.label, token }))
+  );
+  const activeToken = hasQuery ? rows[0]?.token : undefined;
+
+  // Typeahead: Enter and Tab both commit the active (top-ranked) suggestion
+  // without rewriting the query the user typed.
+  const handleSearchKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (!hasQuery || !activeToken) return;
+    if (event.key !== "Enter" && event.key !== "Tab") return;
+    // Don't swallow keys an IME is still composing with, and keep Tab from
+    // also moving focus after the commit.
+    if (event.nativeEvent.isComposing) return;
+    event.preventDefault();
+
+    onSelect(activeToken);
+    onBack();
+  };
+
+  const handleSearchFocus = () => {
+    if (!remoteSearchEnabled) return;
+    void prefetchTrendingTokens()
+      .then((result) => setTrending(result))
+      .catch(() => {});
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -280,7 +431,12 @@ export function TokenSelectView({
           <ArrowLeft size={24} />
         </button>
       </div>
-      <SearchInput onChange={setSearch} value={search} />
+      <SearchInput
+        onChange={setSearch}
+        onFocus={handleSearchFocus}
+        onKeyDown={handleSearchKeyDown}
+        value={search}
+      />
       <div
         style={{
           flex: 1,
@@ -290,23 +446,28 @@ export function TokenSelectView({
           padding: "0 8px",
         }}
       >
-        {allResults.map((token, i) => (
-          <SelectableTokenRow
-            isSelected={
-              isTokenSelected?.(token) ??
-              (token.mint
-                ? token.mint === currentToken.mint
-                : token.symbol === currentToken.symbol)
-            }
-            key={token.mint ?? `${token.symbol}-${i}`}
-            onClick={() => {
-              onSelect(token);
-              onBack();
-            }}
-            token={token}
-          />
+        {rows.map((row, i) => (
+          <Fragment key={row.token.mint ?? `${row.token.symbol}-${i}`}>
+            {row.label && rows[i - 1]?.label !== row.label && (
+              <SectionLabel>{row.label}</SectionLabel>
+            )}
+            <SelectableTokenRow
+              isActive={row.token === activeToken}
+              isSelected={
+                isTokenSelected?.(row.token) ??
+                (row.token.mint
+                  ? row.token.mint === currentToken.mint
+                  : row.token.symbol === currentToken.symbol)
+              }
+              onClick={() => {
+                onSelect(row.token);
+                onBack();
+              }}
+              token={row.token}
+            />
+          </Fragment>
         ))}
-        {isSearching && allResults.length === 0 && (
+        {rows.length === 0 && (
           <div
             style={{
               padding: "32px 20px",
@@ -316,20 +477,11 @@ export function TokenSelectView({
               color: "rgba(60, 60, 67, 0.6)",
             }}
           >
-            Searching...
-          </div>
-        )}
-        {!isSearching && allResults.length === 0 && (
-          <div
-            style={{
-              padding: "32px 20px",
-              textAlign: "center",
-              fontFamily: "var(--font-geist-sans), sans-serif",
-              fontSize: "14px",
-              color: "rgba(60, 60, 67, 0.6)",
-            }}
-          >
-            No tokens found
+            {isSearching
+              ? "Searching..."
+              : showTrending && isTrendingLoading
+              ? "Loading..."
+              : "No tokens found"}
           </div>
         )}
       </div>
