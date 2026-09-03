@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -18,6 +17,7 @@ import { useBalanceVisibility } from "@/components/wallet-workspace/facelift/bal
 import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import { EarnedChart } from "@/components/wallet-workspace/facelift/earned-chart";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
+import { SlidingTabs } from "@/components/wallet-workspace/facelift/sliding-tabs";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
@@ -35,72 +35,6 @@ export type ChartTab = (typeof CHART_TABS)[number];
 // white active pill is one absolutely-positioned span that tweens between the
 // measured offset/width of the selected tab. First paint and resizes write
 // the position with transitions suspended so the pill snaps, never flies in.
-function ChartTabs({
-  activeTab,
-  onSelect,
-  tabs,
-}: {
-  activeTab: ChartTab;
-  onSelect: (tab: ChartTab) => void;
-  tabs: readonly ChartTab[];
-}) {
-  const barRef = useRef<HTMLDivElement>(null);
-  const pillRef = useRef<HTMLSpanElement>(null);
-  const hasPainted = useRef(false);
-
-  const movePillToActiveTab = useCallback((animate: boolean) => {
-    const bar = barRef.current;
-    const pill = pillRef.current;
-    const active = bar?.querySelector<HTMLButtonElement>(
-      '[aria-selected="true"]'
-    );
-    if (!(bar && pill && active)) {
-      return;
-    }
-    if (animate) {
-      pill.style.transform = `translateX(${active.offsetLeft}px)`;
-      pill.style.width = `${active.offsetWidth}px`;
-      return;
-    }
-    const previousTransition = pill.style.transition;
-    pill.style.transition = "none";
-    pill.style.transform = `translateX(${active.offsetLeft}px)`;
-    pill.style.width = `${active.offsetWidth}px`;
-    void pill.offsetWidth;
-    pill.style.transition = previousTransition;
-  }, []);
-
-  // Re-measure when the tab set changes too (Earned appears with a position).
-  useLayoutEffect(() => {
-    movePillToActiveTab(hasPainted.current);
-    hasPainted.current = true;
-  }, [activeTab, movePillToActiveTab, tabs.length]);
-
-  useEffect(() => {
-    const handleResize = () => movePillToActiveTab(false);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [movePillToActiveTab]);
-
-  return (
-    <div className="t-tabs" ref={barRef} role="tablist">
-      <span aria-hidden="true" className="t-tabs-pill" ref={pillRef} />
-      {tabs.map((tab) => (
-        <button
-          aria-selected={activeTab === tab}
-          className="t-tab whitespace-nowrap font-medium text-[14px] leading-5"
-          key={tab}
-          onClick={() => onSelect(tab)}
-          role="tab"
-          type="button"
-        >
-          {tab}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function ChartBody({
   activeTab,
   apy,
@@ -225,7 +159,7 @@ export function EarnChartCard({
               />
             </div>
           ) : (
-            <ChartTabs
+            <SlidingTabs
               activeTab={activeTab}
               onSelect={onSelectTab}
               tabs={visibleTabs}
