@@ -65,7 +65,18 @@ users are asked to link an email right after sign-in. Without the Privy env,
 the legacy SIWS flow is used.
 
 Wallet sign-in provisions or reconciles the sponsored smart account before the
-session cookie is issued. The HttpOnly wallet session cookie uses a 7 day TTL
+session cookie is issued.
+
+### Deposit from other chains (Privy embedded wallets only)
+
+`/api/funding/evm-deposit-address` returns a permanent `0x` address per
+embedded Solana wallet (stored on `app_user_wallets.evm_deposit_address`).
+USDC/USDT/ETH sent there on Ethereum, Base, Arbitrum or Polygon is bridged by
+Privy and delivered as USDC to the user's Solana wallet; the app pays bridge
+gas (Privy dashboard: swaps + app-pays sponsorship on those chains). First
+call is two-step: `GET` returns the Privy request to sign, the browser signs it
+with the user's Privy key (`useAuthorizationSignature`), `POST` forwards the
+signature. External wallets get 409. UI: Receive sheet → "Other chains". The HttpOnly wallet session cookie uses a 7 day TTL
 and refreshes locally once it is at least 24 hours old.
 
 ## Development
