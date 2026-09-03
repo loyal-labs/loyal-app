@@ -39,6 +39,11 @@ export type LoyalStatsSnapshotResult = {
   uniqueEarnUsers?: number;
 };
 
+export type LoyalStatsRefreshState = LoyalStats & {
+  lastEarnFlowEventId: bigint | null;
+  refreshedAt: Date;
+};
+
 export async function claimStatsCommand(
   input: StatsCommandClaim
 ): Promise<boolean> {
@@ -122,9 +127,11 @@ export async function loadLoyalStatsSnapshot(
   };
 }
 
-export async function loadLoyalStatsSnapshotForRefresh(): Promise<LoyalStats | null> {
+export async function loadLoyalStatsSnapshotForRefresh(): Promise<LoyalStatsRefreshState | null> {
   const rows = await getDatabase()
     .select({
+      lastEarnFlowEventId: loyalStatsSnapshots.lastEarnFlowEventId,
+      refreshedAt: loyalStatsSnapshots.refreshedAt,
       totalAumRaw: loyalStatsSnapshots.totalAumRaw,
       totalOptimizedVolumeRaw: loyalStatsSnapshots.totalOptimizedVolumeRaw,
       totalUsers: loyalStatsSnapshots.totalUsers,
@@ -162,4 +169,20 @@ export async function upsertLoyalStatsSnapshot(
       setWhere: sql`${loyalStatsSnapshots.refreshedAt} <= ${refreshedAt}`,
       target: loyalStatsSnapshots.snapshotKey,
     });
+}
+
+export async function advanceLoyalStatsEarnFlowCursor(
+  eventId: bigint
+): Promise<void> {
+  await getDatabase()
+    .update(loyalStatsSnapshots)
+    .set({
+      lastEarnFlowEventId: eventId,
+      updatedAt: new Date(),
+    })
+    .where(
+      sql`${loyalStatsSnapshots.snapshotKey} = ${CURRENT_SNAPSHOT_KEY}
+        AND (${loyalStatsSnapshots.lastEarnFlowEventId} IS NULL
+          OR ${loyalStatsSnapshots.lastEarnFlowEventId} < ${eventId})`
+    );
 }

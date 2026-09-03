@@ -1,0 +1,1 @@
+ALTER TABLE "loyal_stats_snapshots" ADD COLUMN "last_earn_flow_event_id" bigint;

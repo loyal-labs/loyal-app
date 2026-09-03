@@ -2,27 +2,27 @@ import "server-only";
 
 import { serverEnv } from "@/lib/core/config/server";
 
+import type { FinalizedEarnFlow } from "./stats-command.server";
+
 const ZERO = BigInt(0);
 const ONE_HUNDRED = BigInt(100);
 const TWO = BigInt(2);
 const USDC_RAW_PER_USDC = BigInt(1_000_000);
 const USDC_RAW_PER_CENT = BigInt(10_000);
-const AUM_ALERT_THRESHOLD_RAW = BigInt(5_000) * USDC_RAW_PER_USDC;
+const EARN_FLOW_ALERT_THRESHOLD_RAW = BigInt(5_000) * USDC_RAW_PER_USDC;
 const SLACK_REQUEST_TIMEOUT_MS = 5_000;
 const SLACK_REQUEST_ATTEMPTS = 2;
 
-export type LoyalStatsAumAlert = {
-  currentAumRaw: bigint;
-  deltaRaw: bigint;
-  direction: "decreased" | "increased";
+export type LoyalStatsEarnFlowAlert = {
+  eventId: bigint;
   text: string;
 };
 
-export type LoyalStatsAumAlertDelivery =
+export type LoyalStatsEarnFlowAlertDelivery =
   | { status: "below_threshold" }
-  | { alert: LoyalStatsAumAlert; status: "failed" }
-  | { alert: LoyalStatsAumAlert; status: "not_configured" }
-  | { alert: LoyalStatsAumAlert; status: "sent" };
+  | { alert: LoyalStatsEarnFlowAlert; status: "failed" }
+  | { alert: LoyalStatsEarnFlowAlert; status: "not_configured" }
+  | { alert: LoyalStatsEarnFlowAlert; status: "sent" };
 
 function formatUsdcRaw(raw: bigint): string {
   const isNegative = raw < ZERO;
@@ -38,35 +38,33 @@ function formatUsdcRaw(raw: bigint): string {
   return `${isNegative ? "-" : ""}$${formattedDollars}.${cents}`;
 }
 
-export function createLoyalStatsAumAlert(
-  previousAumRaw: bigint,
-  currentAumRaw: bigint
-): LoyalStatsAumAlert | null {
-  const deltaRaw = currentAumRaw - previousAumRaw;
-  const absoluteDeltaRaw = deltaRaw < ZERO ? -deltaRaw : deltaRaw;
-
-  if (absoluteDeltaRaw < AUM_ALERT_THRESHOLD_RAW) {
+export function createLoyalStatsEarnFlowAlert(
+  flow: FinalizedEarnFlow
+): LoyalStatsEarnFlowAlert | null {
+  if (flow.amountRaw < EARN_FLOW_ALERT_THRESHOLD_RAW) {
     return null;
   }
 
-  const direction = deltaRaw < ZERO ? "decreased" : "increased";
-  const icon = deltaRaw < ZERO ? "📉" : "📈";
+  const isDeposit = flow.direction === "deposit";
+  const icon = isDeposit ? "📥" : "📤";
+  const label = isDeposit ? "deposit" : "withdrawal";
+  const walletUrl = `https://orbmarkets.io/address/${flow.walletAddress}`;
+  const transactionUrl = `https://orbmarkets.io/tx/${flow.signature}`;
 
   return {
-    currentAumRaw,
-    deltaRaw,
-    direction,
-    text: `${icon} Earn AUM ${direction} by ${formatUsdcRaw(
-      absoluteDeltaRaw
-    )}\nCurrent Earn AUM: ${formatUsdcRaw(currentAumRaw)}`,
+    eventId: flow.eventId,
+    text: `${icon} Earn ${label} confirmed: ${formatUsdcRaw(
+      flow.amountRaw
+    )}\nWallet: <${walletUrl}|${
+      flow.walletAddress
+    }>\n<${transactionUrl}|View on Orb Markets>`,
   };
 }
 
-export async function sendLoyalStatsAumAlert(
-  previousAumRaw: bigint,
-  currentAumRaw: bigint
-): Promise<LoyalStatsAumAlertDelivery> {
-  const alert = createLoyalStatsAumAlert(previousAumRaw, currentAumRaw);
+export async function sendLoyalStatsEarnFlowAlert(
+  flow: FinalizedEarnFlow
+): Promise<LoyalStatsEarnFlowAlertDelivery> {
+  const alert = createLoyalStatsEarnFlowAlert(flow);
   if (!alert) {
     return { status: "below_threshold" };
   }
