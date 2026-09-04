@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
+import { resolveShieldedRow } from "@/components/wallet/shielded-balance";
 import { UnshieldSheet } from "@/components/wallet/UnshieldSheet";
 import { buildTokenDetailHref } from "@/features/token-details/routes";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
@@ -43,6 +44,7 @@ import { Pressable, Text, View } from "@/tw";
 
 import {
   filterHoldingsByCategory,
+  isStablecoinHolding,
   sumHoldingsUsd,
   type WalletCategory,
 } from "../model/categorize";
@@ -53,6 +55,7 @@ import { CardExpandTransition } from "./CardExpandTransition";
 import { CategoryAssetRow } from "./CategoryAssetRow";
 import { CryptoGlyph, StablecoinsGlyph } from "./CategoryGlyphs";
 import { type MoreActionsAnchor, MoreActionsSheet } from "./MoreActionsSheet";
+import { ShieldedAssetRow } from "./ShieldedAssetRow";
 
 import EllipsisIcon from "../../../../assets/images/icons/ellipsis.svg";
 
@@ -120,9 +123,20 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         : SOLANA_USDC_MINT_DEVNET,
     ]);
     for (const holding of tokenHoldings) mints.add(holding.mint);
+    for (const balance of shieldedBalances) mints.add(balance.tokenMint);
     return Array.from(mints);
-  }, [tokenHoldings]);
+  }, [tokenHoldings, shieldedBalances]);
   const tokenDetailsByMint = useTokenDetails(tokenDetailMints);
+
+  // Shielded balances in this category, listed under the regular holdings so
+  // they stay visible without opening the Unshield sheet.
+  const shieldedRows = useMemo(
+    () =>
+      shieldedBalances
+        .map((b) => resolveShieldedRow(b, tokenHoldings, tokenDetailsByMint))
+        .filter((row) => isStablecoinHolding(row) === (category === "stablecoins")),
+    [shieldedBalances, tokenHoldings, tokenDetailsByMint, category],
+  );
 
   // Reuse the wallet list's sort + pair grouping, then keep only this
   // category's holdings (pairs stay adjacent, so connectors still line up).
@@ -144,7 +158,16 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const [scanOnOpen, setScanOnOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [unshieldMint, setUnshieldMint] = useState<string | null>(null);
   const [isUnshieldOpen, setIsUnshieldOpen] = useState(false);
+  const openUnshield = useCallback(
+    (mint: string | null) => {
+      void refreshShieldedBalances();
+      setUnshieldMint(mint);
+      setIsUnshieldOpen(true);
+    },
+    [refreshShieldedBalances],
+  );
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
   const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
@@ -305,6 +328,29 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
                     />
                   ))
                 )}
+
+                {shieldedRows.length > 0 ? (
+                  <>
+                    <View className="px-4 pb-2 pt-3">
+                      <Text
+                        className="text-[17px] font-semibold text-black"
+                        style={{ letterSpacing: -0.187, lineHeight: 22 }}
+                      >
+                        Shielded
+                      </Text>
+                    </View>
+                    {shieldedRows.map((row) => (
+                      <ShieldedAssetRow
+                        key={row.mint}
+                        row={row}
+                        onPress={() => {
+                          void Haptics.selectionAsync();
+                          openUnshield(row.mint);
+                        }}
+                      />
+                    ))}
+                  </>
+                ) : null}
               </Animated.ScrollView>
             </GestureDetector>
 
@@ -392,6 +438,7 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         executeUnshield={executeUnshield}
         tokenHoldings={tokenHoldings}
         tokenDetailsByMint={tokenDetailsByMint}
+        initialMint={unshieldMint}
         onUnshieldComplete={refresh}
       />
 
@@ -406,12 +453,7 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         onReceive={() => setIsReceiveOpen(true)}
         onSwap={() => setIsSwapOpen(true)}
         onUnshield={
-          shieldedBalances.length > 0
-            ? () => {
-                void refreshShieldedBalances();
-                setIsUnshieldOpen(true);
-              }
-            : undefined
+          shieldedBalances.length > 0 ? () => openUnshield(null) : undefined
         }
       />
     </>

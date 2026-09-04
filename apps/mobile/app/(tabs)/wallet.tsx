@@ -155,8 +155,9 @@ export default function WalletScreen() {
         : SOLANA_USDC_MINT_DEVNET,
     );
     for (const holding of tokenHoldings) mints.add(holding.mint);
+    for (const balance of shieldedBalances) mints.add(balance.tokenMint);
     return Array.from(mints);
-  }, [tokenHoldings]);
+  }, [tokenHoldings, shieldedBalances]);
   const tokenDetailsByMint = useTokenDetails(
     tokenDetailMints,
     tokenMarketRefreshKey,
