@@ -1,4 +1,5 @@
 import {
+  enumerateDepositsByUser,
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
@@ -9,7 +10,7 @@ import {
   getPerEndpoints,
   getSolanaEndpoints,
 } from "@loyal-labs/solana-rpc";
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { WalletSigner } from "../types/signer";
@@ -63,13 +64,19 @@ export function createPrivateTransactionsClient(
 }
 
 // Read-only: enumerates non-zero deposits so surfaces can gate the Unshield
-// UI on `balances.length > 0`. Uses the base-layer program (no PER auth).
+// UI on `balances.length > 0`. Deliberately does NOT build the SDK client:
+// `fromConfig` performs PER auth (a wallet `signMessage` prompt) against the
+// TEE endpoint, which must only happen when the user actually unshields.
+// Base-layer enumeration already includes delegated deposits.
 export async function fetchShieldedBalances(
-  signer: WalletSigner,
+  user: PublicKey,
   solanaEnv: SolanaEnv
 ): Promise<ShieldedBalance[]> {
-  const client = await createPrivateTransactionsClient(signer, solanaEnv);
-  const deposits = await client.getAllDepositsByUser(signer.publicKey);
+  const { rpcEndpoint } = getSolanaEndpoints(solanaEnv);
+  const deposits = await enumerateDepositsByUser({
+    user,
+    baseConnection: new Connection(rpcEndpoint, "confirmed"),
+  });
   return deposits
     .filter((deposit) => deposit.amount > 0n)
     .map((deposit) => ({
@@ -100,7 +107,7 @@ export function useUnshield(signer: WalletSigner | null, solanaEnv: SolanaEnv) {
       return;
     }
     try {
-      setBalances(await fetchShieldedBalances(signer, solanaEnv));
+      setBalances(await fetchShieldedBalances(signer.publicKey, solanaEnv));
     } catch {
       // Best-effort: a read failure must not hide the wallet.
       setBalances([]);
