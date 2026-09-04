@@ -1,0 +1,48 @@
+name: Preview Domain
+
+# Every open PR gets <branch>.preview.askloyal.com pinned to its branch on the
+# loyal-frontend Vercel project (a Privy-allowed origin; *.vercel.app is not).
+# Wildcard DNS + cert for *.preview.askloyal.com already exist, so attaching
+# the domain is the only step. Removed when the PR closes.
+
+on:
+  pull_request:
+    types: [opened, reopened, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  domain:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: team_CWDtWDIyqqcfgsOfzt4AWU5w
+      VERCEL_PROJECT: loyal-frontend
+      BRANCH: ${{ github.head_ref }}
+    steps:
+      - name: Attach or remove branch preview domain
+        run: |
+          set -euo pipefail
+          # Vercel branch domains are lowercase hostnames; branch names are not.
+          name="$(tr '[:upper:]' '[:lower:]' <<<"$BRANCH" | tr -c 'a-z0-9-\n' '-' | cut -c1-63 | sed 's/-*$//')"
+          domain="${name}.preview.askloyal.com"
+          api="https://api.vercel.com"
+          auth=(-H "Authorization: Bearer $VERCEL_TOKEN")
+
+          if [[ "${{ github.event.action }}" == "closed" ]]; then
+            code="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "${auth[@]}" \
+              "$api/v9/projects/$VERCEL_PROJECT/domains/$domain?teamId=$VERCEL_TEAM_ID")"
+            echo "delete $domain -> $code"
+            [[ "$code" == "200" || "$code" == "404" ]]
+            exit 0
+          fi
+
+          code="$(curl -s -o /tmp/out.json -w '%{http_code}' -X POST "${auth[@]}" \
+            -H 'content-type: application/json' \
+            -d "{\"name\":\"$domain\",\"gitBranch\":\"$BRANCH\"}" \
+            "$api/v10/projects/$VERCEL_PROJECT/domains?teamId=$VERCEL_TEAM_ID")"
+          echo "add $domain -> $code"
+          # 409: already attached (reopened PR) — fine.
+          [[ "$code" == "200" || "$code" == "409" ]] || { cat /tmp/out.json; exit 1; }
+          echo "::notice::Preview: https://$domain"

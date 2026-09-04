@@ -18,16 +18,19 @@ export const EVM_DEPOSIT_CHAINS = [
   "base",
   "arbitrum",
   "polygon",
+  "bsc", // Privy's alias for BNB Chain (eip155:56)
 ] as const;
 export const EVM_DEPOSIT_ASSETS = ["usdc", "usdt", "eth"] as const;
 // Ethereum L1 gas can spike to a few dollars per deposit; below this the
 // bridge eats the deposit. L2s are ~$0.01, no floor there.
 export const EVM_DEPOSIT_MIN_USD_ETHEREUM = 20;
 
-// Privy rejects eth on polygon; everything else is accepted on every chain.
+// Privy rejects eth where it is not the native coin; everything else is
+// accepted on every chain.
+const NO_ETH_CHAINS = new Set<string>(["polygon", "bsc"]);
 const SOURCE_ASSETS = EVM_DEPOSIT_CHAINS.flatMap((chain) =>
   EVM_DEPOSIT_ASSETS.filter(
-    (asset) => !(asset === "eth" && chain === "polygon")
+    (asset) => !(asset === "eth" && NO_ETH_CHAINS.has(chain))
   ).map((asset) => ({ asset, chain }))
 );
 

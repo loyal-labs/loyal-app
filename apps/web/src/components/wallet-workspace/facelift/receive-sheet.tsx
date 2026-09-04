@@ -13,12 +13,13 @@ import { useEvmDepositAddress } from "@/components/wallet-workspace/facelift/use
 const ASSET_BASE = "/wallet-workspace/facelift";
 const TABS = ["Solana", "Other chains"] as const;
 type Tab = (typeof TABS)[number];
-const EVM_CHAIN_FALLBACK = ["ethereum", "base", "arbitrum", "polygon"];
+const EVM_CHAIN_FALLBACK = ["ethereum", "base", "arbitrum", "polygon", "bsc"];
 const CHAIN_LABELS: Record<string, string> = {
   ethereum: "Ethereum",
   base: "Base",
   arbitrum: "Arbitrum",
   polygon: "Polygon",
+  bsc: "BNB Chain",
 };
 
 // Facelift take on the OG Receive view (receive-content.tsx): Solana-only
