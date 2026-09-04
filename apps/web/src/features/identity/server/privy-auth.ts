@@ -14,7 +14,7 @@ import { trackWalletOnboardingEvent } from "./wallet-onboarding-analytics";
 
 let privyClient: PrivyClient | null = null;
 
-function getPrivyClient(): PrivyClient {
+export function getPrivyClient(): PrivyClient {
   if (privyClient) return privyClient;
   const { privyAppId, privyAppSecret } = getServerEnv();
   if (!privyAppId || !privyAppSecret) {

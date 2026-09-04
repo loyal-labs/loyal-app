@@ -973,6 +973,8 @@ export const appUserWallets = pgTable(
       .notNull()
       .references(() => appUsers.id, { onDelete: "cascade" }),
     walletAddress: text("wallet_address").notNull(),
+    /** Privy crypto-deposit 0x address that auto-bridges into this wallet as USDC (ASK-2266). */
+    evmDepositAddress: text("evm_deposit_address"),
     verifiedAt: timestamp("verified_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

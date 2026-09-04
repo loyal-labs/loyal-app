@@ -2880,6 +2880,43 @@ cap-widget {
   }
 }
 
+/* Same recipe, small form: the Receive sheet's Solana / Other-chains bodies
+   share one grid cell; the inactive one is display:none-free so it can
+   slide out, and pointer-events off so it never catches clicks. */
+.t-receive-pages .t-receive-page {
+  opacity: 0;
+  transform: translateX(var(--t-page-from-x, 0px));
+  filter: blur(var(--page-blur));
+  pointer-events: none;
+  transition: opacity var(--page-fade-dur) var(--page-fade-ease),
+    transform var(--page-slide-dur) var(--page-slide-ease),
+    filter var(--page-slide-dur) var(--page-slide-ease);
+}
+.t-receive-pages .t-receive-page[data-page-id="1"] {
+  --t-page-from-x: calc(var(--page-slide-distance) * -1);
+}
+.t-receive-pages .t-receive-page[data-page-id="2"] {
+  --t-page-from-x: var(--page-slide-distance);
+}
+.t-receive-pages[data-page="1"] .t-receive-page[data-page-id="1"],
+.t-receive-pages[data-page="2"] .t-receive-page[data-page-id="2"] {
+  opacity: 1;
+  transform: translateX(0);
+  filter: blur(0);
+  pointer-events: auto;
+}
+/* The skeleton overlay is absolute (recipe); the content layer stays
+   in-flow here so it sizes the card. */
+.t-receive-page .t-skel-content {
+  position: relative;
+  inset: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .t-receive-pages .t-receive-page {
+    transition: none !important;
+  }
+}
+
 /* Facelift adaptation — a transaction arriving after a mutation pushes the
    list down and reveals: the accordion recipe's 0fr → 1fr track
    (frontend/transitions/accordion.md) grows the row's slot on the resize
