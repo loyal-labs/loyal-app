@@ -941,6 +941,8 @@ export const appUsers = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     provider: text("provider").$type<AppUserProvider>().notNull(),
     subjectAddress: text("subject_address").notNull(),
+    // Contact email collected via Privy (email/Google login or a later link).
+    email: text("email"),
     gridUserId: text("grid_user_id"),
     smartAccountAddress: text("smart_account_address"),
     smartAccountSettingsPda: text("smart_account_settings_pda"),

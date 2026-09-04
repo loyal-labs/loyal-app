@@ -35,6 +35,8 @@ const DEPLOYMENT_PRIVATE_KEY_ENV_NAME = "DEPLOYMENT_PK";
 const EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME = "EARN_YIELD_ROUTER_PUBLIC_KEY";
 const SMART_ACCOUNT_SPONSOR_PRIVATE_KEY_ENV_NAME = "SMART_ACCOUNT_SPONSOR_PK";
 const REALTIME_AUTH_SECRET_ENV_NAME = "REALTIME_AUTH_SECRET";
+const PRIVY_APP_ID_ENV_NAME = "NEXT_PUBLIC_PRIVY_APP_ID";
+const PRIVY_APP_SECRET_ENV_NAME = "PRIVY_APP_SECRET";
 
 export type ChatRuntimeConfig = {
   apiKey: string;
@@ -66,6 +68,8 @@ export type ServerEnv = {
   earnYieldRouterPublicKey: string | undefined;
   earnRealtime: EarnRealtimeRuntimeConfig;
   mixpanelToken: string | undefined;
+  privyAppId: string | undefined;
+  privyAppSecret: string | undefined;
   smartAccountSponsorPrivateKey: string | undefined;
   solanaEnv: SolanaEnv;
   loyalSmartAccounts: LoyalSmartAccountsRuntimeConfig;
@@ -169,6 +173,8 @@ export function createServerEnv(env: EnvSource): ServerEnv {
       eventsUrl: resolveEarnRealtimeEventsUrl(env, appEnvironment),
     },
     mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
+    privyAppId: getOptionalEnv(env, PRIVY_APP_ID_ENV_NAME),
+    privyAppSecret: getOptionalEnv(env, PRIVY_APP_SECRET_ENV_NAME),
     smartAccountSponsorPrivateKey: getOptionalEnv(
       env,
       SMART_ACCOUNT_SPONSOR_PRIVATE_KEY_ENV_NAME

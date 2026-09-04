@@ -1766,10 +1766,16 @@
    viewport center. Shift the modal onto that midline; :has() scopes it to
    the workspace — over the landing it stays viewport-centered. The min()
    keeps the shifted modal (max 480px wide + 16px margin) on screen at
-   narrow sidebar-only widths. */
+   narrow sidebar-only widths. The Privy selector targets its 360px panel
+   (the element carrying the shadow, two levels above #privy-modal-content,
+   no stable id of its own). It centers with margin:auto, so shift it with
+   transform rather than margin. */
 @media (width >= 1204px) {
   body:has(.facelift-shell) .t-modal-center {
     margin-left: -24px;
+  }
+  body:has(.facelift-shell) #privy-dialog > div > div:has(> * > #privy-modal-content) {
+    transform: translateX(-24px);
   }
 }
 
@@ -1789,6 +1795,25 @@
   body:has(.facelift-shell) .t-modal-center {
     margin-left: min(180px, 50vw - 272px);
   }
+  body:has(.facelift-shell) #privy-dialog > div > div:has(> * > #privy-modal-content) {
+    transform: translateX(min(180px, 50vw - 272px));
+  }
+}
+
+/* Privy dark modal, Loyal surfaces. Privy derives its greys from a preset
+   (navy #1A2230 elevated, near-invisible border) and hardcodes a light-grey
+   panel shadow, none of it exposed as props — so override the CSS variables
+   it sets on the dialog and the panel shadow, matching our own sign-in modal. */
+.dark #privy-dialog {
+  --privy-color-background-2: var(--secondary); /* Background/Tertiary #2B2930 */
+  --privy-color-background-3: var(--popover);
+  --privy-color-border-default: var(--border);
+  --privy-color-foreground-3: var(--muted-foreground);
+  --privy-color-foreground-4: var(--border); /* list-row + input borders */
+  --privy-color-foreground-disabled: var(--muted-foreground);
+}
+.dark #privy-dialog > div > div:has(> * > #privy-modal-content) {
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
 }
 
 /* Surfaces that stay centered on mobile (sign-in modal) keep the scale

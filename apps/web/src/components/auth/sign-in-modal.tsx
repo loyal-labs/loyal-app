@@ -18,8 +18,10 @@ import {
 import { useAuthCapability } from "@/lib/auth/capability";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 
+import { PrivySignIn } from "./privy-sign-in";
 import { WalletSignIn } from "./wallet-sign-in";
 
 function ConnectedView() {
@@ -28,6 +30,7 @@ function ConnectedView() {
   const { close } = useSignInModal();
   const { hasAuthSession, hasWalletConnection } = useAuthCapability();
   const cherryRuntime = useCherryRuntime();
+  const { privyAppId } = usePublicEnv();
   const [copied, setCopied] = useState(false);
   const address = publicKey?.toBase58() ?? user?.displayAddress ?? "";
 
@@ -97,7 +100,7 @@ function ConnectedView() {
               Sign out
             </button>
           ) : null}
-          {hasWalletConnection ? (
+          {hasWalletConnection && !privyAppId ? (
             <button
               className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-destructive/15 px-4 font-medium text-destructive text-sm transition hover:bg-destructive/25"
               onClick={async () => {
@@ -120,6 +123,7 @@ export function SignInModal() {
   const { isOpen, close } = useSignInModal();
   const { hasAuthSession } = useAuthCapability();
   const cherryRuntime = useCherryRuntime();
+  const { privyAppId } = usePublicEnv();
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -165,7 +169,11 @@ export function SignInModal() {
                 </DialogDescription>
               </DialogHeader>
               <div className="px-6 pb-6">
-                <WalletSignIn />
+                {privyAppId && cherryRuntime.mode !== "cherry_embedded" ? (
+                  <PrivySignIn />
+                ) : (
+                  <WalletSignIn />
+                )}
               </div>
             </>
           )}
