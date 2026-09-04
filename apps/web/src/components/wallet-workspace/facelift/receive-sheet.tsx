@@ -115,6 +115,9 @@ export function ReceiveSheet({
               address={evm.info?.address ?? null}
               copy={
                 <>
+                  <span className="mr-1.5 inline-flex rounded-md bg-primary/[0.14] px-1.5 py-px align-middle font-medium text-[11px] text-primary uppercase leading-[13px] tracking-[0.06px]">
+                    Alpha
+                  </span>
                   Send USDC, USDT or ETH on{" "}
                   {(evm.info?.chains ?? EVM_CHAIN_FALLBACK)
                     .map((c) => CHAIN_LABELS[c] ?? c)
@@ -122,7 +125,8 @@ export function ReceiveSheet({
                   . It arrives as USDC in your loyal wallet in a few minutes.
                   {evm.info?.minimums.ethereum
                     ? ` Minimum on Ethereum: $${evm.info.minimums.ethereum}.`
-                    : null}
+                    : null}{" "}
+                  This is an early release; start with a small amount.
                 </>
               }
               error={evm.error}
