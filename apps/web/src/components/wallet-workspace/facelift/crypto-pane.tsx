@@ -265,6 +265,7 @@ export function CryptoPane({
   onEarn,
   onSend,
   onSwap,
+  onUnshield,
   rowActions,
   tokenRows,
   variant,
@@ -276,6 +277,8 @@ export function CryptoPane({
   onEarn?: () => void;
   onSend: () => void;
   onSwap: () => void;
+  /** Exit path for legacy shielded balances; only passed when the wallet holds some. */
+  onUnshield?: () => void;
   rowActions: CryptoRowActions;
   tokenRows: TokenRow[];
   variant: CryptoPaneVariant;
@@ -308,6 +311,15 @@ export function CryptoPane({
             </h1>
           </div>
           <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
+            {onUnshield ? (
+              <HeaderPill
+                hideLabel
+                icon="icon-withdraw-arrow.svg"
+                iconColorClass="text-tertiary"
+                label="Unshield"
+                onClick={onUnshield}
+              />
+            ) : null}
             <HeaderPill
               hideLabel
               icon="icon-arrow-up-circle.svg"
@@ -426,6 +438,21 @@ export function CryptoPane({
             Send
           </span>
         </button>
+        {onUnshield ? (
+          <button
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-secondary p-2.5"
+            onClick={onUnshield}
+            type="button"
+          >
+            <ThemedIcon
+              className="size-6 text-tertiary"
+              src={`${ASSET_BASE}/icon-withdraw-arrow.svg`}
+            />
+            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
+              Unshield
+            </span>
+          </button>
+        ) : null}
       </div>
     </div>
   );

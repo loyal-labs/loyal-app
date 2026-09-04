@@ -3,6 +3,9 @@
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
+import { useUnshield } from "@loyal-labs/wallet-core/hooks";
+import type { WalletSigner } from "@loyal-labs/wallet-core/types";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -38,6 +41,7 @@ import {
   SwapTokenSelectPane,
 } from "@/components/wallet-workspace/facelift/swap-pane";
 import { TokenDetailPane } from "@/components/wallet-workspace/facelift/token-detail-pane";
+import { UnshieldPane } from "@/components/wallet-workspace/facelift/unshield-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -101,6 +105,33 @@ export function CryptoPage({
   const { isHydrated, isSignedIn } = useAuthCapability();
 
   const data = useWalletDesktopData({});
+
+  // --- legacy shielded-balance exit (ASK-2269) ---
+  // Only wallets still holding deposits in the sunset private-transfer
+  // program see the Unshield entry; reading balances needs no signature.
+  const wallet = useWallet();
+  const unshieldSigner = useMemo<WalletSigner | null>(
+    () =>
+      wallet.publicKey && wallet.signTransaction && wallet.signAllTransactions
+        ? {
+            publicKey: wallet.publicKey,
+            signTransaction: wallet.signTransaction,
+            signAllTransactions: wallet.signAllTransactions,
+            signMessage: wallet.signMessage,
+          }
+        : null,
+    [
+      wallet.publicKey,
+      wallet.signAllTransactions,
+      wallet.signMessage,
+      wallet.signTransaction,
+    ]
+  );
+  const { balances: shieldedBalances, executeUnshield } = useUnshield(
+    unshieldSigner,
+    publicEnv.solanaEnv
+  );
+  const [isUnshieldOpen, setIsUnshieldOpen] = useState(false);
 
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
@@ -308,6 +339,7 @@ export function CryptoPage({
       setSendRecipient(null);
       setSendSelect(null);
       setIsSendFormActive(true);
+      setIsUnshieldOpen(false);
       openAction({ type: "sendPanel" });
     },
     [openAction]
@@ -332,6 +364,7 @@ export function CryptoPage({
     }
     setViewStack([]);
     setSwapSelectSide(null);
+    setIsUnshieldOpen(false);
     setIsSwapOpen(true);
   }, []);
 
@@ -340,13 +373,21 @@ export function CryptoPage({
     setSwapSelectSide(null);
   }, []);
 
+  const openUnshield = useCallback(() => {
+    setViewStack([]);
+    closeSwap();
+    setIsUnshieldOpen(true);
+  }, [closeSwap]);
+  const closeUnshield = useCallback(() => setIsUnshieldOpen(false), []);
+
   // Sidebar navigation abandons any in-progress action screen — the same rule
   // the shell applies to Earn's deposit/withdraw/autodeposit views.
   useEffect(() => {
     setViewStack([]);
     setSendSelect(null);
     closeSwap();
-  }, [closeSwap, navigationNonce]);
+    closeUnshield();
+  }, [closeSwap, closeUnshield, navigationNonce]);
 
   // Esc backs out of the open Send/Swap flow (the shell owns Esc for
   // Earn's action screens). An open selector pane closes first; the next
@@ -357,7 +398,7 @@ export function CryptoPage({
         event.key !== "Escape" ||
         // Numbers-only amount fields don't swallow Esc — only free text does.
         isEscapeGuardedTarget(event.target) ||
-        (viewStack.length === 0 && !isSwapOpen)
+        (viewStack.length === 0 && !isSwapOpen && !isUnshieldOpen)
       ) {
         return;
       }
@@ -377,6 +418,7 @@ export function CryptoPage({
         }
         setViewStack([]);
         closeSwap();
+        closeUnshield();
       });
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -568,6 +610,15 @@ export function CryptoPage({
                 onSuccess={refreshWallet}
                 toToken={swapToToken}
               />
+            ) : isUnshieldOpen ? (
+              <UnshieldPane
+                balances={shieldedBalances}
+                executeUnshield={executeUnshield}
+                onBack={closeUnshield}
+                onDone={closeUnshield}
+                onSuccess={refreshWallet}
+                positions={data.positions}
+              />
             ) : null
           }
         >
@@ -580,6 +631,9 @@ export function CryptoPage({
               onEarn={() => onEarn()}
               onSend={() => openSend()}
               onSwap={() => openSwap()}
+              onUnshield={
+                shieldedBalances.length > 0 ? openUnshield : undefined
+              }
               rowActions={rowActions}
               tokenRows={
                 page === "stables"
@@ -604,7 +658,9 @@ export function CryptoPage({
               </PaneReveal>
             </InlineSheetReveal>
           </div>
-        ) : actionView !== null ? null : isSwapOpen ? (
+        ) : actionView !== null ? null : isUnshieldOpen ? (
+          <aside className="hidden h-full w-[400px] shrink-0 rounded-3xl bg-card min-[1204px]:block" />
+        ) : isSwapOpen ? (
           // Swap's right pane: a reserved 400px slot (Figma 4813:403499
           // keeps it empty) the selector panel-reveals into and out of;
           // switching sides replays the content reveal on the open panel.
