@@ -227,6 +227,8 @@ export default function EarnScreen() {
   // drive the on-chain policy and refresh this.
   const {
     autodeposit,
+    confirmAutodepositClose,
+    confirmAutodepositSetup,
     hasLoaded: autodepositLoaded,
     refreshAutodeposit,
   } = useEarnAutodeposit(walletAddress);
@@ -355,7 +357,12 @@ export default function EarnScreen() {
     refreshEarnPosition();
     autodepositInfoModeRef.current = "create";
     setAutodepositInfoOpen(true);
-  }, [earnPositionLoaded, hasDeposit, refreshTokenHoldings, refreshEarnPosition]);
+  }, [
+    earnPositionLoaded,
+    hasDeposit,
+    refreshTokenHoldings,
+    refreshEarnPosition,
+  ]);
 
   // Info accepted — open the setup sheet in the mode captured at initiation.
   const handleAutodepositInfoContinue = useCallback(() => {
@@ -589,7 +596,9 @@ export default function EarnScreen() {
     transform: [{ scale: 0.7 + badge.value * 0.3 }],
   }));
   const heroLayerStyle = useAnimatedStyle(() => ({ opacity: heroFade.value }));
-  const fundedLayerStyle = useAnimatedStyle(() => ({ opacity: fundedFade.value }));
+  const fundedLayerStyle = useAnimatedStyle(() => ({
+    opacity: fundedFade.value,
+  }));
   const bottomCardRadiusStyle = useAnimatedStyle(() => ({
     borderTopLeftRadius: fundedFade.value * FUNDED_CARD_RADIUS,
     borderTopRightRadius: fundedFade.value * FUNDED_CARD_RADIUS,
@@ -835,11 +844,12 @@ export default function EarnScreen() {
             flowId: metric.flowId,
           });
         } else {
-          await executeEarnAutodepositSetup({
+          const confirmedSetup = await executeEarnAutodepositSetup({
             signer,
             thresholdUsd,
             flowId: metric.flowId,
           });
+          confirmAutodepositSetup(confirmedSetup);
         }
         try {
           const fresh = await refreshAutodeposit({ throwOnError: true });
@@ -880,6 +890,7 @@ export default function EarnScreen() {
       autodepositSetupMode,
       autodeposit,
       refreshAutodeposit,
+      confirmAutodepositSetup,
       expectScheduledSweep,
       refreshActivityAutodeposit,
       router,
@@ -895,12 +906,13 @@ export default function EarnScreen() {
       if (!autodeposit?.recurringDelegation) {
         throw new Error("Autodeposit isn't set up.");
       }
-      await executeEarnAutodepositClose({
+      const confirmedClose = await executeEarnAutodepositClose({
         signer,
         policy: autodeposit.policyAccount,
         recurringDelegation: autodeposit.recurringDelegation,
         flowId: metric.flowId,
       });
+      confirmAutodepositClose(confirmedClose);
       try {
         await refreshAutodeposit({ throwOnError: true });
         metric.completeAfterPaint();
@@ -913,7 +925,7 @@ export default function EarnScreen() {
       metric.failAfterPaint();
       throw error;
     }
-  }, [signer, state, autodeposit, refreshAutodeposit]);
+  }, [signer, state, autodeposit, confirmAutodepositClose, refreshAutodeposit]);
 
   // Loyal APY for the hero + funded header badges — same source as the APY
   // chart and the web (forecast/loyal rate), not the position's raw reserve

@@ -15,12 +15,10 @@ const createSmartAccountVaultsClient = jest.fn(() => ({
 }));
 const fetchEarnWithdrawCleanupPrepareContext = jest.fn();
 const fetchEarnWithdrawPrepareContext = jest.fn();
-const confirmEarnWithdraw = jest.fn();
-const confirmEarnWithdrawCleanup = jest.fn();
+const executeEarnAutodepositClose = jest.fn();
 const signAndSendPreparedOperations = jest.fn();
 const observeLifecycle = jest.fn();
 const failFromLifecycle = jest.fn();
-const prepareEarnWithdrawServer = jest.fn();
 
 // Mirrors the real EarnApiError so withdraw.ts's instanceof/code checks that
 // gate cleanup-context retries stay exercised.
@@ -29,7 +27,12 @@ class MockEarnApiError extends Error {
   readonly status?: number;
   readonly detail?: string;
 
-  constructor(message: string, code?: string, status?: number, detail?: string) {
+  constructor(
+    message: string,
+    code?: string,
+    status?: number,
+    detail?: string
+  ) {
     super(message);
     this.name = "EarnApiError";
     this.code = code;
@@ -43,7 +46,7 @@ jest.mock(
   () => ({
     normalizeLoyalCluster: (cluster: string) => cluster,
   }),
-  { virtual: true },
+  { virtual: true }
 );
 
 // Mirrors the real KaminoUpstreamError; connection-retry.ts instanceof-checks
@@ -64,7 +67,7 @@ jest.mock(
     createSmartAccountVaultsClient,
     KaminoUpstreamError: MockKaminoUpstreamError,
   }),
-  { virtual: true },
+  { virtual: true }
 );
 
 jest.mock("@/lib/solana/rpc/connection", () => ({
@@ -87,21 +90,17 @@ jest.mock("@/services/observability", () => ({
 }));
 
 jest.mock("../autodeposit", () => ({
-  executeEarnAutodepositClose: jest.fn(),
+  executeEarnAutodepositClose,
 }));
 
 jest.mock("../earn-api", () => ({
   EarnApiError: MockEarnApiError,
-  confirmEarnWithdraw,
-  confirmEarnWithdrawCleanup,
-  // Real connection-retry runs inside these tests; its exhaustion error must
-  // keep the real shape (no code, no status, detail carried) so the
-  // server-prepare fallback gate in withdraw.ts is exercised for real.
+  // Real connection-retry runs inside these tests; its exhaustion error keeps
+  // the production shape so the device-only failure path is exercised.
   earnNetworkError: (message: string, detail?: string) =>
     new MockEarnApiError(message, undefined, undefined, detail),
   fetchEarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawPrepareContext,
-  prepareEarnWithdraw: prepareEarnWithdrawServer,
 }));
 
 jest.mock("../earn-auth", () => ({
@@ -115,8 +114,8 @@ jest.mock("../earn-auth", () => ({
       _signer: unknown,
       auth: unknown,
       _purpose: unknown,
-      call: (value: unknown) => unknown,
-    ) => call(auth),
+      call: (value: unknown) => unknown
+    ) => call(auth)
   ),
 }));
 
@@ -216,6 +215,10 @@ describe("executeEarnWithdraw", () => {
     prepareEarnUsdcCleanup.mockResolvedValue({
       prepared: cleanupOperation,
     });
+    executeEarnAutodepositClose.mockReset();
+    executeEarnAutodepositClose.mockResolvedValue({
+      policyAccounts: ["autodeposit-policy"],
+    });
     // clearAllMocks does not drain queued mockResolvedValueOnce values; reset
     // so tests that send only the withdraw don't leak a stale cleanup entry.
     signAndSendPreparedOperations.mockReset();
@@ -239,26 +242,17 @@ describe("executeEarnWithdraw", () => {
       expect.objectContaining({
         closePoliciesOnFullWithdrawal: false,
         mode: "full",
-      }),
+      })
     );
-    expect(confirmEarnWithdraw).toHaveBeenCalledTimes(1);
-    expect(confirmEarnWithdrawCleanup).toHaveBeenCalledWith({
-      auth: expect.objectContaining({
-        signature: "auth-signature",
-        walletAddress: address,
-      }),
-      cleanupSignature: "cleanup-signature",
-      confirmedSlot: "102",
-    });
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledWith(
-      expect.objectContaining({ minContextSlot: "101" }),
+      expect.objectContaining({ minContextSlot: "101" })
     );
     expect(prepareEarnUsdcCleanup).toHaveBeenCalledWith(
       expect.objectContaining({
         vaultTokenAccounts: [expect.objectContaining({ amountRaw: BigInt(7) })],
         walletAddress: PublicKey.default,
-      }),
+      })
     );
     expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(2);
     expect(signAndSendPreparedOperations.mock.calls[1]?.[0]).toMatchObject({
@@ -270,12 +264,46 @@ describe("executeEarnWithdraw", () => {
     });
   });
 
+  test("waits past a stale confirmed Autodeposit close before withdrawing", async () => {
+    jest.useFakeTimers();
+    const finalContext = fullFinalExitContext();
+    const staleCloseContext = {
+      ...finalContext,
+      withdrawInput: {
+        ...finalContext.withdrawInput,
+        autodepositClose: {
+          policy: "autodeposit-policy",
+          recurringDelegation: "autodeposit-delegation",
+        },
+      },
+    };
+    fetchEarnWithdrawPrepareContext
+      .mockReset()
+      .mockResolvedValueOnce(staleCloseContext)
+      .mockResolvedValueOnce(staleCloseContext)
+      .mockResolvedValueOnce(finalContext);
+
+    const withdrawPromise = executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "full",
+      signer,
+    });
+    await jest.runAllTimersAsync();
+    const result = await withdrawPromise;
+    jest.useRealTimers();
+
+    expect(executeEarnAutodepositClose).toHaveBeenCalledTimes(1);
+    expect(fetchEarnWithdrawPrepareContext).toHaveBeenCalledTimes(3);
+    expect(prepareEarnUsdcWithdraw).toHaveBeenCalledTimes(1);
+    expect(result.withdrawalSignatures).toEqual(["withdraw-signature"]);
+  });
+
   test("returns the landed withdrawal when cleanup fails", async () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     // Code-less EarnApiError = terminal (e.g. backend without the endpoint):
     // no retry, and the landed withdrawal must still resolve as a success.
     fetchEarnWithdrawCleanupPrepareContext.mockRejectedValue(
-      new MockEarnApiError("Failed to prepare Earn account cleanup."),
+      new MockEarnApiError("Failed to prepare Earn account cleanup.")
     );
 
     const result = await executeEarnWithdraw({
@@ -286,7 +314,6 @@ describe("executeEarnWithdraw", () => {
 
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
     expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(1);
-    expect(confirmEarnWithdraw).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       withdrawalSignatures: ["withdraw-signature"],
     });
@@ -294,19 +321,12 @@ describe("executeEarnWithdraw", () => {
     // a benign catalog-miss warning from tokenProgramForEarnMint.
     expect(warn).toHaveBeenCalledWith(
       "[earn-withdraw] cleanup skipped after landed withdrawal",
-      expect.anything(),
+      expect.anything()
     );
     warn.mockRestore();
   });
 
-  test("returns the cleanup signature when cleanup confirm fails", async () => {
-    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-    // Code-less EarnApiError = terminal (non-EarnApiError failures are treated
-    // as network errors and retried; see retryEarnApiCall).
-    confirmEarnWithdrawCleanup.mockRejectedValueOnce(
-      new MockEarnApiError("Failed to confirm Earn account cleanup."),
-    );
-
+  test("returns the cleanup signature without an API accounting write", async () => {
     const result = await executeEarnWithdraw({
       amountUsd: 1,
       mode: "full",
@@ -317,25 +337,15 @@ describe("executeEarnWithdraw", () => {
       cleanupSignature: "cleanup-signature",
       withdrawalSignatures: ["withdraw-signature"],
     });
-    expect(warn).toHaveBeenCalledWith(
-      "[earn-withdraw] cleanup confirm failed; backend will reconcile",
-      expect.any(Error),
-    );
-    expect(observeLifecycle).toHaveBeenCalledWith(
+    expect(observeLifecycle).not.toHaveBeenCalledWith(
       "cleanup_backend_confirm",
-      expect.objectContaining({
-        chainState: "confirmed",
-        errorCode: "backend_confirmation_failed",
-        persistenceState: "failed",
-        recoveryRequired: true,
-      }),
+      expect.anything()
     );
-    warn.mockRestore();
   });
 
   test("retries the cleanup context while the backend RPC catches up", async () => {
     fetchEarnWithdrawCleanupPrepareContext.mockRejectedValueOnce(
-      new MockEarnApiError("Minimum context slot not reached", "context_failed"),
+      new MockEarnApiError("Minimum context slot not reached", "context_failed")
     );
 
     const result = await executeEarnWithdraw({
@@ -354,7 +364,7 @@ describe("executeEarnWithdraw", () => {
   test("does not retry cleanup after the user rejects a wallet prompt", async () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     fetchEarnWithdrawCleanupPrepareContext.mockRejectedValueOnce(
-      new WalletRejectedError(),
+      new WalletRejectedError()
     );
 
     const result = await executeEarnWithdraw({
@@ -396,7 +406,7 @@ describe("executeEarnWithdraw", () => {
     });
   });
 
-  test("recovers via server prepare when device prepare exhausts its retry budget", async () => {
+  test("fails closed when device prepare exhausts its retry budget", async () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     const context = fullFinalExitContext();
     fetchEarnWithdrawPrepareContext.mockResolvedValue({
@@ -405,37 +415,14 @@ describe("executeEarnWithdraw", () => {
     });
     // Kamino keeps answering 503 until the real retry budget runs out.
     prepareEarnUsdcWithdraw.mockRejectedValue(
-      new MockKaminoUpstreamError(503, "Kamino unavailable"),
+      new MockKaminoUpstreamError(503, "Kamino unavailable")
     );
-    const serverOperation = { operation: "server-withdraw" };
-    prepareEarnWithdrawServer.mockResolvedValue({
-      preparedWithdraw: { prepared: serverOperation },
-    });
-
-    const result = await executeEarnWithdraw({
-      amountUsd: 1,
-      mode: "partial",
-      signer,
-    });
-
-    expect(prepareEarnWithdrawServer).toHaveBeenCalledTimes(1);
-    expect(prepareEarnWithdrawServer).toHaveBeenCalledWith(
-      expect.objectContaining({ amountRaw: "1000000", mode: "partial" }),
+    await expect(
+      executeEarnWithdraw({ amountUsd: 1, mode: "partial", signer })
+    ).rejects.toThrow(
+      "We couldn't reach the network to prepare the withdrawal"
     );
-    expect(signAndSendPreparedOperations).toHaveBeenCalledWith(
-      expect.objectContaining({ operations: [serverOperation] }),
-    );
-    expect(observeLifecycle).toHaveBeenCalledWith(
-      "prepare",
-      expect.objectContaining({
-        errorDetail: "kamino_upstream_unavailable",
-        stageCount: 4,
-        stageIndex: 3,
-      }),
-    );
-    expect(result).toEqual({
-      withdrawalSignatures: ["withdraw-signature"],
-    });
+    expect(signAndSendPreparedOperations).not.toHaveBeenCalled();
     warn.mockRestore();
   }, 15_000);
 
@@ -449,22 +436,21 @@ describe("executeEarnWithdraw", () => {
     // it through unretried even when it carries a stable telemetry code.
     const semanticError = Object.assign(
       new Error(
-        "Kamino withdrawal simulation produced less liquidity than requested.",
+        "Kamino withdrawal simulation produced less liquidity than requested."
       ),
-      { code: "earn_withdraw_underfilled" },
+      { code: "earn_withdraw_underfilled" }
     );
     prepareEarnUsdcWithdraw.mockRejectedValue(semanticError);
 
     await expect(
-      executeEarnWithdraw({ amountUsd: 1, mode: "partial", signer }),
+      executeEarnWithdraw({ amountUsd: 1, mode: "partial", signer })
     ).rejects.toThrow(semanticError.message);
 
-    expect(prepareEarnWithdrawServer).not.toHaveBeenCalled();
     expect(signAndSendPreparedOperations).not.toHaveBeenCalled();
     expect(failFromLifecycle).toHaveBeenCalledWith(
       "prepare",
       semanticError,
-      expect.objectContaining({ stageCount: 4, stageIndex: 2 }),
+      expect.objectContaining({ stageCount: 3, stageIndex: 2 })
     );
   });
 });

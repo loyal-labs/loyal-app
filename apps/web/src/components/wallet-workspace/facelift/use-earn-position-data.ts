@@ -1,7 +1,10 @@
 "use client";
 
-import { useWallet } from "@solana/wallet-adapter-react";
-import { useConnection } from "@solana/wallet-adapter-react";
+import {
+  shouldRetainConfirmedOnchainMutation,
+  type ConfirmedOnchainMutation,
+} from "@loyal-labs/shared";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMainAccountUsdcBalance } from "@/components/wallet-workspace/facelift/earn-actions-support";
@@ -31,6 +34,7 @@ import {
   rawTokenAmountToNumber,
   type LoadedEarnAutodepositScheduledSweep,
 } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import { DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS } from "@/lib/yield-optimization/earn-cross-mint-policy-contracts.shared";
 
 export type { EarnAutodepositConfigView };
 
@@ -149,13 +153,36 @@ export function useEarnPositionData(): EarnPositionData {
   >(null);
   const toggleInFlightRef = useRef(false);
 
-  // Fresh loaded state wins over the overlay — but not while the request is
-  // still in flight (a background refresh mid-flight would snap the knob back).
+  // A setup confirmed by the wallet is intentionally ahead of the DB-backed
+  // projection. Pending refreshes for that same setup must not turn the UI
+  // back into "Finish setup"; the settled reconciliation event releases it.
+  // Other mutations keep the original fresh-state-wins behavior.
   useEffect(() => {
     if (!toggleInFlightRef.current) {
-      setAutodepositOverride(null);
+      setAutodepositOverride((current) => {
+        if (!current?.confirmedMutation) {
+          return null;
+        }
+        if (current.confirmedMutation.walletAddress !== walletAddress) {
+          return null;
+        }
+        return shouldRetainConfirmedOnchainMutation({
+          canonical: loadedAutodepositConfig
+            ? {
+                identities: [loadedAutodepositConfig.policyAccount],
+                phase:
+                  loadedAutodepositConfig.state === "creating"
+                    ? "pending"
+                    : "settled",
+              }
+            : null,
+          confirmed: current.confirmedMutation,
+        })
+          ? current
+          : null;
+      });
     }
-  }, [loadedAutodepositConfig]);
+  }, [loadedAutodepositConfig, walletAddress]);
 
   const autodepositConfig: EarnAutodepositConfigView | null =
     autodepositOverride ? autodepositOverride.config : loadedAutodepositConfig;
@@ -227,14 +254,40 @@ export function useEarnPositionData(): EarnPositionData {
   const [autoswapError, setAutoswapError] = useState<string | null>(null);
   const [autoswapOverride, setAutoswapOverride] = useState<{
     config: EarnAutoswapConfigView | null;
+    confirmedMutation?: ConfirmedOnchainMutation & {
+      walletAddress: string;
+    };
   } | null>(null);
   const autoswapMutationInFlightRef = useRef(false);
   const loadedAutoswapConfig = smartAccountData.earnAutoswap;
   useEffect(() => {
     if (!autoswapMutationInFlightRef.current) {
-      setAutoswapOverride(null);
+      setAutoswapOverride((current) => {
+        if (!current?.confirmedMutation) {
+          return null;
+        }
+        if (current.confirmedMutation.walletAddress !== walletAddress) {
+          return null;
+        }
+        return shouldRetainConfirmedOnchainMutation({
+          canonical: loadedAutoswapConfig
+            ? {
+                identities: loadedAutoswapConfig.boundPolicies.map(
+                  (policy) => policy.account
+                ),
+                phase:
+                  loadedAutoswapConfig.status === "finalizing"
+                    ? "pending"
+                    : "settled",
+              }
+            : null,
+          confirmed: current.confirmedMutation,
+        })
+          ? current
+          : null;
+      });
     }
-  }, [loadedAutoswapConfig]);
+  }, [loadedAutoswapConfig, walletAddress]);
   const autoswapConfig = autoswapOverride
     ? autoswapOverride.config
     : loadedAutoswapConfig;
@@ -245,14 +298,41 @@ export function useEarnPositionData(): EarnPositionData {
   const setupAutoswap = useCallback(
     async (request: { dailySourceMintSpendingCap: bigint }) => {
       setAutoswapError(null);
-      const result = await executeAutoswapSetup(request);
+      autoswapMutationInFlightRef.current = true;
+      const result = await executeAutoswapSetup(request).finally(() => {
+        autoswapMutationInFlightRef.current = false;
+      });
       if (!result.success) {
         setAutoswapError(result.error ?? "Autoswap setup failed.");
         return false;
       }
+      if (result.policies) {
+        const [classic, token2022] = result.policies;
+        setAutoswapOverride({
+          config: {
+            boundPolicies: [classic, token2022],
+            dailySourceMintSpendingCap:
+              request.dailySourceMintSpendingCap.toString(),
+            enabled: true,
+            generation: "confirmed-onchain",
+            maxSlippageBps: DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
+            policies: result.policies.map((policy) => ({
+              ...policy,
+              lastSeenSignature: "",
+              lastSeenSlot: "",
+            })),
+            status: "finalizing",
+          },
+          confirmedMutation: {
+            identities: result.policies.map((policy) => policy.account),
+            operation: "install",
+            walletAddress: walletAddress!,
+          },
+        });
+      }
       return true;
     },
-    [executeAutoswapSetup]
+    [executeAutoswapSetup, walletAddress]
   );
   const toggleAutoswap = useCallback(async () => {
     const config = autoswapConfig;
@@ -310,16 +390,28 @@ export function useEarnPositionData(): EarnPositionData {
       return false;
     }
     setAutoswapError(null);
+    autoswapMutationInFlightRef.current = true;
     const result = await executeAutoswapDelete({
       expectedGeneration: config.generation,
+    }).finally(() => {
+      autoswapMutationInFlightRef.current = false;
     });
     if (!result.success) {
       setAutoswapError(result.error ?? "Autoswap removal failed.");
       return false;
     }
-    setAutoswapOverride({ config: null });
+    setAutoswapOverride({
+      config: null,
+      confirmedMutation: result.removedPolicyAccounts
+        ? {
+            identities: result.removedPolicyAccounts,
+            operation: "remove",
+            walletAddress: walletAddress!,
+          }
+        : undefined,
+    });
     return true;
-  }, [autoswapConfig, executeAutoswapDelete]);
+  }, [autoswapConfig, executeAutoswapDelete, walletAddress]);
   const autoswapStatus = loadedAutoswapConfig?.status;
 
   // The chain confirmation deliberately precedes the worker's finalized

@@ -20,6 +20,15 @@ type SimulatedTransactionValue = Awaited<
   ReturnType<PreparedConnection["simulateTransaction"]>
 >["value"];
 
+const SUBMITTED_SIGNATURE_STATUS_MAX_ATTEMPTS = 3;
+const SUBMITTED_SIGNATURE_STATUS_RETRY_DELAY_MS = 500;
+const SIGNED_TRANSACTION_SEND_MAX_ATTEMPTS = 3;
+const SIGNED_TRANSACTION_SEND_RETRY_BASE_DELAY_MS = 250;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function attachCause(error: Error, cause: unknown, logs?: string[]): Error {
   (error as Error & { cause?: unknown; logs?: string[] }).cause ??= cause;
   if (logs) {
@@ -206,55 +215,72 @@ async function sendSignedTransactionWithReconciliation(args: {
   transaction: VersionedTransaction;
 }): Promise<string> {
   const expectedSignature = getSignedTransactionSignature(args.transaction);
-  try {
-    return await args.connection.sendRawTransaction(
-      args.transaction.serialize(),
-      args.sendOptions
-    );
-  } catch (sendError) {
+  const serializedTransaction = args.transaction.serialize();
+  let lastSendError: unknown;
+
+  // A signed Solana transaction is identified by its payer signature, so
+  // rebroadcasting these exact bytes is idempotent. Retry only this known
+  // payload after an ambiguous transport failure; never rebuild or re-sign it.
+  for (
+    let attempt = 0;
+    attempt < SIGNED_TRANSACTION_SEND_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
     try {
-      const { value } = await args.connection.getSignatureStatuses(
-        [expectedSignature],
-        { searchTransactionHistory: true }
+      return await args.connection.sendRawTransaction(
+        serializedTransaction,
+        args.sendOptions
       );
-      const status = value[0] ?? null;
-      if (status?.err) {
-        throw new Error(
-          `Transaction ${expectedSignature} failed: ${JSON.stringify(
-            status.err
-          )}`
+    } catch (sendError) {
+      lastSendError = sendError;
+      try {
+        const { value } = await args.connection.getSignatureStatuses(
+          [expectedSignature],
+          { searchTransactionHistory: true }
         );
+        const status = value[0] ?? null;
+        if (status?.err) {
+          throw new Error(
+            `Transaction ${expectedSignature} failed: ${JSON.stringify(
+              status.err
+            )}`
+          );
+        }
+        if (status) {
+          return expectedSignature;
+        }
+      } catch (statusError) {
+        if (
+          statusError instanceof Error &&
+          statusError.message.startsWith(
+            `Transaction ${expectedSignature} failed:`
+          )
+        ) {
+          throw statusError;
+        }
+        // A secondary status-RPC failure cannot prove the signed transaction
+        // was absent. A bounded exact-byte rebroadcast remains safe.
       }
-      if (status) {
-        return expectedSignature;
-      }
-    } catch (statusError) {
-      if (
-        statusError instanceof Error &&
-        statusError.message.startsWith(
-          `Transaction ${expectedSignature} failed:`
-        )
-      ) {
-        throw statusError;
-      }
-      // A secondary status-RPC failure cannot prove the signed transaction was
-      // absent. Preserve the original send outcome classification below.
-    }
 
-    if (isDeterministicPreflightRejection(sendError)) {
-      throw sendError;
-    }
+      if (isDeterministicPreflightRejection(sendError)) {
+        throw sendError;
+      }
 
-    const error = new Error(
-      `Transaction ${expectedSignature} was signed and may have been submitted, but its send outcome is unresolved. Refresh chain state before retrying.`
-    );
-    Object.assign(error, {
-      cause: sendError,
-      transactionSignature: expectedSignature,
-      transactionWasSubmitted: true,
-    });
-    throw error;
+      if (attempt + 1 < SIGNED_TRANSACTION_SEND_MAX_ATTEMPTS) {
+        await wait(SIGNED_TRANSACTION_SEND_RETRY_BASE_DELAY_MS * 2 ** attempt);
+      }
+    }
   }
+
+  const error = new Error(
+    `Transaction ${expectedSignature} was signed and may have been submitted, but its send outcome is unresolved. Refresh chain state before retrying.`
+  );
+  Object.assign(error, {
+    cause: lastSendError,
+    transactionSignature: expectedSignature,
+    transactionWasSubmitted: true,
+  });
+  throw error;
 }
 
 async function sendVersionedTransaction(args: {
@@ -286,7 +312,9 @@ async function confirmSubmittedTransaction(args: {
   blockhash: string;
   connection: PreparedConnection;
   lastValidBlockHeight: number;
+  prepared?: PreparedOperation;
   signature: string;
+  transaction?: VersionedTransaction;
 }): Promise<number | undefined> {
   try {
     const confirmation = await args.connection.confirmTransaction(
@@ -310,32 +338,67 @@ async function confirmSubmittedTransaction(args: {
     // Confirmation transports can time out after a transaction has landed.
     // Reconcile the returned signature before reporting failure; callers must
     // never interpret an ambiguous confirmation as permission to resend.
-    try {
-      const { value } = await args.connection.getSignatureStatuses(
-        [args.signature],
-        { searchTransactionHistory: true }
-      );
-      const status = value[0] ?? null;
-      if (status?.err) {
-        throw new Error(
-          `Transaction ${args.signature} failed: ${JSON.stringify(status.err)}`
+    let allSuccessfulStatusProbesWereAbsent = true;
+    let successfulStatusProbeCount = 0;
+    for (
+      let attempt = 0;
+      attempt < SUBMITTED_SIGNATURE_STATUS_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const { value } = await args.connection.getSignatureStatuses(
+          [args.signature],
+          { searchTransactionHistory: true }
         );
+        successfulStatusProbeCount += 1;
+        const status = value[0] ?? null;
+        if (status?.err) {
+          throw new Error(
+            `Transaction ${args.signature} failed: ${JSON.stringify(
+              status.err
+            )}`
+          );
+        }
+        if (status) {
+          allSuccessfulStatusProbesWereAbsent = false;
+        }
+        if (
+          status?.confirmationStatus === "confirmed" ||
+          status?.confirmationStatus === "finalized"
+        ) {
+          return status.slot;
+        }
+      } catch (statusError) {
+        if (
+          statusError instanceof Error &&
+          statusError.message.startsWith(
+            `Transaction ${args.signature} failed:`
+          )
+        ) {
+          throw statusError;
+        }
+        // A secondary RPC failure is not evidence that the transaction was
+        // absent. Keep polling because the transport or index can recover.
+        allSuccessfulStatusProbesWereAbsent = false;
       }
-      if (
-        status?.confirmationStatus === "confirmed" ||
-        status?.confirmationStatus === "finalized"
-      ) {
-        return status.slot;
+
+      if (attempt + 1 < SUBMITTED_SIGNATURE_STATUS_MAX_ATTEMPTS) {
+        await wait(SUBMITTED_SIGNATURE_STATUS_RETRY_DELAY_MS);
       }
-    } catch (statusError) {
-      if (
-        statusError instanceof Error &&
-        statusError.message.startsWith(`Transaction ${args.signature} failed:`)
-      ) {
-        throw statusError;
+    }
+
+    const signatureAbsent =
+      successfulStatusProbeCount > 0 && allSuccessfulStatusProbesWereAbsent;
+    if (signatureAbsent && args.prepared && args.transaction) {
+      const diagnostic = await getSimulationDiagnosticError({
+        connection: args.connection,
+        error: confirmationError,
+        prepared: args.prepared,
+        transaction: args.transaction,
+      });
+      if (diagnostic) {
+        throw diagnostic;
       }
-      // Preserve the original confirmation failure below. A secondary RPC
-      // failure is not evidence that the transaction was absent.
     }
 
     const error = new Error(
@@ -389,7 +452,9 @@ export async function sendPreparedWithWallet({
       blockhash: latestBlockhash.blockhash,
       connection,
       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+      prepared,
       signature,
+      transaction,
     });
     await onTransactionConfirmed?.({ prepared, signature, slot });
   }
@@ -508,7 +573,9 @@ export async function sendPreparedBatchWithWallet({
             blockhash: latestBlockhash.blockhash,
             connection,
             lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            prepared: sent.operation,
             signature: sent.signature,
+            transaction: sent.transaction,
           });
         }
 
@@ -570,7 +637,9 @@ export async function sendPreparedBatchWithWallet({
         blockhash: latestBlockhash.blockhash,
         connection,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        prepared: operation,
         signature,
+        transaction: signedTransaction,
       });
     }
 

@@ -8,6 +8,7 @@ import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
+import { EarnRealtimeProvider } from "@/features/earn-realtime/EarnRealtimeProvider";
 import { initAnalytics, track } from "@/lib/analytics/analytics";
 import { APP_EVENTS } from "@/lib/analytics/app-events";
 import { initAttribution } from "@/lib/analytics/attribution";
@@ -101,6 +102,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
         <WalletProvider>
+          <EarnRealtimeProvider />
           <SignApprovalProvider>
             <DatadogInit />
             <ObservabilityInit />

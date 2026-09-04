@@ -3,6 +3,11 @@ export {
   TRUSTED_DAPP_CATEGORIES,
 } from "./dapp-categories";
 export type { TrustedDappCategory } from "./dapp-categories";
+export { shouldRetainConfirmedOnchainMutation } from "./confirmed-onchain-mutation";
+export type {
+  CanonicalOnchainProjection,
+  ConfirmedOnchainMutation,
+} from "./confirmed-onchain-mutation";
 export {
   isDustSolTransfer,
   isDustTokenTransfer,

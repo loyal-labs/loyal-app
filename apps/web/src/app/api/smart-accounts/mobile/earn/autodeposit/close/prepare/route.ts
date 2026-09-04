@@ -18,10 +18,8 @@ import {
   serializePreparedEarnUsdcAutodepositClose,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 
-// Mobile twin of `yield-optimization/autodeposit/close/prepare`. Wallet-sig auth
-// + self-resolved smart account; the device signs the returned close op and
-// confirms it via `autodeposit/close/confirm`. Keep in sync with the session
-// route.
+// Compatibility endpoint for released mobile clients that still ask the server
+// to prepare the Autodeposit close transaction. New clients build it on-device.
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
@@ -42,8 +40,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,

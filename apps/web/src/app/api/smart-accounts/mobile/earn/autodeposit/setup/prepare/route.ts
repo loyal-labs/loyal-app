@@ -30,12 +30,10 @@ import {
   hasActiveEarnRoutePolicyPair,
 } from "@/lib/yield-optimization/earn-position-gate.server";
 
-// Mobile twin of `yield-optimization/autodeposit/setup/prepare`. Wallet-sig auth
-// + self-resolved smart account; the SDK returns the next setup stage's prepared
-// op (initialize_subscription_authority -> create_policy ->
-// create_recurring_delegation, or approve_token_delegate repair) for the device
-// to sign. The orchestrator threads the returned nonce/policySeed back into
-// subsequent stages. Keep in sync with the session route.
+// Compatibility endpoint for released mobile clients that still ask the server
+// to prepare each Autodeposit setup stage. New clients build these transactions
+// on-device, but this contract must remain available until those releases age
+// out.
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
