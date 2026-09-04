@@ -39,6 +39,7 @@ import type { TokenRowActions } from "./token-row-item";
 import { SendContent } from "./send-content";
 import { ReceiveContent } from "./receive-content";
 import { SwapContent } from "./swap-content";
+import { UnshieldContent } from "./unshield-content";
 
 import { AllTokensView } from "./all-tokens-view";
 import { AllActivityView } from "./all-activity-view";
@@ -47,7 +48,7 @@ import { TokenSelectView } from "./token-select-view";
 import { TransactionDetailView } from "./transaction-detail-view";
 import { Settings } from "./settings";
 import { DappApprovalView } from "./dapp-approval-view";
-import { useWalletData } from "@loyal-labs/wallet-core/hooks";
+import { useUnshield, useWalletData } from "@loyal-labs/wallet-core/hooks";
 import { getTokenIconUrl } from "@loyal-labs/wallet-core/lib";
 import { useExtensionWalletDataClient } from "~/src/lib/wallet-data-client";
 import { fetchPriceChanges } from "~/src/lib/coingecko";
@@ -88,6 +89,7 @@ const TABS = [
   { id: "send", label: "Send", Icon: ArrowUpRight },
   { id: "receive", label: "Receive", Icon: ArrowDownLeft },
   { id: "swap", label: "Swap", Icon: ArrowLeftRight },
+  { id: "unshield", label: "Unshield", Icon: Shield },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -1186,6 +1188,8 @@ function WalletInterface() {
     client: walletDataClient,
     solanaEnv,
   });
+  // Exit-only path for the sunset private-transfer program (ASK-2269).
+  const unshield = useUnshield(signer, solanaEnv);
 
   // Navigation state
   const [activeTab, setActiveTab] = useState<TabId>("portfolio");
@@ -1452,6 +1456,11 @@ function WalletInterface() {
             onSend={() => handleTabChange("send")}
             onReceive={() => handleTabChange("receive")}
             onSwap={() => handleTabChange("swap")}
+            onUnshield={
+              unshield.balances.length > 0
+                ? () => handleTabChange("unshield")
+                : undefined
+            }
             onSettings={() => setShowSettings(true)}
             tokenRows={enrichedPortfolioRows}
             transactionDetails={transactionDetails}
@@ -1488,6 +1497,17 @@ function WalletInterface() {
             onClose={handleClose}
             onNavigate={handleNavigate}
             onDone={handleDone}
+          />
+        );
+      case "unshield":
+        return (
+          <UnshieldContent
+            balances={unshield.balances}
+            positions={positions}
+            executeUnshield={unshield.executeUnshield}
+            loading={unshield.loading}
+            error={unshield.error}
+            onClose={handleClose}
           />
         );
     }

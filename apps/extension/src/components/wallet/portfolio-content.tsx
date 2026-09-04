@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   Settings,
+  Shield,
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
@@ -119,6 +120,7 @@ export function PortfolioContent({
   onSend,
   onReceive,
   onSwap,
+  onUnshield,
   onSettings,
   tokenRows,
   transactionDetails,
@@ -141,6 +143,8 @@ export function PortfolioContent({
   onSend: () => void;
   onReceive: () => void;
   onSwap: () => void;
+  /** Only set when the wallet still holds shielded balances (ASK-2269). */
+  onUnshield?: () => void;
   onSettings: () => void;
   tokenRows: TokenRow[];
   transactionDetails: Record<string, TransactionDetail>;
@@ -513,6 +517,9 @@ export function PortfolioContent({
             { label: "Send", Icon: ArrowUpRight, action: onSend },
             { label: "Receive", Icon: ArrowDownLeft, action: onReceive },
             { label: "Swap", Icon: ArrowLeftRight, action: onSwap },
+            ...(onUnshield
+              ? [{ label: "Unshield", Icon: Shield, action: onUnshield }]
+              : []),
           ] as const
         ).map(({ label, Icon, action }) => (
           <button
