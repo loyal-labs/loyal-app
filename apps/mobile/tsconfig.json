@@ -13,6 +13,9 @@
       "@loyal-labs/shared": [
         "../../packages/shared/src/index.ts"
       ],
+      "@loyal-labs/wallet-core/hooks": [
+        "../../packages/wallet-core/src/hooks/index.ts"
+      ],
       "@loyal-labs/wallet-core/lib": [
         "../../packages/wallet-core/src/lib/index.ts"
       ],

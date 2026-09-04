@@ -33,7 +33,9 @@ const STABLECOIN_SYMBOLS = new Set<string>([
   "USDH",
 ]);
 
-export function isStablecoinHolding(holding: TokenHolding): boolean {
+export function isStablecoinHolding(
+  holding: Pick<TokenHolding, "mint" | "symbol">,
+): boolean {
   if (STABLECOIN_MINTS.has(holding.mint)) {
     return true;
   }

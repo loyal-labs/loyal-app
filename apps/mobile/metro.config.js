@@ -47,6 +47,7 @@ config.resolver.nodeModulesPaths = [
 ];
 config.resolver.extraNodeModules = {
   "@loyal-labs/solana-rpc": solanaRpcRoot,
+  "@loyal-labs/wallet-core/hooks": path.resolve(walletCoreRoot, "hooks/index.ts"),
   "@loyal-labs/wallet-core/lib": path.resolve(walletCoreRoot, "lib/index.ts"),
   "@loyal-labs/smart-account-vaults": smartAccountVaultsRoot,
   "@loyal-labs/actions": loyalActionsRoot,

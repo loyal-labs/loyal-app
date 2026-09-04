@@ -5,6 +5,13 @@ export {
   type SwapQuote,
   type SwapResult,
 } from "./use-swap";
+export {
+  createPrivateTransactionsClient,
+  fetchShieldedBalances,
+  type ShieldedBalance,
+  type UnshieldResult,
+  useUnshield,
+} from "./use-unshield";
 export { useWalletBalances, type TokenBalance } from "./use-wallet-balances";
 export { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 export {

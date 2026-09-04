@@ -1,3 +1,4 @@
+import { useUnshield } from "@loyal-labs/wallet-core/hooks";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowDown, ArrowLeft, ArrowUp, ScanLine } from "lucide-react-native";
@@ -19,6 +20,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
+import { resolveShieldedRow } from "@/components/wallet/shielded-balance";
+import { UnshieldSheet } from "@/components/wallet/UnshieldSheet";
 import { buildTokenDetailHref } from "@/features/token-details/routes";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
@@ -36,10 +39,12 @@ import {
   getDisplayTokenHoldings,
   getPairPositions,
 } from "@/lib/solana/token-holdings/display-holdings";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
 import {
   filterHoldingsByCategory,
+  isStablecoinHolding,
   sumHoldingsUsd,
   type WalletCategory,
 } from "../model/categorize";
@@ -50,6 +55,7 @@ import { CardExpandTransition } from "./CardExpandTransition";
 import { CategoryAssetRow } from "./CategoryAssetRow";
 import { CryptoGlyph, StablecoinsGlyph } from "./CategoryGlyphs";
 import { type MoreActionsAnchor, MoreActionsSheet } from "./MoreActionsSheet";
+import { ShieldedAssetRow } from "./ShieldedAssetRow";
 
 import EllipsisIcon from "../../../../assets/images/icons/ellipsis.svg";
 
@@ -68,6 +74,13 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const { solPriceUsd } = useSolPrice();
   const { tokenHoldings, isHoldingsLoading, refreshTokenHoldings } =
     useTokenHoldings(walletAddress);
+  const { signer } = useWallet();
+  // Legacy shielded balances (ASK-2269): Unshield shows only while one exists.
+  const {
+    balances: shieldedBalances,
+    executeUnshield,
+    refreshBalances: refreshShieldedBalances,
+  } = useUnshield(signer, getSolanaEnv());
 
   // Source card geometry passed by the wallet grid, so this page can expand out
   // of (and collapse back into) the tapped card. Absent on direct navigation.
@@ -110,9 +123,20 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         : SOLANA_USDC_MINT_DEVNET,
     ]);
     for (const holding of tokenHoldings) mints.add(holding.mint);
+    for (const balance of shieldedBalances) mints.add(balance.tokenMint);
     return Array.from(mints);
-  }, [tokenHoldings]);
+  }, [tokenHoldings, shieldedBalances]);
   const tokenDetailsByMint = useTokenDetails(tokenDetailMints);
+
+  // Shielded balances in this category, listed under the regular holdings so
+  // they stay visible without opening the Unshield sheet.
+  const shieldedRows = useMemo(
+    () =>
+      shieldedBalances
+        .map((b) => resolveShieldedRow(b, tokenHoldings, tokenDetailsByMint))
+        .filter((row) => isStablecoinHolding(row) === (category === "stablecoins")),
+    [shieldedBalances, tokenHoldings, tokenDetailsByMint, category],
+  );
 
   // Reuse the wallet list's sort + pair grouping, then keep only this
   // category's holdings (pairs stay adjacent, so connectors still line up).
@@ -134,6 +158,16 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const [scanOnOpen, setScanOnOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [unshieldMint, setUnshieldMint] = useState<string | null>(null);
+  const [isUnshieldOpen, setIsUnshieldOpen] = useState(false);
+  const openUnshield = useCallback(
+    (mint: string | null) => {
+      void refreshShieldedBalances();
+      setUnshieldMint(mint);
+      setIsUnshieldOpen(true);
+    },
+    [refreshShieldedBalances],
+  );
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
   const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
@@ -294,6 +328,29 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
                     />
                   ))
                 )}
+
+                {shieldedRows.length > 0 ? (
+                  <>
+                    <View className="px-4 pb-2 pt-3">
+                      <Text
+                        className="text-[17px] font-semibold text-black"
+                        style={{ letterSpacing: -0.187, lineHeight: 22 }}
+                      >
+                        Shielded
+                      </Text>
+                    </View>
+                    {shieldedRows.map((row) => (
+                      <ShieldedAssetRow
+                        key={row.mint}
+                        row={row}
+                        onPress={() => {
+                          void Haptics.selectionAsync();
+                          openUnshield(row.mint);
+                        }}
+                      />
+                    ))}
+                  </>
+                ) : null}
               </Animated.ScrollView>
             </GestureDetector>
 
@@ -374,6 +431,17 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         initialFromMint={initialMint}
       />
 
+      <UnshieldSheet
+        open={isUnshieldOpen}
+        onClose={() => setIsUnshieldOpen(false)}
+        balances={shieldedBalances}
+        executeUnshield={executeUnshield}
+        tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
+        initialMint={unshieldMint}
+        onUnshieldComplete={refresh}
+      />
+
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
@@ -384,6 +452,9 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         }}
         onReceive={() => setIsReceiveOpen(true)}
         onSwap={() => setIsSwapOpen(true)}
+        onUnshield={
+          shieldedBalances.length > 0 ? () => openUnshield(null) : undefined
+        }
       />
     </>
   );
