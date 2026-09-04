@@ -537,6 +537,7 @@
       "name": "@loyal-labs/wallet-core",
       "version": "0.1.1",
       "dependencies": {
+        "@loyal-labs/private-transactions": "0.2.11",
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
       },
@@ -1264,6 +1265,8 @@
     "@loyal-labs/loyal-smart-accounts": ["@loyal-labs/loyal-smart-accounts@workspace:packages/loyal-smart-accounts"],
 
     "@loyal-labs/loyal-smart-accounts-core": ["@loyal-labs/loyal-smart-accounts-core@workspace:packages/loyal-smart-accounts-core"],
+
+    "@loyal-labs/private-transactions": ["@loyal-labs/private-transactions@0.2.11", "", { "peerDependencies": { "@coral-xyz/anchor": "^0.32.0", "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1", "@solana/spl-token": "^0.4.14", "@solana/web3.js": "^1.95.0" } }, "sha512-bQkNIBix7TZ94ti8mCkTaK8j9DIJVQt/GBe5QVw19nQEDDxyBM31truYJXAweZqZJdG3jlBu9Xq7PySWLbLO6Q=="],
 
     "@loyal-labs/privy-showcase": ["@loyal-labs/privy-showcase@workspace:apps/privy-showcase"],
 

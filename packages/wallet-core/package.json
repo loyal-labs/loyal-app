@@ -41,6 +41,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@loyal-labs/private-transactions": "0.2.11",
     "@loyal-labs/solana-rpc": "workspace:*",
     "@loyal-labs/solana-wallet": "workspace:*"
   },
