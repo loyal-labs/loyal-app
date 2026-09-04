@@ -1,0 +1,37 @@
+---
+title: "Your Earn Account"
+description: "How your Main Account, Loyal Smart Account, and Earn vault fit together."
+---
+
+Earn uses a Loyal Smart Account so automation can operate through a narrow policy signer while your wallet retains root authority. You approve setup, manual money movement, and removal from your Main Account. A separate Earn vault controls idle USDC and the Kamino position.
+
+The practical mental model is simple: your Main Account owns the root authority. The Earn vault controls the idle balance and lending position. A separate policy limits automated execution.
+
+## The Three Addresses
+
+| Address                | What it means                              | Why it matters                                                                  |
+| ---------------------- | ------------------------------------------ | ------------------------------------------------------------------------------- |
+| Main Account           | The wallet you connect to Loyal            | You sign setup and approve deposits, withdrawals, or revocation from here       |
+| Smart Account settings | The configuration root                     | It stores signer and policy configuration; it is not where funds should be sent |
+| Earn vault             | The derived smart-account address for Earn | It can hold idle USDC, owns the Kamino position, and executes approved actions  |
+
+<Note>
+  In the current implementation, Earn uses smart-account vault index `1`. The
+  primary smart-account vault is a different address.
+</Note>
+
+## Deposits
+
+When a deposit confirms, USDC moves through the Earn vault into the selected Kamino USDC reserve. Kamino position accounts controlled by the vault represent the supplied funds.
+
+The first Earn deposit may also create the policy accounts needed for future Earn actions. Later top-ups can reuse the active policy instead of creating it again.
+
+## Withdrawals
+
+When you withdraw, Loyal prepares the reverse path from the active Earn position back toward your wallet. A partial withdrawal can leave the Earn setup active. A full exit can also clean up idle USDC, close Earn-specific policy state, and revoke Autodeposit authority if Autodeposit is active.
+
+## Live Balances
+
+The app treats Solana RPC as the current truth for live Earn holdings. It checks the Earn vault USDC account and the Kamino obligation accounts that represent the current lending position.
+
+Loyal's database stores confirmed history, coordination state, and snapshots. It should help explain what happened, but it is not the authority for your live balance.

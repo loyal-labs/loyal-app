@@ -1,0 +1,14 @@
+---
+title: "Exit and lifecycle"
+description: "How pause, withdrawal, recurring-access removal, and full Earn exit differ."
+---
+
+import { ExitChoices } from "/snippets/exit-choices.jsx";
+
+There is no single "off" action. Each choice below changes different state.
+
+<ExitChoices />
+
+These terms are not interchangeable. A paused schedule is not a revoked delegation. A withdrawal does not prove that recurring access ended.
+
+Developers should use [Pause and close](/build/pause-and-close) for transaction and confirmation requirements. See [Ownership and control](/trust/ownership-and-control) for who can approve each action.

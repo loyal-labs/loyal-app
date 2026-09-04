@@ -1,0 +1,23 @@
+---
+title: "Risk and liquidity"
+description: "The risks that remain after Loyal limits automation authority."
+---
+
+A narrow automation boundary reduces what Loyal can execute. It does not remove protocol, asset, liquidity, network, or operational risk.
+
+| Risk | Customer-visible consequence |
+| --- | --- |
+| Smart Account or policy defect | An intended action can fail, or an allowed boundary can behave incorrectly. |
+| Subscription defect | A recurring sweep can fail or its delegated behavior can differ from the intended schedule. |
+| Lending-market loss | Principal can fall. |
+| USDC depeg | The dollar value of USDC can fall. |
+| Low market liquidity | A withdrawal can be delayed or receive less favorable execution. |
+| Compromised Loyal signer | The signer can submit any transaction that still fits the approved boundary. |
+| Solana or RPC outage | Submission, confirmation, or current-state reads can be delayed. |
+| Loyal service outage | Scheduling or reporting can be delayed without changing customer root authority. |
+
+<Warning>
+  Earn rates vary. Principal is not insured, and access can depend on lending-market liquidity.
+</Warning>
+
+See [Audits and deployed scope](/trust/audits-and-deployments) for the evidence available today. See [Exit and lifecycle](/automations/exit-and-lifecycle) for the actions a customer can take.

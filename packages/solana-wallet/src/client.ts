@@ -16,8 +16,8 @@ import type {
   CreateSolanaWalletDataClientConfig,
   GetActivityOptions,
   GetPortfolioOptions,
+  InvalidateCachesOptions,
   PortfolioSnapshot,
-  SecureBalanceMap,
   SolanaWalletDataClient,
   SubscribeActivityOptions,
   SubscribePortfolioOptions,
@@ -54,10 +54,7 @@ function parsePublicKey(value: AddressInput): PublicKey {
   }
 }
 
-function isCacheValid(
-  fetchedAt: number,
-  ttlMs: number
-): boolean {
+function isCacheValid(fetchedAt: number, ttlMs: number): boolean {
   return Date.now() - fetchedAt < ttlMs;
 }
 
@@ -111,7 +108,10 @@ export function createSolanaWalletDataClient(
     });
 
   const portfolioCache = new Map<string, CachedPortfolio>();
-  const inflightPortfolioRequests = new Map<string, Promise<PortfolioSnapshot>>();
+  const inflightPortfolioRequests = new Map<
+    string,
+    Promise<PortfolioSnapshot>
+  >();
   const activityCache = new Map<string, CachedActivity>();
   const inflightActivityRequests = new Map<string, Promise<ActivityPage>>();
 
@@ -151,19 +151,6 @@ export function createSolanaWalletDataClient(
             })),
             fetchedAt: cached.snapshot.fetchedAt,
           },
-          secureBalances: new Map(
-            cached.snapshot.positions
-              .filter((position) => position.securedBalance > 0)
-              .map((position) => [
-                position.asset.mint,
-                BigInt(
-                  Math.round(
-                    position.securedBalance *
-                      Math.pow(10, position.asset.decimals)
-                  )
-                ),
-              ])
-          ),
           fallbackSolPriceUsd: options.fallbackSolPriceUsd,
         }).totals,
       };
@@ -176,23 +163,9 @@ export function createSolanaWalletDataClient(
 
     const loader = (async () => {
       const assetSnapshot = await assetProvider.getAssetSnapshot(owner);
-      const secureBalances: SecureBalanceMap = config.secureBalanceProvider
-        ? await config.secureBalanceProvider({
-            owner,
-            env,
-            tokenMints: assetSnapshot.assets.map(
-              (assetBalance) => new PublicKey(assetBalance.asset.mint)
-            ),
-            assetBalances: assetSnapshot.assets,
-          }).catch((error) => {
-            logger.warn?.("Failed to fetch secure balances", error);
-            return new Map<string, bigint>();
-          })
-        : new Map<string, bigint>();
 
       const snapshot = buildPortfolioSnapshot({
         assetSnapshot,
-        secureBalances,
         fallbackSolPriceUsd: options.fallbackSolPriceUsd,
       });
 
@@ -329,8 +302,10 @@ export function createSolanaWalletDataClient(
     const owner = parsePublicKey(publicKey);
     const cacheKey = getActivityCacheKey(owner.toBase58(), options);
     const cached = activityCache.get(cacheKey);
+    const forceRefresh = options.forceRefresh ?? false;
 
     if (
+      !forceRefresh &&
       !options.before &&
       cached &&
       isCacheValid(cached.fetchedAt, DEFAULT_ACTIVITY_CACHE_TTL_MS)
@@ -339,7 +314,7 @@ export function createSolanaWalletDataClient(
     }
 
     const inflight = inflightActivityRequests.get(cacheKey);
-    if (inflight) {
+    if (inflight && !forceRefresh) {
       return inflight;
     }
 
@@ -445,6 +420,31 @@ export function createSolanaWalletDataClient(
     };
   };
 
+  const invalidateCaches = (options: InvalidateCachesOptions = {}): void => {
+    if (options.portfolio) {
+      for (const address of options.portfolio) {
+        const ownerKey = parsePublicKey(address).toBase58();
+        portfolioCache.delete(ownerKey);
+      }
+    }
+
+    if (options.activity) {
+      const ownerKeys = new Set(
+        options.activity.map((address) => parsePublicKey(address).toBase58())
+      );
+      for (const cacheKey of activityCache.keys()) {
+        try {
+          const parsed = JSON.parse(cacheKey) as { owner?: string };
+          if (parsed.owner && ownerKeys.has(parsed.owner)) {
+            activityCache.delete(cacheKey);
+          }
+        } catch {
+          // Ignore unparseable keys; they aren't owned by this code path.
+        }
+      }
+    }
+  };
+
   return {
     env,
     rpcEndpoint,
@@ -454,5 +454,6 @@ export function createSolanaWalletDataClient(
     subscribePortfolio,
     getActivity,
     subscribeActivity,
+    invalidateCaches,
   };
 }

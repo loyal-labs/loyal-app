@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  authRoutePaths,
   getAuthSessionResponseSchema,
   walletChallengeRequestSchema,
   walletChallengeResponseSchema,
@@ -52,14 +51,5 @@ describe("auth contracts", () => {
     });
 
     expect(parsed.success).toBe(true);
-  });
-
-  test("uses wallet challenge and complete route paths", () => {
-    expect(authRoutePaths.challengeWalletAuth).toBe(
-      "/api/auth/wallet/challenge"
-    );
-    expect(authRoutePaths.completeWalletAuth).toBe(
-      "/api/auth/wallet/complete"
-    );
   });
 });

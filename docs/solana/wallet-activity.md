@@ -4,14 +4,14 @@ This document describes how the app derives wallet activity (incoming/outgoing) 
 
 ## Data Flow (High Level)
 
-- `app/src/lib/solana/rpc/get-account-txn-history.ts` fetches parsed transactions via `getParsedTransactions(...)` and maps them to `WalletTransfer`.
+- `apps/telegram/src/lib/solana/rpc/get-account-txn-history.ts` fetches parsed transactions via `getParsedTransactions(...)` and maps them to `WalletTransfer`.
   - UI screens (activity list + transaction details) consume these transfers and render either:
   - SOL transfers (lamports delta), or
   - SPL token transfers (token balance delta), using `tokenMint/tokenAmount/tokenDecimals`.
 
 ## `WalletTransfer` Shape
 
-`app/src/lib/solana/rpc/types.ts`:
+`apps/telegram/src/lib/solana/rpc/types.ts`:
 
 - Always present (core transfer data):
   - `signature`, `slot`, `timestamp`
@@ -28,39 +28,6 @@ Current behavior: when a transfer is classified as an SPL token transfer, `amoun
 
 ## Transaction Types
 
-The `type` field is decoded from on-chain instruction data. The parser attempts to decode instructions against the `telegram-private-transfer` and `telegram-verification` IDLs in order.
-
-### telegram-private-transfer program types
-
-These correspond to instructions on the `telegram-private-transfer` program (`97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV`):
-
-| Type | Description |
-|------|-------------|
-| `secure` | Shield — `modify_balance` with `increase=true` (tokens move from wallet to vault) |
-| `unshield` | Unshield — `modify_balance` with `increase=false` (tokens move from vault to wallet) |
-| `initialize_deposit` | Deposit account creation |
-| `initialize_username_deposit` | Username deposit account creation |
-| `transfer_deposit` | Private balance transfer between two user deposits (PER) |
-| `transfer_to_username_deposit` | Private transfer to a username deposit (PER) |
-| `claim_username_deposit_to_deposit` | Claim from username deposit with verified Telegram session (PER) |
-| `create_permission` | PER access control creation for user deposit |
-| `create_username_permission` | PER access control creation for username deposit |
-| `delegate` | Delegate user deposit to MagicBlock PER |
-| `delegate_username_deposit` | Delegate username deposit to PER |
-| `undelegate` | Commit and undelegate user deposit from PER |
-| `undelegate_username_deposit` | Commit and undelegate username deposit from PER |
-
-Note: `modify_balance` is not surfaced directly — it is re-mapped to `secure` or `unshield` based on the `increase` argument in the decoded instruction data (see `get-account-txn-history.ts:503-511`).
-
-### telegram-verification program types
-
-| Type | Description |
-|------|-------------|
-| `store` | Store Telegram validation bytes in session PDA |
-| `verify_telegram_init_data` | Verify Ed25519 signature against Telegram public key |
-
-### Other types
-
 | Type | Description |
 |------|-------------|
 | `transfer` | Default/fallback — standard SOL or SPL transfer |
@@ -68,7 +35,7 @@ Note: `modify_balance` is not surfaced directly — it is re-mapped to `secure` 
 
 ## How SPL Token Transfers Are Detected
 
-Implementation: `findTokenBalanceChange(...)` in `app/src/lib/solana/rpc/get-account-txn-history.ts`.
+Implementation: `findTokenBalanceChange(...)` in `apps/telegram/src/lib/solana/rpc/get-account-txn-history.ts`.
 
 1. Read `meta.preTokenBalances` and `meta.postTokenBalances`.
 2. Filter balances down to token accounts belonging to the wallet:
@@ -83,7 +50,7 @@ Implementation: `findTokenBalanceChange(...)` in `app/src/lib/solana/rpc/get-acc
 
 ## How Counterparty Is Inferred For SPL Transfers
 
-Implementation: `findSplTokenTransferCounterparty(...)` in `app/src/lib/solana/rpc/get-account-txn-history.ts`.
+Implementation: `findSplTokenTransferCounterparty(...)` in `apps/telegram/src/lib/solana/rpc/get-account-txn-history.ts`.
 
 - Scans top-level and inner instructions for parsed `spl-token` / `spl-token-2022` instructions of type `transfer` / `transferChecked`.
 - Determines whether the wallet token account is the `source` (outgoing) or `destination` (incoming).
@@ -91,12 +58,12 @@ Implementation: `findSplTokenTransferCounterparty(...)` in `app/src/lib/solana/r
 
 ## UI Display Rules
 
-- `app/src/components/wallet/ActivitySheet.tsx`
+- `apps/telegram/src/components/wallet/ActivitySheet.tsx`
   - If `transaction.tokenMint` + `transaction.tokenAmount` exist, the row displays `tokenAmount` and token symbol instead of `SOL`.
   - Token symbol/icon are resolved from `tokenHoldings` using `resolveTokenInfo(...)`:
     - Uses holdings symbol/image when available
     - Falls back to `KNOWN_TOKEN_ICONS` and finally `DEFAULT_TOKEN_ICON`
-- `app/src/components/wallet/TransactionDetailsSheet.tsx`
+- `apps/telegram/src/components/wallet/TransactionDetailsSheet.tsx`
   - If token transfer: show token symbol as main unit and compute USD from the matching holding's `priceUsd` (if present).
   - Else: compute USD from `solPriceUsd`.
 
@@ -104,8 +71,46 @@ Implementation: `findSplTokenTransferCounterparty(...)` in `app/src/lib/solana/r
 
 If a token does not come back with an image URL, we fall back to a small known-icons map:
 
-- Update `app/src/lib/solana/token-holdings/constants.ts` (`KNOWN_TOKEN_ICONS`)
-- Add the image file under `app/public/tokens/`
+- Update `apps/telegram/src/lib/solana/token-holdings/constants.ts` (`KNOWN_TOKEN_ICONS`)
+- Add the image file under `apps/telegram/public/tokens/`
+
+## Generic Squads Smart-Account Activity (frontend)
+
+For frontend we route smart-account activity through the
+shared vault package:
+
+- `packages/smart-account-vaults` creates vault read models and delegates
+  portfolio/activity reads to `@loyal-labs/solana-wallet`.
+- `apps/web/src/features/smart-accounts/server/read-model.ts` creates a
+  `SmartAccountVaultsClient` with the configured Solana RPC and wallet data
+  client.
+- `GET /api/smart-accounts/overview` loads the smart-account overview with
+  `activityLimit: 0` so the first sidebar render does not scan activity for
+  every vault.
+- `GET /api/smart-accounts/vault-activity?accountIndex=<n>` loads activity
+  lazily for the selected vault.
+- `apps/web/src/hooks/use-smart-account-sidebar-data.ts` maps
+  `WalletActivity` entries into sidebar rows and transaction details.
+
+This flow also carries `program_action` activity rows from the wallet data
+package. Solana program logs are not persisted as a separate frontend log feed
+in this branch; they are used for error normalization when wallet sends fail.
+
+## Facelift Earn Activity
+
+The facelift wallet workspace has a separate, Earn-only Activity page. It loads
+authenticated history from `GET /api/smart-accounts/earn-transactions`, which
+combines the Yield Neon position history with Autodeposit history for Earn vault
+`accountIndex = 1`; it does not use the generic `vault-activity` route. The
+client reuses a five-minute cache with the Earn activity card and refetches when
+the Earn realtime refresh key changes.
+
+`apps/web/src/components/wallet-workspace/facelift/activity-page.tsx` groups the
+returned deposits, withdrawals, rebalances, and other Earn rows by date and
+window-renders the list. Selecting a row opens
+`apps/web/src/components/wallet-workspace/facelift/transaction-detail-pane.tsx`,
+which shows its route, confirmed slot, signature when available, and a Solscan
+link when a signature exists.
 
 ## Caveats / Known Limitations
 

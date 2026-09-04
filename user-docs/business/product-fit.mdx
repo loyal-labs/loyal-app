@@ -1,0 +1,26 @@
+---
+title: "Product fit"
+description: "The account and customer-control requirements for adopting Loyal."
+icon: "circle-check"
+---
+
+Account structure comes first.
+
+Loyal fits products that give each customer a distinct USDC account and explicit approval, followed by a clear exit the customer can use without Loyal's permission.
+
+<CardGroup cols={2}>
+  <Card title="Good fit" icon="circle-check">
+    The customer controls the account, chooses the reserve, approves automation access, sees variable-yield risk, and can remove access.
+  </Card>
+  <Card title="Not a fit" icon="circle-xmark">
+    The product promises guaranteed returns, cannot explain account authority, hides the exit, or needs open-ended transfer access.
+  </Card>
+</CardGroup>
+
+## Current product boundary
+
+Balance Sweep & Earn can move eligible USDC after it appears in the customer's account. That is the current boundary. Loyal does not predict an upcoming card payment or automatically withdraw funds before it.
+
+The architecture can support a customer-controlled, noncustodial product design. The legal classification depends on the complete implementation, contracts, customer experience, and jurisdiction.
+
+Continue to [Use cases](/business/use-cases) for the customer flow or [Integration readiness](/business/integration-readiness) for adoption decisions.

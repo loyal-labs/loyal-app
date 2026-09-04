@@ -165,10 +165,9 @@ start_workspace_pipeline() {
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$key" "$label" "$pid" "$start_ts" "$log_file" "$meta_file" >>"$jobs_file"
 }
 
-start_workspace_pipeline "app" "app" "app"
-start_workspace_pipeline "admin" "admin" "admin"
-start_workspace_pipeline "frontend" "frontend" "frontend"
-start_workspace_pipeline "passkey" "passkey" "passkey"
+start_workspace_pipeline "app" "app" "apps/telegram"
+start_workspace_pipeline "admin" "admin" "apps/admin"
+start_workspace_pipeline "frontend" "frontend" "apps/web"
 
 any_failed=0
 

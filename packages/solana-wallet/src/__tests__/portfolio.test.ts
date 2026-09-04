@@ -8,11 +8,10 @@ import {
 import {
   buildPortfolioSnapshot,
   computePortfolioTotals,
-  flattenPortfolioPositions,
 } from "../domain/portfolio";
 
 describe("portfolio domain helpers", () => {
-  test("builds positions, totals, and flattened holdings from asset snapshots", () => {
+  test("builds positions and totals from asset snapshots", () => {
     const snapshot = buildPortfolioSnapshot({
       assetSnapshot: {
         owner: WALLET_ADDRESS,
@@ -47,22 +46,12 @@ describe("portfolio domain helpers", () => {
           },
         ],
       },
-      secureBalances: new Map([[USDC_MINT, BigInt(750_000)]]),
     });
 
     expect(snapshot.positions).toHaveLength(2);
-    expect(snapshot.positions[1]?.securedBalance).toBe(0.75);
-    expect(snapshot.totals.totalUsd).toBe(206);
-
-    const holdings = flattenPortfolioPositions(snapshot.positions, {
-      splitSecuredBalances: true,
-    });
-    expect(holdings).toHaveLength(3);
-    expect(holdings[2]).toMatchObject({
-      mint: USDC_MINT,
-      isSecured: true,
-      balance: 0.75,
-    });
+    expect(snapshot.positions[0]?.asset.symbol).toBe("SOL");
+    expect(snapshot.positions[1]?.totalBalance).toBe(5.25);
+    expect(snapshot.totals.totalUsd).toBe(205.25);
   });
 
   test("computes totals with fallback sol price when native price is missing", () => {
@@ -78,11 +67,9 @@ describe("portfolio domain helpers", () => {
             isNative: false,
           },
           publicBalance: 5,
-          securedBalance: 0,
           totalBalance: 5,
           priceUsd: 1,
           publicValueUsd: 5,
-          securedValueUsd: 0,
           totalValueUsd: 5,
         },
       ],
@@ -91,5 +78,37 @@ describe("portfolio domain helpers", () => {
 
     expect(totals.totalUsd).toBe(5);
     expect(totals.totalSol).toBe(0.05);
+  });
+
+  test("derives implied unit price when priceUsd is missing but valueUsd is provided", () => {
+    const solMint = "So11111111111111111111111111111111111111112";
+    const snapshot = buildPortfolioSnapshot({
+      assetSnapshot: {
+        owner: WALLET_ADDRESS,
+        nativeBalanceLamports: 39_000_000,
+        fetchedAt: 1,
+        assets: [
+          {
+            asset: {
+              mint: solMint,
+              symbol: "SOL",
+              name: "Solana",
+              decimals: 9,
+              imageUrl: null,
+              isNative: true,
+            },
+            balance: 0.039,
+            priceUsd: null,
+            valueUsd: 6,
+          },
+        ],
+      },
+    });
+
+    const solPosition = snapshot.positions[0];
+    expect(solPosition).toBeDefined();
+    expect(solPosition?.priceUsd).toBeCloseTo(153.846153846, 9);
+    expect(solPosition?.totalValueUsd).toBeCloseTo(6, 6);
+    expect(snapshot.totals.totalUsd).toBe(6);
   });
 });

@@ -1,0 +1,9 @@
+# Denylist rather than a `*` allowlist: an allowlist that fails to re-include
+# `src/` builds a valid image with no application code in it.
+node_modules
+.env
+.env.*
+!.env.example
+src/*.test.ts
+README.md
+bun.lock

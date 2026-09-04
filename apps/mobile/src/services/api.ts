@@ -1,0 +1,184 @@
+import type { ChatSummary, SummariesApiResponse } from "@loyal-labs/shared";
+
+import { env } from "@/config/env";
+
+export type GroupChat = {
+  id: string;
+  title: string;
+  subtitle: string;
+  photoUrl?: string;
+  // Deprecated compatibility fields; remove after migration window.
+  photoBase64?: string;
+  photoMimeType?: string;
+};
+
+export type TokenDetailTimeframe = "1d" | "1w" | "1m" | "1y";
+
+export type MobileTokenDetailResponse = {
+  mint: string;
+  token: {
+    decimals: number | null;
+    logoUrl: string | null;
+    name: string | null;
+    symbol: string | null;
+  };
+  links: {
+    website: string | null;
+    twitter: string | null;
+    explorer: string | null;
+    discord: string | null;
+    telegram: string | null;
+  };
+  market: {
+    fdvUsd: number | null;
+    holderCount: number | null;
+    liquidityUsd: number | null;
+    marketCapUsd: number | null;
+    priceChange24hPercent: number | null;
+    priceUsd: number | null;
+    updatedAt: string | null;
+    volume24hUsd: number | null;
+  };
+  info: {
+    description: string | null;
+    gtScore: number | null;
+    gtVerified: boolean;
+    mintAuthority: string | null;
+    freezeAuthority: string | null;
+    holderDistribution: {
+      top10: string;
+      rest: string;
+    } | null;
+  };
+  chart: Array<{
+    timestamp: number;
+    priceUsd: number;
+  }>;
+};
+
+/**
+ * Fetch all summaries from the API.
+ */
+export async function fetchSummaries(): Promise<ChatSummary[]> {
+  const response = await fetch(`${env.apiBaseUrl}/api/summaries`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch summaries: ${response.status}`);
+  }
+  const data: SummariesApiResponse = await response.json();
+  return data.summaries;
+}
+
+/**
+ * Fetch summaries for a specific group chat.
+ */
+export async function fetchSummariesByGroup(
+  groupChatId: string,
+): Promise<ChatSummary[]> {
+  const response = await fetch(
+    `${env.apiBaseUrl}/api/summaries?groupChatId=${encodeURIComponent(groupChatId)}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch summaries: ${response.status}`);
+  }
+  const data: SummariesApiResponse = await response.json();
+  return data.summaries;
+}
+
+export async function fetchTokenDetailMarket(
+  mint: string,
+  timeframe: TokenDetailTimeframe = "1d",
+): Promise<MobileTokenDetailResponse> {
+  const response = await fetch(
+    `${env.apiBaseUrl}/api/mobile/tokens/${encodeURIComponent(mint)}?timeframe=${timeframe}`,
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch token detail: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export type RemoteTrustedDapp = {
+  id: string;
+  origin: string;
+  name: string;
+  startUrl: string;
+  category: string | null;
+  displayOrder: number;
+};
+
+export type TrustedDappsResponse = {
+  dapps: RemoteTrustedDapp[];
+};
+
+export async function fetchTrustedDapps(): Promise<RemoteTrustedDapp[]> {
+  const response = await fetch(`${env.apiBaseUrl}/api/mobile/dapps`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch trusted dapps: ${response.status}`);
+  }
+
+  const data = (await response.json()) as TrustedDappsResponse;
+  return data.dapps;
+}
+
+export type RemoteLibraryArticle = {
+  id: string;
+  sectionId: string;
+  title: string;
+  coverImageUrl: string;
+  contentMarkdown: string;
+  excerpt: string | null;
+  isFeatured: boolean;
+  displayOrder: number;
+  publishedAt: string | null;
+};
+
+export type RemoteLibrarySection = {
+  id: string;
+  title: string;
+  displayOrder: number;
+  articles: RemoteLibraryArticle[];
+};
+
+export type LibraryResponse = {
+  featured: RemoteLibraryArticle[];
+  sections: RemoteLibrarySection[];
+};
+
+export async function fetchLibrary(): Promise<LibraryResponse> {
+  const response = await fetch(`${env.apiBaseUrl}/api/mobile/library`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch library: ${response.status}`);
+  }
+
+  return (await response.json()) as LibraryResponse;
+}
+
+/**
+ * Transform flat summaries array into deduplicated group list.
+ * Keeps the most recent summary per group (input assumed sorted newest-first from API).
+ */
+export function transformSummariesToGroups(
+  summaries: ChatSummary[],
+): GroupChat[] {
+  const groupMap = new Map<string, GroupChat>();
+
+  for (const summary of summaries) {
+    const groupKey = summary.chatId ?? summary.title;
+    if (!groupMap.has(groupKey)) {
+      groupMap.set(groupKey, {
+        id: groupKey,
+        title: summary.title,
+        subtitle: summary.topics[0]?.content ?? "",
+        photoUrl: summary.photoUrl,
+        photoBase64: summary.photoBase64,
+        photoMimeType: summary.photoMimeType,
+      });
+    }
+  }
+
+  return Array.from(groupMap.values());
+}

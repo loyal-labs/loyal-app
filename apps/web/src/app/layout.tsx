@@ -1,0 +1,165 @@
+import "./globals.css";
+
+import type { Metadata } from "next";
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
+
+import { XPixelBootstrap } from "@/components/analytics/x-pixel-bootstrap";
+import { AppTransitionBridge } from "@/components/app-transition/app-transition-bridge";
+import { PublicEnvProvider } from "@/contexts/public-env-context";
+import { createPublicEnv } from "@/lib/core/config/public";
+import { SITE_URL } from "@/lib/seo/site";
+
+const geistSans = GeistSans;
+const geistMono = GeistMono;
+
+const siteJsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://askloyal.com/#organization",
+      name: "Loyal",
+      legalName: "Loyal DAO LLC",
+      url: "https://askloyal.com",
+      logo: "https://askloyal.com/android-chrome-512x512.png",
+      description:
+        "Self-custody Solana smart-account wallet that earns the best available stablecoin yield automatically. On-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments.",
+      foundingDate: "2025",
+      foundingLocation: {
+        "@type": "Place",
+        name: "Marshall Islands",
+      },
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "main@askloyal.com",
+        url: "https://discord.askloyal.com",
+      },
+      sameAs: [
+        "https://www.wikidata.org/wiki/Q139927376",
+        "https://x.com/loyal_hq",
+        "https://github.com/loyal-labs",
+        "https://discord.askloyal.com",
+        "https://t.me/loyal_tgchat",
+        "https://medium.com/@askloyal",
+        "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack",
+        "https://app.askloyal.com",
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://askloyal.com/#website",
+      url: "https://askloyal.com",
+      name: "Loyal",
+      publisher: { "@id": "https://askloyal.com/#organization" },
+      inLanguage: "en-US",
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://askloyal.com/#app",
+      name: "Loyal",
+      url: "https://askloyal.com",
+      image: "https://askloyal.com/og-home-2026-08.png",
+      applicationCategory: "FinanceApplication",
+      operatingSystem: "Android",
+      description:
+        "Solana wallet that earns stablecoin yield automatically, with smart-account guardrails for AI agents and private transfers. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
+      publisher: { "@id": "https://askloyal.com/#organization" },
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD",
+      },
+    },
+  ],
+};
+
+// Env-tinted favicon: red in prod, yellow on Vercel previews, gray in local dev.
+const faviconPath =
+  process.env.VERCEL_ENV === "production"
+    ? "/icon.svg"
+    : process.env.VERCEL_ENV === "preview"
+      ? "/icon-preview.svg"
+      : "/icon-dev.svg";
+
+export const metadata: Metadata = {
+  title: "Loyal: Solana Wallet That Earns Yield Automatically",
+  description:
+    "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
+  metadataBase: new URL(SITE_URL),
+  alternates: {
+    canonical: "/",
+  },
+  icons: {
+    icon: faviconPath,
+    shortcut: faviconPath,
+    apple: "/apple-touch-icon.png",
+  },
+  openGraph: {
+    type: "website",
+    url: "https://askloyal.com/",
+    siteName: "Loyal",
+    locale: "en_US",
+    title: "Loyal: Solana Wallet That Earns Yield Automatically",
+    description:
+      "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
+    images: [
+      {
+        url: "https://askloyal.com/og-home-2026-08.png",
+        width: 1200,
+        height: 640,
+        alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Loyal: Solana Wallet That Earns Yield Automatically",
+    description:
+      "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
+    images: [
+      {
+        url: "https://askloyal.com/og-home-2026-08.png",
+        alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
+      },
+    ],
+  },
+};
+
+export default async function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  const publicEnv = createPublicEnv(process.env);
+
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        {/* Pre-paint theme resolution: explicit choice wins, else OS preference. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem("theme")==="dark")document.documentElement.classList.add("dark")}catch(e){}`,
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(siteJsonLd).replace(
+              /</g,
+              "\\u003c"
+            ),
+          }}
+        />
+        <PublicEnvProvider value={publicEnv}>
+          <XPixelBootstrap />
+          <AppTransitionBridge />
+          {children}
+        </PublicEnvProvider>
+      </body>
+    </html>
+  );
+}

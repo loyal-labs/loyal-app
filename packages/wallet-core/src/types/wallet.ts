@@ -1,26 +1,44 @@
-export type RightSidebarTab = "portfolio" | "receive" | "send" | "swap" | "sign-in";
+export type RightSidebarTab =
+  | "portfolio"
+  | "receive"
+  | "send"
+  | "swap"
+  | "sign-in"
+  | "connect";
 
 export interface TokenRow {
   id?: string;
   symbol: string;
+  name?: string;
   price: string;
   amount: string;
   value: string;
   icon: string;
-  isSecured?: boolean;
+  priceChange24h?: number | null;
+  totalAmountDisplay?: string | null;
+  totalValueDisplay?: string | null;
+  publicAmountDisplay?: string | null;
+  publicValueDisplay?: string | null;
+  /** USD value earned since principal was recorded (formatted, signed). */
+  earnedValueDisplay?: string | null;
+  /** USD value of principal (formatted) — shown next to earned delta. */
+  principalValueDisplay?: string | null;
 }
 
 export interface ActivityRow {
   id: string;
-  type: "received" | "sent" | "shielded" | "unshielded";
+  type: "received" | "sent";
   counterparty: string;
   amount: string;
   timestamp: string;
   date: string;
   icon: string;
-  isPrivate?: boolean;
   /** Epoch milliseconds for sort order — absent in legacy localStorage rows */
   rawTimestamp?: number;
+  /** Replaces the type-derived row title (e.g. "Earn Deposit"). */
+  titleOverride?: string;
+  /** Replaces the default "to/from <counterparty>" subtitle (e.g. "Network fee"). */
+  subtitle?: string;
 }
 
 export interface TransactionDetail {
@@ -29,7 +47,6 @@ export interface TransactionDetail {
   status: string;
   networkFee: string;
   networkFeeUsd: string;
-  isPrivate?: boolean;
 }
 
 export interface SwapToken {
@@ -40,7 +57,7 @@ export interface SwapToken {
   balance: number;
 }
 
-export type SwapMode = "swap" | "shield";
+export type SwapMode = "swap";
 
 export interface FormButtonProps {
   label: string;
@@ -52,10 +69,44 @@ export type SubView =
   | null
   | "allTokens"
   | "allActivity"
-  | { type: "transaction"; detail: TransactionDetail; from: "portfolio" | "allActivity" }
+  | "allApprovals"
+  | {
+      type: "transaction";
+      detail: TransactionDetail;
+      from: "portfolio" | "allActivity";
+    }
   | { type: "tokenSelect"; field: "from" | "to" }
   | { type: "sendTokenSelect" }
-  | { type: "shieldTokenSelect" };
+  | { type: "approvalReview" }
+  | { type: "accountPage"; account: "main" | "vault" }
+  | {
+      type: "agentPage";
+      agentId: string;
+      label: string;
+      agentIcon?: string;
+      balanceWhole: string;
+      balanceFraction: string;
+    }
+  | {
+      type: "stashPage";
+      label: string;
+      balanceWhole: string;
+      balanceFraction: string;
+    }
+  | { type: "sendPanel"; source?: "main" | "vault"; mint?: string }
+  | { type: "receivePanel" }
+  | { type: "swapPanel"; mode?: "swap" }
+  | { type: "dappConnect"; origin: string; favicon?: string; requestId: string }
+  | {
+      type: "dappSign";
+      origin: string;
+      favicon?: string;
+      requestId: string;
+      kind: "signTransaction" | "signMessage";
+      transactionBase64?: string;
+      messageBase64?: string;
+    }
+  | { type: "tokenDetail"; token: TokenRow; from: "portfolio" | "allTokens" };
 
 export const LOYL_TOKEN: SwapToken = {
   mint: "LYLikzBQtpa9ZgVrJsqYGQpR3cC1WMJrBHaXGrQmeta",

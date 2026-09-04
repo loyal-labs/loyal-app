@@ -1,0 +1,287 @@
+import "server-only";
+
+import {
+  createAuthSessionTokenClaims,
+  mapAuthSessionTokenClaimsToUser,
+  type AuthSessionUser,
+} from "@loyal-labs/auth-core";
+
+import type { ServerEnv } from "@/lib/core/config/server";
+
+import {
+  issueAuthSessionToken,
+  issueAuthSessionTokenRS256,
+  type AuthSessionTokenClaims,
+  verifyAuthSessionTokenMulti,
+} from "./session-token";
+import {
+  CHERRY_WALLET_SESSION_COOKIE_NAME,
+  createCherryPartitionedSessionCookieOptions,
+  hasCherryEmbedContext,
+  type CherryPartitionedCookieOptions,
+} from "./cherry-session-cookie";
+
+export const WALLET_AUTH_SESSION_COOKIE_NAME = "loyal_wallet_session";
+export const SESSION_REFRESH_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+export type SessionCookieOptions =
+  | {
+      httpOnly: true;
+      sameSite: "lax";
+      secure: boolean;
+      path: "/";
+      maxAge: number;
+      domain?: string;
+    }
+  | CherryPartitionedCookieOptions;
+
+export type WalletSessionMetadata = {
+  expiresAt: string;
+  refreshAfter: string;
+};
+
+type SessionCookieServiceDependencies = {
+  getConfig: () => Pick<
+    ServerEnv,
+    | "authCookieAllowLocalhost"
+    | "authCookieParentDomains"
+    | "authCookiePreviewFallback"
+    | "authJwtSecret"
+    | "authJwtTtlSeconds"
+    | "authSessionRs256PrivateKey"
+    | "authSessionRs256PublicKey"
+  >;
+};
+
+function normalizeHostname(hostname: string): string {
+  return hostname.trim().replace(/\.$/, "").toLowerCase();
+}
+
+function getPrimaryHeaderValue(headers: Headers, name: string): string | null {
+  const value = headers.get(name);
+  if (!value) {
+    return null;
+  }
+
+  const primary = value.split(",")[0]?.trim();
+  return primary && primary.length > 0 ? primary : null;
+}
+
+function parseCookieHeader(
+  cookieHeader: string | null
+): Record<string, string> {
+  if (!cookieHeader) {
+    return {};
+  }
+
+  return cookieHeader.split(";").reduce<Record<string, string>>((acc, part) => {
+    const [name, ...rest] = part.trim().split("=");
+    if (!name || rest.length === 0) {
+      return acc;
+    }
+
+    acc[name] = rest.join("=");
+    return acc;
+  }, {});
+}
+
+function toIsoStringFromUnixSeconds(value: number): string {
+  return new Date(value * 1000).toISOString();
+}
+
+function toRefreshAfterIsoString(iat: number): string {
+  return new Date(iat * 1000 + SESSION_REFRESH_MIN_AGE_MS).toISOString();
+}
+
+// Local development hosts: localhost/loopback plus RFC1918 LAN addresses —
+// dev servers are routinely opened from other devices via the machine's
+// network IP, and those hosts can never be a production domain.
+function isLocalDevelopmentHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  );
+}
+
+function resolveCookieOptions(
+  request: Request,
+  config: ReturnType<SessionCookieServiceDependencies["getConfig"]>,
+  maxAge: number
+): SessionCookieOptions {
+  if (hasCherryEmbedContext(request)) {
+    return createCherryPartitionedSessionCookieOptions(maxAge);
+  }
+
+  const fallbackUrl = new URL(request.url);
+  const hostHeader =
+    getPrimaryHeaderValue(request.headers, "x-forwarded-host") ??
+    getPrimaryHeaderValue(request.headers, "host") ??
+    fallbackUrl.host;
+  const protocol =
+    getPrimaryHeaderValue(request.headers, "x-forwarded-proto") ??
+    fallbackUrl.protocol.replace(/:$/, "");
+  const hostname = normalizeHostname(
+    new URL(`${protocol}://${hostHeader}`).hostname
+  );
+
+  if (isLocalDevelopmentHostname(hostname)) {
+    if (!config.authCookieAllowLocalhost) {
+      throw new Error(
+        "Local development hosts are not allowed for auth session cookies"
+      );
+    }
+
+    return {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+      path: "/",
+      maxAge,
+    };
+  }
+
+  const matchedParentDomain = config.authCookieParentDomains.find(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+  );
+
+  if (matchedParentDomain) {
+    return {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge,
+      domain: matchedParentDomain,
+    };
+  }
+
+  if (config.authCookiePreviewFallback) {
+    return {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: true,
+      path: "/",
+      maxAge,
+    };
+  }
+
+  if (config.authCookieParentDomains.length === 0) {
+    throw new Error("AUTH_COOKIE_PARENT_DOMAIN is not set");
+  }
+
+  throw new Error(`Host "${hostname}" is not allowed for auth session cookies`);
+}
+
+export function createAuthSessionCookieService(
+  dependencies: SessionCookieServiceDependencies
+) {
+  async function readSessionClaimsFromRequest(request: Request) {
+    const config = dependencies.getConfig();
+    const token = parseCookieHeader(request.headers.get("cookie"))[
+      getSessionCookieName(request)
+    ];
+
+    if (!token) {
+      return null;
+    }
+
+    try {
+      return await verifyAuthSessionTokenMulti(token, {
+        rs256PublicKey: config.authSessionRs256PublicKey,
+        hs256Secret: config.authJwtSecret,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  return {
+    async issueSessionToken(user: AuthSessionUser) {
+      const config = dependencies.getConfig();
+      const claims = createAuthSessionTokenClaims(user);
+
+      if (config.authSessionRs256PrivateKey) {
+        return issueAuthSessionTokenRS256(
+          claims,
+          config.authSessionRs256PrivateKey,
+          config.authJwtTtlSeconds
+        );
+      }
+
+      if (config.authJwtSecret) {
+        return issueAuthSessionToken(
+          claims,
+          config.authJwtSecret,
+          config.authJwtTtlSeconds
+        );
+      }
+
+      throw new Error(
+        "Wallet auth session signing is not configured. Set AUTH_JWT_SECRET or AUTH_JWT_RS256_PRIVATE_KEY."
+      );
+    },
+
+    getSessionMetadata(claims: Pick<AuthSessionTokenClaims, "iat" | "exp">) {
+      if (typeof claims.iat !== "number" || typeof claims.exp !== "number") {
+        throw new Error("Wallet session is missing iat/exp claims");
+      }
+
+      return {
+        expiresAt: toIsoStringFromUnixSeconds(claims.exp),
+        refreshAfter: toRefreshAfterIsoString(claims.iat),
+      } satisfies WalletSessionMetadata;
+    },
+
+    readSessionClaimsFromRequest,
+
+    getSessionCookieName,
+
+    async readSessionFromRequest(request: Request) {
+      const claims = await readSessionClaimsFromRequest(request);
+      if (!claims) {
+        return null;
+      }
+
+      return mapAuthSessionTokenClaimsToUser(claims);
+    },
+
+    shouldRefreshSessionToken(
+      claims: Pick<AuthSessionTokenClaims, "authMethod" | "iat">,
+      now = new Date()
+    ) {
+      if (claims.authMethod !== "wallet") {
+        return false;
+      }
+
+      if (typeof claims.iat !== "number") {
+        return false;
+      }
+
+      return now.getTime() - claims.iat * 1000 >= SESSION_REFRESH_MIN_AGE_MS;
+    },
+
+    createSessionCookieOptions(request: Request) {
+      return resolveCookieOptions(
+        request,
+        dependencies.getConfig(),
+        dependencies.getConfig().authJwtTtlSeconds
+      );
+    },
+
+    createClearedSessionCookieOptions(request: Request) {
+      return resolveCookieOptions(request, dependencies.getConfig(), 0);
+    },
+  };
+}
+
+export function getSessionCookieName(request: Request): string {
+  return hasCherryEmbedContext(request)
+    ? CHERRY_WALLET_SESSION_COOKIE_NAME
+    : WALLET_AUTH_SESSION_COOKIE_NAME;
+}

@@ -4,83 +4,126 @@
   "name": "Loyal Documentation",
   "colors": {
     "primary": "#CD1D09",
-    "light": "#CD1D09",
-    "dark": "#CD1D09"
+    "light": "#F45B50",
+    "dark": "#D63B31"
+  },
+  "background": {
+    "color": {
+      "dark": "#000000"
+    }
   },
   "favicon": "/loyal_favicon.svg",
   "navigation": {
     "tabs": [
       {
-        "tab": "DeFi",
+        "tab": "Product",
+        "icon": "sparkles",
         "groups": [
           {
-            "group": "Private Transactions",
+            "group": "Automations",
+            "icon": "arrows-rotate",
+            "directory": "card",
             "pages": [
-              "sdk/private-transactions/quick-start",
-              "sdk/private-transactions/how-it-works",
-              "sdk/private-transactions/reference",
-              "sdk/private-transactions/cli",
-              "sdk/private-transactions/errors"
+              "index",
+              "automations/how-it-works",
+              {
+                "group": "Balance Sweep & Earn",
+                "icon": "chart-line",
+                "root": "automations/balance-sweeps-and-earn",
+                "expanded": false,
+                "pages": [
+                  "automations/reserve-and-eligibility",
+                  "automations/routing-and-yield",
+                  "automations/exit-and-lifecycle"
+                ]
+              },
+              "automations/catalog",
+              "trust/withdraw-without-loyal",
+              {
+                "group": "Trust & control",
+                "icon": "shield-halved",
+                "root": "trust/ownership-and-control",
+                "expanded": false,
+                "pages": [
+                  "trust/rule-enforcement",
+                  "trust/risk-and-liquidity",
+                  "trust/audits-and-deployments"
+                ]
+              }
             ]
           },
           {
-            "group": "FAQ & Support",
-            "pages": ["faq/index"]
-          },
-          {
-            "group": "Resources",
-            "pages": ["resources/links"]
-          }
-        ]
-      },
-      {
-        "tab": "Smart Accounts",
-        "groups": [
-          {
-            "group": "Overview",
+            "group": "For Businesses",
+            "icon": "building-columns",
+            "directory": "card",
             "pages": [
-              "smart-accounts/overview",
-              "smart-accounts/concepts",
-              "smart-accounts/policies-and-execution"
+              "business/overview",
+              "business/product-fit",
+              "business/use-cases",
+              "business/economics-and-responsibilities",
+              "business/integration-readiness"
             ]
           },
           {
-            "group": "SDKs",
+            "group": "Developers",
+            "icon": "code",
+            "directory": "card",
             "pages": [
-              "smart-accounts/typescript-sdk",
-              "smart-accounts/rust-sdk"
+              "build/overview",
+              "build/first-automation",
+              "build/system-architecture",
+              {
+                "group": "Automation lifecycle",
+                "icon": "timeline",
+                "root": "build/automation-lifecycle",
+                "expanded": false,
+                "pages": [
+                  "earn/autodeposit",
+                  "earn/policies",
+                  "build/pause-and-close"
+                ]
+              },
+              {
+                "group": "Earn routing",
+                "icon": "chart-line",
+                "root": "earn/smart-account",
+                "expanded": false,
+                "pages": [
+                  "earn/same-mint-optimization",
+                  "earn/orchestrator",
+                  "earn/trust-model"
+                ]
+              },
+              {
+                "group": "Smart Accounts",
+                "icon": "wallet",
+                "root": "smart-accounts/overview",
+                "expanded": false,
+                "pages": [
+                  "smart-accounts/concepts",
+                  "smart-accounts/policies-and-execution",
+                  "smart-accounts/frontend-and-vaults",
+                  "smart-accounts/typescript-sdk",
+                  "smart-accounts/rust-sdk"
+                ]
+              },
+              {
+                "group": "Reference",
+                "icon": "book-open",
+                "root": "build/reference",
+                "expanded": false,
+                "pages": [
+                  "build/networks-and-deployments",
+                  "build/state-events-and-receipts"
+                ]
+              }
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Learn",
-        "groups": [
-          {
-            "group": "About Loyal",
-            "pages": [
-              "surveillance-crisis",
-              "Introduction/solution",
-              "Introduction/howitworks",
-              "Introduction/usecases"
-            ]
-          },
-          {
-            "group": "Architecture",
-            "pages": [
-              "architecture/network",
-              "architecture/payments",
-              "architecture/privacy"
-            ]
-          },
-          {
-            "group": "Launch",
-            "pages": ["launch/roadmap", "launch/token"]
           }
         ]
       },
       {
         "tab": "Transparency",
+        "icon": "scale-balanced",
         "groups": [
           {
             "group": "Team",
@@ -88,31 +131,111 @@
           },
           {
             "group": "Reports",
-            "pages": ["transparency/q4-2025"]
+            "pages": [
+              "transparency/q2-2026",
+              "transparency/q1-2026",
+              "transparency/q4-2025"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "faq/index",
+              "resources/links",
+              "launch/roadmap",
+              "launch/token"
+            ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Home",
-          "href": "https://docs.askloyal.com",
-          "icon": "house"
-        },
-        {
-          "anchor": "Litepaper",
-          "href": "https://drive.google.com/file/d/17htv03yh9Ugddkq4kyc14Ut6XesbtRYB/view?usp=sharing",
-          "icon": "scroll"
-        },
-        {
-          "anchor": "MetaDAO Launch",
-          "href": "https://metadao.fi",
-          "icon": "rocket"
-        }
-      ]
-    }
+    ]
   },
+  "redirects": [
+    {
+      "source": "/automations/thesis",
+      "destination": "/"
+    },
+    {
+      "source": "/business/noncustodial-account-model",
+      "destination": "/trust/ownership-and-control"
+    },
+    {
+      "source": "/business/economics",
+      "destination": "/business/economics-and-responsibilities"
+    },
+    {
+      "source": "/business/neobank-example",
+      "destination": "/business/use-cases#neobank"
+    },
+    {
+      "source": "/business/payment-processor-example",
+      "destination": "/business/use-cases#payment-processor"
+    },
+    {
+      "source": "/trust/risk-and-transparency",
+      "destination": "/trust/risk-and-liquidity"
+    },
+    {
+      "source": "/earn/overview",
+      "destination": "/earn/smart-account"
+    },
+    {
+      "source": "/earn/safety-and-faq",
+      "destination": "/earn/trust-model"
+    },
+    {
+      "source": "/Introduction",
+      "destination": "/"
+    },
+    {
+      "source": "/Introduction/howitworks",
+      "destination": "/"
+    },
+    {
+      "source": "/Introduction/solution",
+      "destination": "/"
+    },
+    {
+      "source": "/Introduction/usecases",
+      "destination": "/business/use-cases"
+    },
+    {
+      "source": "/Introduction/vision",
+      "destination": "/"
+    },
+    {
+      "source": "/architecture/network",
+      "destination": "/build/system-architecture"
+    },
+    {
+      "source": "/architecture/payments",
+      "destination": "/build/system-architecture"
+    },
+    {
+      "source": "/architecture/privacy",
+      "destination": "/"
+    },
+    {
+      "source": "/quickstart",
+      "destination": "/build/first-automation"
+    },
+    {
+      "source": "/surveillance-crisis",
+      "destination": "/"
+    },
+    {
+      "source": "/launch/MetaDAO",
+      "destination": "/launch/token"
+    },
+    {
+      "source": "/launch/Futarchy",
+      "destination": "/launch/token"
+    },
+    {
+      "source": "/loyal_manifesto",
+      "destination": "/"
+    }
+  ],
   "logo": {
     "light": "/logo/light.png",
     "dark": "/logo/dark.png"
@@ -126,8 +249,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Telegram community",
-      "href": "https://tg.askloyal.com"
+      "label": "Open Loyal",
+      "href": "https://app.askloyal.com"
     }
   },
   "contextual": {
@@ -145,7 +268,7 @@
     "socials": {
       "x": "https://x.com/loyal_hq",
       "github": "https://github.com/loyal-labs",
-      "discord": "https://discord.gg/HSeXaVhzWU"
+      "discord": "https://discord.askloyal.com"
     }
   }
 }

@@ -1,0 +1,15 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="368.532" height="310.117" viewBox="0 0 368.532 310.117" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Mascot">
+<path id="Vector" d="M59.7128 273.785L0 127.161H163.493V0L236.156 127.161L254.322 0L368.532 310.117L59.7128 273.785Z" fill="#F9363C"/>
+<path id="Teeth BG" d="M220.215 221.698L233.746 266.185L50.123 250.238L29.9116 200.609L220.215 221.698Z" fill="white"/>
+<g id="Mask group">
+<mask id="mask0_0_24" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="29" y="200" width="205" height="67">
+<path id="Teeth Mask" d="M220.215 221.698L233.746 266.185L50.123 250.238L29.9116 200.609L220.215 221.698Z" fill="white"/>
+</mask>
+<g mask="url(#mask0_0_24)">
+<path id="Teeth" d="M42.2172 234.006L73.6168 220.466L112.176 242.904L140.265 229.172L189.539 250.983L230.774 234.442" stroke="black" stroke-width="12.578"/>
+</g>
+</g>
+<path id="Vector_2" d="M249.327 202.201C250.283 190.95 245.649 180.347 237.466 172.494C230.017 165.346 219.627 160.478 207.837 159.476C196.128 158.48 185.137 161.476 176.612 167.186C167.124 173.542 160.692 183.261 159.729 194.583" stroke="black" stroke-width="12.578"/>
+</g>
+</svg>

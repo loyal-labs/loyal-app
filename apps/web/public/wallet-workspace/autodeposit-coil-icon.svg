@@ -1,0 +1,17 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <g id="coin">
+      <path d="M25.9997 0.0966797C26.3298 0.0329353 26.6632 0 26.9997 0C34.1794 0 39.9997 14.7746 39.9997 33C39.9997 51.2254 34.1794 66 26.9997 66C26.6632 66 26.3298 65.9671 25.9997 65.9033V66H13.9997V0H25.9997V0.0966797Z" fill="#FD9528"/>
+      <ellipse cx="13" cy="33" rx="13" ry="33" fill="#FFD41B"/>
+    </g>
+    <clipPath id="rounded">
+      <rect width="96" height="96" rx="22"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#rounded)">
+    <rect width="96" height="96" rx="22" fill="#F9363C"/>
+    <use href="#coin" transform="translate(50.235 87.355) rotate(65.34) translate(-20 -33)"/>
+    <use href="#coin" transform="translate(50.946 55.78) rotate(47.01) translate(-20 -33)"/>
+    <use href="#coin" transform="translate(43.246 18.536) rotate(28.28) translate(-20 -33)"/>
+  </g>
+</svg>

@@ -1,0 +1,57 @@
+---
+title: "Market selection"
+description: "What the Earn worker watches, how it decides, and why it can skip a move."
+---
+
+The orchestrator is the worker that turns the Earn policy into action. It does not own your funds. It watches for valid opportunities, prepares policy-bounded transactions, and records confirmed results.
+
+Think of it as a cautious operator that must prove a move is allowed before it can send anything.
+
+## What It Reads
+
+| Source | What it provides |
+| --- | --- |
+| Solana RPC | The current Earn vault, USDC token account, policy account, and Kamino obligation state |
+| Kamino market data | The reserve rates used to compare eligible USDC markets |
+| Yield Neon | Active policies, managed vault records, confirmed events, and rebalance history |
+| Timescale | Historical and current reserve data used for scoring |
+
+## The Decision Loop
+
+<Steps>
+  <Step title="Discover active Earn vaults">
+    The worker loads active Earn vault and policy metadata from Loyal's control plane.
+  </Step>
+  <Step title="Reconcile from chain">
+    It checks the actual vault and Kamino position before planning a move.
+  </Step>
+  <Step title="Score same-mint candidates">
+    It compares approved USDC reserves and rejects cross-mint-only opportunities.
+  </Step>
+  <Step title="Preflight the policy">
+    It checks that the on-chain policy allows the USDC route, including the required market list and instruction shape.
+  </Step>
+  <Step title="Submit and confirm">
+    If simulation and preflight pass, it submits the route and records the confirmed result.
+  </Step>
+</Steps>
+
+## Why It Skips
+
+| Decision exit | Meaning |
+| --- | --- |
+| Nothing to move | The vault has no eligible position. |
+| No useful route | No approved same-mint move clears the required edge. |
+| Evidence is stale | Market or chain data is too old to support a decision. |
+| Wait period active | A recent move is still inside its cooldown. |
+| Setup is missing | A required account cannot be created through the current policy. |
+| Another decision is active | The worker will not compete with in-progress work. |
+| Policy rejects the route | The candidate does not fit the current onchain boundary. |
+
+A skip is the correct result when no safe move is available.
+
+<Info>
+Yield Neon is the coordination and history layer. The live position still comes from on-chain accounts.
+</Info>
+
+Use [Runtime state and evidence](/build/state-events-and-receipts) to distinguish a skipped decision from a submitted or confirmed move.

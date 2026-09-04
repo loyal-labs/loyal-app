@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { PublicKey } from "@solana/web3.js";
 
-import {
-  USDC_MINT,
-  WALLET_ADDRESS,
-} from "../__fixtures__/asset-fixtures";
+import { USDC_MINT, WALLET_ADDRESS } from "../__fixtures__/asset-fixtures";
 import { createSolanaWalletDataClient } from "../client";
 import type { ActivityProvider, AssetProvider } from "../types";
 
 describe("createSolanaWalletDataClient", () => {
-  test("caches portfolio snapshots and merges secure balances", async () => {
+  test("caches portfolio snapshots", async () => {
     let assetCalls = 0;
     const assetProvider: AssetProvider = {
       getBalance: async () => 123,
@@ -60,21 +57,18 @@ describe("createSolanaWalletDataClient", () => {
       env: "devnet",
       assetProvider,
       activityProvider,
-      secureBalanceProvider: async () =>
-        new Map([[USDC_MINT, BigInt(500_000)]]),
     });
 
     const first = await client.getPortfolio(WALLET_ADDRESS);
     const second = await client.getPortfolio(WALLET_ADDRESS);
 
     expect(assetCalls).toBe(1);
-    expect(first.positions.find((position) => position.asset.mint === USDC_MINT))
-      .toMatchObject({
-        publicBalance: 2,
-        securedBalance: 0.5,
-        totalBalance: 2.5,
-      });
-    expect(second.totals.totalUsd).toBe(102.5);
+    const firstUsdc = first.positions.find(
+      (position) => position.asset.mint === USDC_MINT
+    );
+    expect(firstUsdc?.publicBalance).toBe(2);
+    expect(firstUsdc?.totalBalance).toBe(2);
+    expect(second.totals.totalUsd).toBe(102);
   });
 
   test("rejects invalid addresses", async () => {
@@ -153,12 +147,16 @@ describe("createSolanaWalletDataClient", () => {
       },
     });
 
-    const unsubscribe = await client.subscribeActivity(owner, () => {
-      emitted += 1;
-    }, {
-      emitInitial: true,
-      fallbackRefreshMs: 5,
-    });
+    const unsubscribe = await client.subscribeActivity(
+      owner,
+      () => {
+        emitted += 1;
+      },
+      {
+        emitInitial: true,
+        fallbackRefreshMs: 5,
+      }
+    );
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     await unsubscribe();

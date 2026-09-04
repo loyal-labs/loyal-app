@@ -1,0 +1,19 @@
+{
+  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ../../packages",
+  "installCommand": "rm -rf node_modules && cd ../.. && bun install --frozen-lockfile",
+  "buildCommand": "bun run build && bash scripts/upload-sourcemaps.sh",
+  "crons": [
+    {
+      "path": "/api/cron/telegram-helper-cleanup",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/telegram-stats",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/summaries",
+      "schedule": "0 6 * * *"
+    }
+  ]
+}

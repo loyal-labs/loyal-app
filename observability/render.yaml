@@ -1,0 +1,146 @@
+previews:
+  generation: off
+
+projects:
+  - name: loyal-observability
+    environments:
+      - name: test
+        # Render defaults this to `disabled` when omitted, so leaving it out
+        # silently downgrades the environment on the next Blueprint sync.
+        networking:
+          isolation: enabled
+        services:
+          - type: web
+            name: loyal-clickstack
+            runtime: docker
+            repo: https://github.com/loyal-labs/loyal-app.git
+            branch: main
+            region: oregon
+            plan: pro
+            numInstances: 1
+            rootDir: observability
+            dockerfilePath: ./Dockerfile
+            dockerContext: .
+            autoDeployTrigger: checksPass
+            buildFilter:
+              paths:
+                - observability/**
+              ignoredPaths:
+                - observability/smoke-result.json
+                - observability/telegram-relay/**
+            healthCheckPath: /api/health
+            renderSubdomainPolicy: enabled
+            envVars:
+              - key: PORT
+                value: "8080"
+              - key: HYPERDX_APP_PORT
+                value: "8081"
+              - key: HYPERDX_APP_LISTEN_HOSTNAME
+                value: 127.0.0.1
+              - key: USAGE_STATS_ENABLED
+                value: "false"
+              - key: CLICKSTACK_INTERNAL_SMOKE_ENABLED
+                value: "true"
+              - key: EXPRESS_SESSION_SECRET
+                generateValue: true
+              - key: INGESTION_API_KEY
+                generateValue: true
+            disk:
+              name: clickstack-data
+              mountPath: /var/lib/clickhouse
+              sizeGB: 10
+
+          # Relays ClickStack alert webhooks to Telegram and Slack. Private service: it is
+          # reached only over this environment's private network, so the webhook
+          # endpoint is never exposed publicly and the Bearer token is defense in
+          # depth rather than the only control.
+          - type: pserv
+            name: loyal-clickstack-telegram-relay
+            runtime: docker
+            repo: https://github.com/loyal-labs/loyal-app.git
+            branch: main
+            region: oregon
+            plan: starter
+            # Cooldown and idempotency state is in-process. A second instance
+            # would double-post alerts, so this must stay at 1 until the state
+            # moves to a shared store.
+            numInstances: 1
+            rootDir: observability/telegram-relay
+            dockerfilePath: ./Dockerfile
+            dockerContext: .
+            autoDeployTrigger: checksPass
+            buildFilter:
+              paths:
+                - observability/telegram-relay/**
+            # No healthCheckPath: Render supports health checks on web services
+            # only. GET /healthz still exists and can be curled from ClickStack.
+            #
+            # Give the process time to drain in-flight webhooks on SIGTERM so a
+            # deploy cannot drop an alert mid-delivery.
+            maxShutdownDelaySeconds: 30
+            envVars:
+              # Bun defaults to 127.0.0.1, which the ClickStack container cannot
+              # reach over the private network.
+              - key: HOST
+                value: 0.0.0.0
+              # Render's default service port. Keep it aligned with the
+              # internal address Render advertises under Connect -> Internal,
+              # or the address an operator copies from there points at a port
+              # nothing is listening on. Render reserves only 18012, 18013
+              # and 19099.
+              - key: PORT
+                value: "10000"
+              # Read the generated value from the Render dashboard and paste it
+              # into the ClickStack webhook's Authorization header.
+              - key: CLICKSTACK_WEBHOOK_SECRET
+                generateValue: true
+              - key: TELEGRAM_BOT_TOKEN
+                sync: false
+              - key: TELEGRAM_CHAT_ID
+                sync: false
+              # Loyal #logs incoming webhook. Keep the full URL only in Render.
+              - key: SLACK_WEBHOOK_URL
+                sync: false
+              # Minimum length of the quiet window, not its usual length: a
+              # signature is held until the next daily recap, so a lasting
+              # incident is announced once per period instead of hourly. This
+              # floor only matters for an alert that first fires shortly
+              # before a recap, which rolls to the following period.
+              - key: COOLDOWN_SECONDS
+                value: "3600"
+              # Windows close silently. Everything they counted is reported
+              # once a day instead, as one message listing each distinct error
+              # with how often it fired. 06:00 UTC is 11:00 for the team.
+              # Without a mounted disk and STATE_FILE, a deploy resets the
+              # running tally, so the next recap covers only the time since.
+              - key: DAILY_RECAP_AT
+                value: "06:00"
+              # Must match the saved search `select`, in order. Drift is
+              # expensive either way. A differing column count is detected, but
+              # it costs more than the formatting: with no parsed rows the
+              # relay keys windows on eventId instead of row signatures, so one
+              # incident posts several alerts, cardinality counts disappear,
+              # and the daily recap is skipped for want of signatures to list.
+              # A rename or reorder that keeps the count is not detected at all
+              # — values are read by position, so rows are mislabelled and
+              # signatures and cardinality counts come from the wrong fields.
+              # The `wallet` column is added to the "Errors" saved search
+              # (6a5fb723dcc64beb0ded6cca) as
+              # LogAttributes['loyal.wallet.address'] AS wallet, so deploy this
+              # and flip the saved search together.
+              - key: ALERT_COLUMNS
+                value: Timestamp,ServiceName,SeverityText,Body,env,flow,stage,error_code,exception_type,exception_message,wallet
+              # Counted as "N unique wallets" rather than listed per row: 50
+              # errors from one wallet is a stuck user, 50 from 50 wallets is
+              # an outage.
+              - key: CARDINALITY_COLUMNS
+                value: wallet
+              # Render replaces this instance on every deploy and ClickStack
+              # replays every live alert seconds later. Holding those for two
+              # minutes turns that burst into a single restart recap. Windows
+              # themselves are not persisted: STATE_FILE needs a mounted disk,
+              # which would also make deploys stop-then-start.
+              - key: RESTART_GRACE_SECONDS
+                value: "120"
+              - key: TRACE_LOGS
+                value: "false"

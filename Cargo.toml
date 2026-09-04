@@ -1,9 +1,8 @@
 [workspace]
 members = [
-    "cli/loyal-cli",
-    "sdk/loyal-smart-accounts-rs",
-    "programs/telegram-private-transfer",
-    "programs/telegram-verification",
+    "crates/loyal-cli",
+    "crates/smart-accounts-cli",
+    "crates/loyal-smart-accounts-rs",
 ]
 resolver = "2"
 

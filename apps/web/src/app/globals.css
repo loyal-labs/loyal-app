@@ -1,0 +1,3541 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@source "../../node_modules/streamdown/dist/**/*.{js,ts,jsx,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", "Menlo",
+    monospace;
+  --font-family-manrope: var(--font-manrope), ui-sans-serif, system-ui,
+    sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-positive: var(--positive);
+  --color-tertiary: var(--tertiary);
+  --color-segmented: var(--segmented);
+  --color-accent-selected: var(--accent-selected);
+  --color-accent-active: var(--accent-active);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Values from Figma "Color Web" variables (Loyal UI Base Library) */
+:root {
+  --radius: 0.65rem;
+  --background: oklch(1 0 0); /* Background/Primary #FFFFFF */
+  --foreground: oklch(0 0 0); /* Text/Primary #000000 */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0 0 0);
+  --primary: oklch(0.641 0.229 25.29); /* Background/Accent #F9363C */
+  --primary-foreground: oklch(1 0 0); /* Text/Contrast #FFFFFF */
+  --secondary: oklch(0.97 0 0); /* Background/Tertiary #F5F5F5 */
+  --secondary-foreground: oklch(0 0 0);
+  --muted: oklch(0.97 0 0); /* Background/Secondary #F5F5F5 */
+  --muted-foreground: oklch(0.635 0.006 286.23); /* Text/Secondary #8A8A8E */
+  --accent: oklch(0 0 0 / 4%); /* Background States/Hover */
+  --accent-selected: oklch(0 0 0 / 6%); /* Background States/Selected|Pressed */
+  --accent-active: oklch(0 0 0 / 8%); /* Background States/Secondary Alpha Hover */
+  --accent-foreground: oklch(0 0 0);
+  --destructive: oklch(0.641 0.229 25.29); /* Text/Negative #F9363C */
+  --positive: oklch(0.683 0.173 143.395); /* Text/Positive #4BB34B */
+  --tertiary: oklch(0.751 0.009 301.305); /* Text|Icon/Tertiary #AFADB3 */
+  --segmented: oklch(1 0 0); /* Other/Segmented Control #FFFFFF */
+  --border: oklch(0 0 0 / 12%); /* Separator/Non-opaque */
+  --input: oklch(0 0 0 / 12%);
+  --ring: oklch(0.641 0.229 25.29);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.623 0.214 259.815);
+  --sidebar-primary-foreground: oklch(0.97 0.014 254.604);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.623 0.214 259.815);
+}
+
+.dark {
+  --background: oklch(0.227 0.01 303.714); /* Background/Primary #1D1B20 */
+  --foreground: oklch(0.915 0.005 258.325); /* Text/Primary #E1E3E6 */
+  --card: oklch(0.227 0.01 303.714); /* Background/Primary #1D1B20 — cards share the primary surface */
+  --card-foreground: oklch(0.915 0.005 258.325);
+  --popover: oklch(0.286 0.013 298.633); /* Other/Action Sheet #2B2930 */
+  --popover-foreground: oklch(0.915 0.005 258.325);
+  --primary: oklch(0.676 0.212 24.811); /* Background/Accent #FF5050 */
+  --primary-foreground: oklch(1 0 0); /* Text/Contrast #FFFFFF */
+  --secondary: oklch(0.286 0.013 298.633); /* Background/Tertiary #2B2930 */
+  --secondary-foreground: oklch(0.915 0.005 258.325);
+  --muted: oklch(0.187 0.012 300.422); /* Background/Secondary #141218 — recessed canvas */
+  --muted-foreground: oklch(0.673 0.008 304.183); /* Text/Secondary #97959A */
+  --accent: oklch(1 0 0 / 4%); /* Background States/Hover */
+  --accent-selected: oklch(1 0 0 / 6%); /* Background States/Selected|Pressed */
+  --accent-active: oklch(1 0 0 / 8%); /* Background States/Secondary Alpha Hover */
+  --accent-foreground: oklch(0.915 0.005 258.325);
+  --destructive: oklch(0.676 0.212 24.811); /* Text/Negative #FF5050 */
+  --positive: oklch(0.756 0.208 146.984); /* Text/Positive #30D158 */
+  --tertiary: oklch(0.494 0.012 305.226); /* Text|Icon/Tertiary #636067 */
+  --segmented: oklch(0.41 0.012 298.916); /* Other/Segmented Control #4B4950 */
+  --border: oklch(1 0 0 / 12%); /* Separator/Non-opaque */
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.676 0.212 24.811);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.286 0.013 298.633);
+  --sidebar-foreground: oklch(0.915 0.005 258.325);
+  --sidebar-primary: oklch(0.676 0.212 24.811);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(1 0 0 / 4%);
+  --sidebar-accent-foreground: oklch(0.915 0.005 258.325);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.676 0.212 24.811);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    background-color: var(--background);
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  /* Tailwind v4 preflight leaves buttons on cursor: default; restore the
+     expected pointer affordance for every enabled button app-wide. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  main > section[id],
+  main > footer[id] {
+    scroll-margin-top: 68px;
+  }
+
+  [data-reveal] {
+    --reveal-x: 0px;
+    --reveal-y: 28px;
+    --reveal-scale: 1;
+    --reveal-delay: 0ms;
+    opacity: 0;
+    filter: blur(8px);
+    transform: translate3d(var(--reveal-x), var(--reveal-y), 0)
+      scale(var(--reveal-scale));
+    transition: opacity 0.72s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 0.72s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.72s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--reveal-delay);
+    will-change: opacity, filter, transform;
+  }
+
+  [data-reveal="fade"] {
+    --reveal-y: 0px;
+  }
+
+  [data-reveal="lift"] {
+    --reveal-y: 42px;
+  }
+
+  [data-reveal="left"] {
+    --reveal-x: -32px;
+    --reveal-y: 0px;
+  }
+
+  [data-reveal="right"] {
+    --reveal-x: 32px;
+    --reveal-y: 0px;
+  }
+
+  [data-reveal="scale"] {
+    --reveal-y: 18px;
+    --reveal-scale: 0.96;
+  }
+
+  [data-reveal].is-revealed {
+    opacity: 1;
+    filter: blur(0);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  [data-reveal-delay="1"] {
+    --reveal-delay: 80ms;
+  }
+
+  [data-reveal-delay="2"] {
+    --reveal-delay: 160ms;
+  }
+
+  [data-reveal-delay="3"] {
+    --reveal-delay: 240ms;
+  }
+
+  [data-reveal-delay="4"] {
+    --reveal-delay: 320ms;
+  }
+
+  [data-reveal-delay="5"] {
+    --reveal-delay: 400ms;
+  }
+
+  [data-hero-reveal] {
+    --hero-reveal-x: 0px;
+    --hero-reveal-y: 28px;
+    --hero-reveal-scale: 1;
+    --hero-reveal-delay: 120ms;
+    animation: heroReveal 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--hero-reveal-delay);
+    filter: blur(10px);
+    opacity: 0;
+    transform: translate3d(var(--hero-reveal-x), var(--hero-reveal-y), 0)
+      scale(var(--hero-reveal-scale));
+    will-change: opacity, filter, transform;
+  }
+
+  [data-hero-reveal="left"] {
+    --hero-reveal-x: -26px;
+    --hero-reveal-y: 0px;
+  }
+
+  [data-hero-reveal="right"] {
+    --hero-reveal-x: 26px;
+    --hero-reveal-y: 0px;
+  }
+
+  [data-hero-reveal="scale"] {
+    --hero-reveal-y: 22px;
+    --hero-reveal-scale: 0.975;
+  }
+
+  [data-hero-reveal-delay="1"] {
+    --hero-reveal-delay: 220ms;
+  }
+
+  [data-hero-reveal-delay="2"] {
+    --hero-reveal-delay: 340ms;
+  }
+
+  [data-hero-reveal-delay="3"] {
+    --hero-reveal-delay: 420ms;
+  }
+
+  [data-header-reveal] {
+    animation: headerReveal 0.72s cubic-bezier(0.22, 1, 0.36, 1) 80ms both;
+    filter: blur(8px);
+    opacity: 0;
+    transform: translate3d(0, -16px, 0);
+    will-change: opacity, filter, transform;
+  }
+
+  @keyframes headerReveal {
+    to {
+      filter: blur(0);
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  @keyframes heroReveal {
+    to {
+      filter: blur(0);
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  .supporters-marquee-viewport {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 16px,
+      black calc(100% - 16px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 16px,
+      black calc(100% - 16px),
+      transparent
+    );
+  }
+
+  .supporters-marquee-track {
+    animation: supportersMarquee 23.5s linear infinite;
+    will-change: transform;
+  }
+
+  @media (min-width: 1024px) {
+    .supporters-marquee-viewport {
+      -webkit-mask-image: linear-gradient(
+        to right,
+        transparent,
+        black 48px,
+        black calc(100% - 48px),
+        transparent
+      );
+      mask-image: linear-gradient(
+        to right,
+        transparent,
+        black 48px,
+        black calc(100% - 48px),
+        transparent
+      );
+    }
+
+    .supporters-marquee-track {
+      animation-duration: 33.3s;
+    }
+  }
+
+  @keyframes supportersMarquee {
+    to {
+      transform: translate3d(-33.333333%, 0, 0);
+    }
+  }
+
+  .developer-mascot-eye,
+  .developer-docs-eye {
+    transform-box: fill-box;
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .group:hover .developer-mascot-eye {
+    animation: developerMascotEyeLook 1.35s cubic-bezier(0.45, 0, 0.2, 1)
+      infinite;
+  }
+
+  .group:hover .developer-docs-eye {
+    animation: developerDocsEyeLook 1.35s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  }
+
+  @keyframes developerMascotEyeLook {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0);
+    }
+    35% {
+      transform: translate3d(-8px, -2px, 0);
+    }
+    70% {
+      transform: translate3d(7px, 1px, 0);
+    }
+  }
+
+  @keyframes developerDocsEyeLook {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0);
+    }
+    35% {
+      transform: translate3d(-7px, -1px, 0);
+    }
+    75% {
+      transform: translate3d(8px, 1px, 0);
+    }
+  }
+
+  .get-started-preview-image-enter {
+    animation: getStartedImageWipeIn 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+    z-index: 2;
+  }
+
+  .get-started-preview-image-exit {
+    animation: getStartedImageWipeOut 0.36s cubic-bezier(0.55, 0, 0.25, 1) both;
+    z-index: 1;
+  }
+
+  @keyframes getStartedImageWipeIn {
+    0% {
+      clip-path: inset(0 100% 0 0 round 24px);
+    }
+    28% {
+      clip-path: inset(0 100% 0 0 round 24px);
+    }
+    100% {
+      clip-path: inset(0 0 0 0 round 24px);
+    }
+  }
+
+  @keyframes getStartedImageWipeOut {
+    0% {
+      clip-path: inset(0 0 0 0 round 24px);
+    }
+    100% {
+      clip-path: inset(0 0 0 100% round 24px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal] {
+      opacity: 1;
+      filter: none;
+      transform: none;
+      transition: none;
+    }
+
+    [data-hero-reveal] {
+      animation: none;
+      filter: none;
+      opacity: 1;
+      transform: none;
+    }
+
+    [data-header-reveal] {
+      animation: none;
+      filter: none;
+      opacity: 1;
+      transform: none;
+    }
+
+    .supporters-marquee-viewport {
+      overflow-x: auto;
+      -webkit-mask-image: none;
+      mask-image: none;
+    }
+
+    .supporters-marquee-track {
+      animation: none;
+      transform: none;
+      will-change: auto;
+    }
+
+    .supporters-marquee-copy {
+      display: none;
+    }
+
+    .group:hover .developer-mascot-eye,
+    .group:hover .developer-docs-eye {
+      animation: none;
+    }
+
+    .get-started-preview-image-enter,
+    .get-started-preview-image-exit {
+      animation: none;
+      clip-path: none;
+    }
+  }
+
+  .font-manrope {
+    font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .fill-mode-forwards {
+    animation-fill-mode: forwards;
+  }
+
+  .animate-in {
+    animation-duration: 0.15s;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .fade-in {
+    animation-name: fadeIn;
+  }
+
+  .zoom-in {
+    animation-name: zoomIn;
+  }
+
+  .slide-in-from-bottom-8 {
+    animation-name: slideInFromBottom;
+  }
+
+  .slide-in-from-left {
+    animation-name: slideInFromLeft;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes zoomIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes slideInFromBottom {
+    from {
+      opacity: 0;
+      transform: translateY(2rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideInFromLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-1rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes dotBounce {
+    0%,
+    80%,
+    100% {
+      opacity: 0.3;
+      transform: translateY(0);
+    }
+    40% {
+      opacity: 1;
+      transform: translateY(-0.5rem);
+    }
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Liquid Glass Styling for Solana Wallet Button */
+  .wallet-adapter-button {
+    background: rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 20px !important;
+    padding: 0.75rem 1.5rem !important;
+    color: #fff !important;
+    font-weight: 500 !important;
+    font-size: 1rem !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37),
+      inset 0 1px 1px rgba(255, 255, 255, 0.1) !important;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    cursor: pointer !important;
+  }
+
+  .wallet-adapter-button-start-icon {
+    transition: margin 0.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .wallet-adapter-button:not([disabled]):hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5),
+      inset 0 1px 1px rgba(255, 255, 255, 0.15) !important;
+  }
+
+  .wallet-adapter-button[disabled] {
+    opacity: 0.5 !important;
+    cursor: not-allowed !important;
+  }
+
+  /* Chat mode active: Collapse to icon-only on desktop */
+  .chat-mode-active .wallet-adapter-button {
+    padding: 0.75rem !important;
+    min-width: auto !important;
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.1s,
+      height 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.1s,
+      padding 0.3s cubic-bezier(0.4, 0, 0.2, 1) 0.1s, background 0.3s ease,
+      border 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease !important;
+    /* font-size and line-height have NO transition - instant change */
+  }
+
+  .chat-mode-active .wallet-adapter-button-start-icon {
+    margin: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .chat-mode-active .wallet-adapter-button-start-icon svg {
+    width: 24px !important;
+    height: 24px !important;
+    display: block !important;
+  }
+
+  /* Mobile: Show only wallet icon for the connected wallet button, keep full display for disconnected and modal items */
+  @media (max-width: 768px) {
+    /* Only collapse to icon when wallet is connected */
+    .wallet-connected .wallet-adapter-button {
+      padding: 0.75rem !important;
+      min-width: auto !important;
+      width: 48px !important;
+      height: 48px !important;
+      overflow: hidden !important;
+      font-size: 0 !important;
+    }
+
+    /* Ensure icon stays visible for connected wallet button */
+    .wallet-connected .wallet-adapter-button .wallet-adapter-button-start-icon {
+      margin: 0 !important;
+      font-size: 1.25rem !important;
+    }
+
+    .wallet-connected
+      .wallet-adapter-button
+      .wallet-adapter-button-start-icon
+      svg {
+      width: 24px !important;
+      height: 24px !important;
+    }
+
+    /* Ensure modal list items show full text and proper layout on mobile */
+    .wallet-adapter-modal-list-item {
+      font-size: 1rem !important;
+      width: 100% !important;
+      height: auto !important;
+      min-width: 100% !important;
+      padding: 1rem 1.5rem !important;
+      overflow: visible !important;
+    }
+
+    .wallet-adapter-modal-list-item .wallet-adapter-button-start-icon {
+      margin-right: 1rem !important;
+    }
+  }
+
+  .wallet-adapter-button-trigger {
+    background: rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(20px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 20px !important;
+    color: #fff !important;
+  }
+
+  /* Enhanced Liquid Glass Modal Styling */
+  /* Wrapper must NOT have backdrop-filter to avoid breaking position:fixed in Safari */
+  .wallet-adapter-modal-wrapper {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Modal dialog - apply backdrop-filter here only */
+  .wallet-adapter-modal {
+    background: rgba(0, 0, 0, 0.3) !important;
+    backdrop-filter: blur(40px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    border-radius: 32px !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
+    padding: 2rem 3rem !important;
+  }
+
+  /* Ensure the modal content is visible */
+  .wallet-adapter-modal * {
+    color: white !important;
+  }
+
+  .wallet-adapter-modal-content {
+    position: relative !important;
+    z-index: 2 !important;
+  }
+
+  .wallet-adapter-modal-title {
+    color: #fff !important;
+    font-size: 1.5rem !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.025em !important;
+    margin-bottom: 1.5rem !important;
+    text-align: center !important;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  .wallet-adapter-modal-list {
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .wallet-adapter-modal-list li {
+    margin-bottom: 0.75rem !important;
+  }
+
+  .wallet-adapter-modal-list li:last-child {
+    margin-bottom: 0 !important;
+  }
+
+  .wallet-adapter-button.wallet-adapter-modal-list-item {
+    background: rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 16px !important;
+    padding: 1rem 1.5rem !important;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    color: rgba(255, 255, 255, 0.95) !important;
+    font-size: 1rem !important;
+    font-weight: 500 !important;
+    position: relative !important;
+    overflow: hidden !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1),
+      inset 0 1px 2px rgba(255, 255, 255, 0.1) !important;
+  }
+
+  .wallet-adapter-button.wallet-adapter-modal-list-item:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2),
+      inset 0 2px 4px rgba(255, 255, 255, 0.15) !important;
+  }
+
+  .wallet-adapter-button.wallet-adapter-modal-list-item:active {
+    transform: translateY(0) !important;
+  }
+
+  /* Wallet icon and text styling */
+  .wallet-adapter-button.wallet-adapter-modal-list-item img {
+    width: 28px !important;
+    height: 28px !important;
+    margin-right: 1rem !important;
+  }
+
+  /* Detected badge styling */
+  .wallet-adapter-modal-list-item-detected {
+    background: rgba(34, 197, 94, 0.15) !important;
+    color: #22c55e !important;
+    padding: 0.25rem 0.75rem !important;
+    border-radius: 12px !important;
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
+    border: 1px solid rgba(34, 197, 94, 0.3) !important;
+    backdrop-filter: blur(10px) !important;
+  }
+
+  /* More options section */
+  .wallet-adapter-modal-collapse {
+    background: transparent !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    margin-top: 1rem !important;
+    padding-top: 1rem !important;
+  }
+
+  .wallet-adapter-modal-collapse-button {
+    background: transparent !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    font-size: 0.95rem !important;
+    font-weight: 500 !important;
+    padding: 0.5rem 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.5rem !important;
+    transition: all 0.2s ease !important;
+    cursor: pointer !important;
+    width: 100% !important;
+    border: none !important;
+  }
+
+  .wallet-adapter-modal-collapse-button:hover {
+    color: rgba(255, 255, 255, 0.9) !important;
+  }
+
+  .wallet-adapter-modal-collapse-button svg {
+    transition: transform 0.3s ease !important;
+  }
+
+  .wallet-adapter-modal-collapse-button-active svg {
+    transform: rotate(180deg) !important;
+  }
+
+  /* Close button styling - Positioned in screen corner */
+  .wallet-adapter-modal-button-close {
+    position: fixed !important;
+    top: 1.5rem !important;
+    right: 1.5rem !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 16px !important;
+    width: 3rem !important;
+    height: 3rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    padding: 0 !important;
+    z-index: 10000 !important;
+  }
+
+  /* Replace broken X icon with text */
+  .wallet-adapter-modal-button-close::after {
+    content: "✕" !important;
+    font-size: 1.5rem !important;
+    line-height: 1 !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+  }
+
+  /* Hide the broken/misaligned SVG */
+  .wallet-adapter-modal-button-close svg {
+    display: none !important;
+  }
+
+  .wallet-adapter-modal button.wallet-adapter-modal-button-close:hover,
+  .wallet-adapter-modal-button-close:hover {
+    background: rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    transform: scale(1.05) !important;
+  }
+
+  .wallet-adapter-modal-button-close svg {
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    color: currentColor !important;
+  }
+
+  /* Animation for modal entrance - Safari-compatible (no transform) */
+  .wallet-adapter-modal {
+    animation: modalFadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  @keyframes modalFadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .wallet-adapter-button-start-icon,
+  .wallet-adapter-button-end-icon {
+    display: flex !important;
+    align-items: center !important;
+  }
+
+  /* Mobile-specific adjustments */
+  @media (max-width: 768px) {
+    .wallet-adapter-modal {
+      padding: 1.5rem 1.25rem !important;
+      margin-top: -10vh !important;
+    }
+
+    .wallet-adapter-modal-title {
+      max-width: 100% !important;
+      width: 100% !important;
+      padding: 0 0.5rem !important;
+      font-size: 1.375rem !important;
+      line-height: 1.4 !important;
+    }
+
+    .wallet-adapter-modal-content {
+      margin-top: 0 !important;
+    }
+  }
+
+  /* Streamdown Code Block - Container */
+  [data-streamdown="code-block"] {
+    background: rgba(0, 0, 0, 0.04) !important;
+    border: none !important;
+    border-radius: 16px !important;
+    overflow: hidden !important;
+    margin: 8px 0 !important;
+  }
+
+  /* Streamdown Code Block - Header */
+  [data-streamdown="code-block-header"] {
+    background: transparent !important;
+    padding: 8px 16px !important;
+    border-bottom: none !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+  }
+
+  [data-streamdown="code-block-header"] span {
+    font-family: "Geist Mono", monospace !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    color: rgba(60, 60, 67, 0.6) !important;
+  }
+
+  [data-streamdown="code-block-header"] button {
+    font-family: "Geist", sans-serif !important;
+    font-size: 13px !important;
+    line-height: 20px !important;
+    color: rgba(60, 60, 67, 0.6) !important;
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    padding: 0 !important;
+  }
+
+  [data-streamdown="code-block-header"] button:hover {
+    color: rgba(60, 60, 67, 0.8) !important;
+  }
+
+  [data-streamdown="code-block-header"] svg {
+    width: 16px !important;
+    height: 16px !important;
+  }
+
+  /* Streamdown Code Block - Body */
+  [data-streamdown="code-block-body"] {
+    font-family: "Geist Mono", monospace !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+    padding: 16px !important;
+    background: transparent !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  [data-streamdown="code-block-body"] code {
+    font-family: "Geist Mono", monospace !important;
+    font-size: 14px !important;
+    line-height: 22px !important;
+  }
+
+  /* Blockquote (scoped to streamdown chat markdown; the blog renders its own) */
+  [data-streamdown] blockquote {
+    border-left: 3px solid rgba(0, 0, 0, 0.2) !important;
+    color: rgba(0, 0, 0, 0.7) !important;
+  }
+
+  /* Links (scoped to streamdown markdown content) */
+  [data-streamdown] a {
+    color: #000 !important;
+    text-decoration: underline !important;
+    text-underline-offset: 2px !important;
+  }
+
+  [data-streamdown] a:hover {
+    color: #3c3c43 !important;
+  }
+
+  /* Inline code */
+  code:not(pre code):not([data-streamdown] code) {
+    font-family: "Geist Mono", monospace !important;
+    background: rgba(0, 0, 0, 0.04) !important;
+    border: none !important;
+    border-radius: 4px !important;
+    padding: 2px 6px !important;
+    font-size: 14px !important;
+    color: #000 !important;
+  }
+
+  /* Streamdown Table Styles - Matching Figma design */
+  [data-streamdown="table"],
+  [data-streamdown="table"] * {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  [data-streamdown="table"] {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-family: "Geist", sans-serif !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    margin: 8px 0 !important;
+    border: none !important;
+    border-spacing: 0 !important;
+  }
+
+  [data-streamdown="table"] thead {
+    border: none !important;
+  }
+
+  [data-streamdown="table"] thead tr {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+  }
+
+  [data-streamdown="table"] th {
+    padding: 8px 8px 8px 0 !important;
+    text-align: left !important;
+    font-family: "Geist", sans-serif !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    color: #000 !important;
+    border: none !important;
+    height: 36px !important;
+    vertical-align: middle !important;
+  }
+
+  [data-streamdown="table"] tbody {
+    border: none !important;
+  }
+
+  [data-streamdown="table"] tbody tr {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+    height: 36px !important;
+  }
+
+  [data-streamdown="table"] tbody tr:last-child {
+    border-bottom: none !important;
+  }
+
+  [data-streamdown="table"] td {
+    padding: 8px 8px 8px 0 !important;
+    font-family: "Geist", sans-serif !important;
+    font-weight: 400 !important;
+    font-size: 14px !important;
+    line-height: 20px !important;
+    color: #000 !important;
+    border: none !important;
+    height: 36px !important;
+    vertical-align: middle !important;
+  }
+
+  [data-streamdown="table"] tr {
+    border: none !important;
+  }
+
+  /* Remove any alternating row backgrounds */
+  [data-streamdown="table"] tr:nth-child(odd),
+  [data-streamdown="table"] tr:nth-child(even) {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+}
+
+/* Wallet workspace first-paint styles.
+   Keep these global so /app never flashes the dark root theme before hydration. */
+.wallet-workspace {
+  display: grid;
+  grid-template-columns:
+    32px minmax(360px, var(--wallet-account-pane-width)) 8px
+    minmax(420px, 1fr) 8px minmax(320px, var(--wallet-review-pane-width));
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+.wallet-workspace[data-signed-in="false"] {
+  grid-template-columns: 32px minmax(0, 1fr);
+}
+
+.wallet-workspace[data-rate-limited="true"] {
+  grid-template-columns: 32px minmax(420px, 1fr);
+}
+
+.wallet-workspace[data-workspace-section="policies"] {
+  grid-template-columns:
+    32px minmax(360px, var(--wallet-account-pane-width)) 8px
+    minmax(420px, 1fr) 8px minmax(320px, var(--wallet-review-pane-width));
+}
+
+.wallet-workspace-logout {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 30;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: rgba(60, 60, 67, 0.58);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.wallet-workspace-logout {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.wallet-workspace-bug-report-link,
+.wallet-workspace-docs-link {
+  position: fixed;
+  left: 16px;
+  z-index: 30;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(60, 60, 67, 0.58);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.wallet-workspace-bug-report-link {
+  bottom: 128px;
+}
+
+.wallet-workspace-docs-link {
+  bottom: 72px;
+}
+
+.wallet-workspace-bug-report-link:hover,
+.wallet-workspace-docs-link:hover {
+  background: rgba(249, 54, 60, 0.12);
+  color: #f9363c;
+  transform: translateY(-1px);
+}
+
+.wallet-workspace-bug-report-link:focus-visible,
+.wallet-workspace-docs-link:focus-visible {
+  outline: 2px solid rgba(249, 54, 60, 0.55);
+  outline-offset: 2px;
+}
+
+.wallet-workspace-logout[data-disabled="true"] {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.wallet-workspace-logout[data-disabled="true"]:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(60, 60, 67, 0.58);
+  transform: none;
+}
+
+.wallet-workspace-mobile-header {
+  display: none;
+}
+
+.wallet-workspace-mobile-icon-button {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.04);
+  color: #3c3c43;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.wallet-workspace-mobile-icon-button:hover {
+  background: rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.wallet-workspace-mobile-icon-button:active {
+  transform: translateY(0);
+}
+
+.wallet-workspace-mobile-action-button {
+  display: inline-flex;
+  min-width: 0;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.04);
+  color: #000;
+  cursor: pointer;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 0 12px;
+  white-space: nowrap;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.wallet-workspace-mobile-action-button:hover {
+  background: rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.wallet-workspace-mobile-action-button:active {
+  transform: translateY(0);
+}
+
+.wallet-workspace-mobile-title {
+  min-width: 0;
+  overflow: hidden;
+  color: #000;
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-workspace-mobile-spacer {
+  width: 40px;
+  height: 40px;
+}
+
+.wallet-workspace-pane {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.wallet-workspace-account-pane {
+  grid-column: 2;
+  display: flex;
+  box-sizing: border-box;
+  min-height: 0;
+  padding-top: 8px;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.wallet-workspace[data-workspace-section="policies"]
+  .wallet-workspace-account-pane {
+  border-right: 0;
+}
+
+.wallet-workspace-account-pane > div {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.wallet-workspace-detail-pane {
+  grid-column: 4;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 8px;
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.wallet-workspace[data-workspace-section="policies"]
+  .wallet-workspace-detail-pane {
+  padding: 8px 0;
+  border-right: 0;
+  overflow: hidden;
+}
+
+.wallet-workspace[data-signed-in="false"] .wallet-workspace-detail-pane {
+  grid-column: 2;
+  border-right: 0;
+}
+
+.wallet-workspace[data-rate-limited="true"] .wallet-workspace-detail-pane {
+  grid-column: 2;
+  border-right: 0;
+}
+
+.wallet-workspace-detail-pane > div {
+  width: 100%;
+  min-height: 0;
+}
+
+.wallet-workspace-review-pane {
+  grid-column: 6;
+  padding: 8px 8px 8px 0;
+}
+
+.wallet-workspace[data-workspace-section="policies"]
+  .wallet-workspace-review-pane {
+  padding: 8px 8px 8px 0;
+}
+
+.wallet-workspace[data-workspace-section="policies"]
+  .wallet-workspace-review-resize {
+  position: relative;
+  z-index: 2;
+  background: #f5f5f5;
+}
+
+.wallet-workspace[data-workspace-section="policies"]
+  .wallet-workspace-review-resize:hover,
+.wallet-workspace[data-workspace-section="policies"]
+  .wallet-workspace-review-resize:focus-visible {
+  background: #f5f5f5;
+}
+
+.wallet-workspace-resize-handle {
+  width: 8px;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.wallet-workspace-account-resize {
+  grid-column: 3;
+}
+
+.wallet-workspace-review-resize {
+  grid-column: 5;
+}
+
+.wallet-workspace-signin {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 18px;
+  padding: 20px 8px 20px 0;
+}
+
+.wallet-workspace-signin-top {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 12px;
+}
+
+.wallet-workspace-signin-mark,
+.wallet-workspace-auth-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(249, 54, 60, 0.12);
+  color: #f9363c;
+}
+
+.wallet-workspace-signin-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+}
+
+.wallet-workspace-signin-copy {
+  color: rgba(60, 60, 67, 0.6);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.wallet-workspace-signin-title {
+  margin: 0;
+  color: #000;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.wallet-workspace-signin-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 8px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.035);
+}
+
+.wallet-workspace-signin-balance {
+  display: flex;
+  align-items: baseline;
+  color: #000;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.44px;
+  line-height: 48px;
+}
+
+.wallet-workspace-signin-balance span:last-child {
+  color: rgba(60, 60, 67, 0.4);
+}
+
+.wallet-workspace-signin-line {
+  width: 100%;
+  height: 9px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    rgba(249, 54, 60, 0.22),
+    rgba(0, 0, 0, 0.05)
+  );
+}
+
+.wallet-workspace-signin-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.wallet-workspace-signin-row > span {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.wallet-workspace-signin-row div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wallet-workspace-signin-row strong {
+  color: #000;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.wallet-workspace-signin-row small {
+  color: rgba(60, 60, 67, 0.6);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.wallet-workspace-auth-detail {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.wallet-workspace-auth-detail-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wallet-workspace-auth-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  padding: 0 32px;
+  border: 0;
+  border-radius: 9999px;
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  transition: background-color 0.15s ease;
+}
+
+.wallet-workspace-auth-cta-label {
+  position: relative;
+}
+
+.wallet-workspace-auth-cta:hover {
+  background: #222;
+}
+
+.wallet-workspace-auth-cta:active {
+  background: #1a1a1a;
+}
+
+.wallet-workspace-auth-cta:focus-visible {
+  outline: 2px solid #000;
+  outline-offset: 2px;
+}
+
+@media (max-width: 1024px) {
+  .wallet-workspace {
+    grid-template-columns:
+      32px minmax(320px, min(var(--wallet-account-pane-width), 400px)) 8px
+      minmax(320px, 1fr);
+  }
+
+  .wallet-workspace[data-signed-in="false"] {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .wallet-workspace[data-rate-limited="true"] {
+    grid-template-columns: 32px minmax(320px, 1fr);
+  }
+
+  .wallet-workspace[data-signed-in="false"] .wallet-workspace-detail-pane,
+  .wallet-workspace[data-rate-limited="true"] .wallet-workspace-detail-pane {
+    grid-column: 2;
+    border-right: 0;
+  }
+
+  .wallet-workspace-review-resize,
+  .wallet-workspace-review-pane {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .wallet-workspace-bug-report-link:not([data-mobile-pane="accounts"]),
+  .wallet-workspace-docs-link:not([data-mobile-pane="accounts"]),
+  .wallet-workspace-logout:not([data-mobile-pane="accounts"]) {
+    display: none;
+  }
+
+  .wallet-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .wallet-workspace[data-mobile-pane="detail"],
+  .wallet-workspace[data-mobile-pane="activity"] {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .wallet-workspace-mobile-header {
+    grid-column: 1;
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 12px 16px 8px;
+    background: #fff;
+  }
+
+  .wallet-workspace-account-resize,
+  .wallet-workspace-review-resize {
+    display: none;
+  }
+
+  .wallet-workspace-account-pane,
+  .wallet-workspace-detail-pane,
+  .wallet-workspace-review-pane {
+    display: none;
+    grid-column: 1;
+    grid-row: 2;
+    border-right: 0;
+  }
+
+  .wallet-workspace-account-pane {
+    padding-top: 8px;
+  }
+
+  .wallet-workspace-detail-pane,
+  .wallet-workspace-review-pane {
+    padding: 0;
+  }
+
+  .wallet-workspace[data-mobile-pane="accounts"]
+    .wallet-workspace-account-pane {
+    grid-row: 1 / -1;
+    display: flex;
+  }
+
+  .wallet-workspace[data-mobile-pane="detail"] .wallet-workspace-detail-pane {
+    display: flex;
+  }
+
+  .wallet-workspace[data-mobile-pane="activity"] .wallet-workspace-review-pane {
+    display: flex;
+  }
+
+  .wallet-workspace[data-mobile-pane="activity"]
+    .wallet-workspace-earn-review-overlay {
+    padding: 0;
+  }
+
+  .wallet-workspace[data-signed-in="false"] .wallet-workspace-detail-pane,
+  .wallet-workspace[data-rate-limited="true"] .wallet-workspace-detail-pane {
+    display: flex;
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+}
+
+/* Landing -> app reveal (View Transitions API). AppTransitionBridge holds a
+   white cover (with the pulsing logo) while `/app` loads behind it, then removes
+   the cover inside a view transition: the white fades off the top to expose the
+   loaded app, while the logo flies toward the viewer and dissolves — old = white
+   + logo, new = the loaded app. Reduced-motion users never reach this; the
+   bridge navigates directly without a transition. */
+::view-transition-group(root) {
+  animation-duration: 440ms;
+}
+
+/* App sits underneath, static; revealed as the white fades off the top. */
+::view-transition-new(root) {
+  animation: none;
+  z-index: 0;
+}
+
+::view-transition-old(root) {
+  animation: loyal-cover-out 420ms ease both;
+  z-index: 1;
+}
+
+@keyframes loyal-cover-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Centered logo on the white cover. It zooms in steadily while the app loads,
+   then flies toward the viewer and fades on reveal — its own view-transition
+   group, painted above the cover and the app. */
+.loyal-splash-logo {
+  view-transition-name: loyal-splash-logo;
+  animation: loyal-logo-zoom 4s ease-out forwards;
+  will-change: transform;
+}
+
+@keyframes loyal-logo-zoom {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.25);
+  }
+}
+
+::view-transition-old(loyal-splash-logo) {
+  animation: loyal-logo-fly 380ms ease-in both;
+  /* Grow from the logo's own center so it doesn't drift toward a corner. */
+  transform-origin: center;
+  z-index: 2;
+}
+
+@keyframes loyal-logo-fly {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  40% {
+    opacity: 0;
+  }
+  to {
+    transform: scale(26);
+    opacity: 0;
+  }
+}
+
+/* transitions-dev "modal open/close": autodeposit mock sheet.
+   Radix mounts/unmounts the dialog, so the .is-open/.is-closing class pair
+   maps onto data-state="open"/"closed" keyframe animations. */
+:root {
+  --modal-open-dur: 250ms;
+  --modal-close-dur: 150ms;
+  --modal-scale: 0.96;
+  --modal-scale-close: 0.96;
+  --modal-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --sheet-open-dur: 350ms;
+  --sheet-close-dur: 250ms;
+}
+
+.t-modal[data-state="open"] {
+  animation: t-modal-in var(--modal-open-dur) var(--modal-ease) both;
+}
+.t-modal[data-state="closed"] {
+  animation: t-modal-out var(--modal-close-dur) var(--modal-ease) both;
+}
+
+@keyframes t-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--modal-scale));
+  }
+}
+@keyframes t-modal-out {
+  to {
+    opacity: 0;
+    transform: scale(var(--modal-scale-close));
+  }
+}
+
+/* Below sm the same surface is a bottom sheet: slide instead of scale. */
+@media (width < 640px) {
+  .t-modal[data-state="open"] {
+    animation: t-sheet-in var(--sheet-open-dur) var(--modal-ease) both;
+  }
+  .t-modal[data-state="closed"] {
+    animation: t-sheet-out var(--sheet-close-dur) var(--modal-ease) both;
+  }
+}
+
+@keyframes t-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes t-sheet-out {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+/* Optical centering over the workspace shell: its side rails are asymmetric
+   (8px pad + 360px sidebar left vs 400px pane + 16px right at >=1204px;
+   sidebar only at 796-1203px), so the middle pane's midline sits off the
+   viewport center. Shift the modal onto that midline; :has() scopes it to
+   the workspace — over the landing it stays viewport-centered. The min()
+   keeps the shifted modal (max 480px wide + 16px margin) on screen at
+   narrow sidebar-only widths. */
+@media (width >= 1204px) {
+  body:has(.facelift-shell) .t-modal-center {
+    margin-left: -24px;
+  }
+}
+
+/* Cherry's native mobile shell can draw behind device cutouts. The document
+   marker is mounted only by /app/cherry, and the breakpoint keeps desktop
+   workspace geometry byte-for-byte unchanged. */
+@media (width < 796px) {
+  html[data-cherry-embedded="true"] .cherry-mobile-workspace {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  html[data-cherry-embedded="true"] .cherry-mobile-tab-bar {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+@media (796px <= width < 1204px) {
+  body:has(.facelift-shell) .t-modal-center {
+    margin-left: min(180px, 50vw - 272px);
+  }
+}
+
+/* Surfaces that stay centered on mobile (sign-in modal) keep the scale
+   in/out at all widths — the sheet slide assumes a bottom-anchored surface. */
+@media (width < 640px) {
+  .t-modal.t-modal-center[data-state="open"] {
+    animation: t-modal-in var(--modal-open-dur) var(--modal-ease) both;
+  }
+  .t-modal.t-modal-center[data-state="closed"] {
+    animation: t-modal-out var(--modal-close-dur) var(--modal-ease) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-modal[data-state] {
+    animation: none;
+  }
+}
+
+/* Backdrop fades on the same clock as the surface so it never pops out early. */
+.t-modal-overlay[data-state="open"] {
+  animation: t-fade-in var(--modal-open-dur) var(--modal-ease) both;
+}
+.t-modal-overlay[data-state="closed"] {
+  animation: t-fade-out var(--modal-close-dur) var(--modal-ease) both;
+}
+
+@media (width < 640px) {
+  .t-modal-overlay[data-state="open"] {
+    animation-duration: var(--sheet-open-dur);
+  }
+  .t-modal-overlay[data-state="closed"] {
+    animation-duration: var(--sheet-close-dur);
+  }
+}
+
+@keyframes t-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes t-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-modal-overlay[data-state] {
+    animation: none;
+  }
+}
+
+/* transitions.dev — Number pop-in (frontend/transitions/number-pop-in.md) */
+:root {
+  --digit-dur: 500ms;
+  --digit-distance: 8px;
+  --digit-stagger: 70ms;
+  --digit-blur: 2px;
+  --digit-ease: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --digit-dir-x: 0;
+  --digit-dir-y: 1;
+}
+
+@keyframes t-digit-pop-in {
+  0% {
+    transform: translate(
+      calc(var(--digit-distance) * var(--digit-dir-x)),
+      calc(var(--digit-distance) * var(--digit-dir-y))
+    );
+    opacity: 0;
+    filter: blur(var(--digit-blur));
+  }
+  100% {
+    transform: translate(0, 0);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.t-digit-group {
+  display: inline-flex;
+  align-items: baseline;
+}
+.t-digit {
+  display: inline-block;
+  will-change: transform, opacity, filter;
+}
+.t-digit-group.is-animating .t-digit {
+  animation: t-digit-pop-in var(--digit-dur) var(--digit-ease) both;
+}
+.t-digit-group.is-animating .t-digit[data-stagger="1"] {
+  animation-delay: var(--digit-stagger);
+}
+.t-digit-group.is-animating .t-digit[data-stagger="2"] {
+  animation-delay: calc(var(--digit-stagger) * 2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-digit-group .t-digit {
+    animation: none !important;
+  }
+}
+
+/* transitions.dev — Skeleton loader and reveal (frontend/transitions/skeleton-reveal.md) */
+:root {
+  --pulse-dur: 1000ms;
+  --pulse-count: 1;
+  --pulse-min: 0.5;
+  --reveal-dur: 400ms;
+  --reveal-blur: 2px;
+  --reveal-ease: ease-in-out;
+}
+
+/* The wrap stacks two layers on the same coordinates. The
+   skeleton owns the cold pulse + the fade-out side of the
+   reveal; the content owns the fade-in side. They share the
+   same duration / ease so the swap reads as one motion. */
+.t-skel {
+  position: relative;
+}
+.t-skel-skeleton,
+.t-skel-content {
+  position: absolute;
+  inset: 0;
+}
+
+.t-skel-skeleton {
+  z-index: 1;
+  opacity: 1;
+  filter: blur(0);
+  transition: opacity var(--reveal-dur) var(--reveal-ease),
+    filter var(--reveal-dur) var(--reveal-ease);
+}
+.t-skel-content {
+  z-index: 2;
+  opacity: 0;
+  filter: blur(var(--reveal-blur));
+  transition: opacity var(--reveal-dur) var(--reveal-ease),
+    filter var(--reveal-dur) var(--reveal-ease);
+}
+.t-skel.is-revealed .t-skel-skeleton {
+  opacity: 0;
+  filter: blur(var(--reveal-blur));
+}
+.t-skel.is-revealed .t-skel-content {
+  opacity: 1;
+  filter: blur(0);
+}
+/* Snap-back when replaying: kill transitions so the reverse
+   (revealed → skeleton) is instant. Drop `.is-resetting`
+   after a forced reflow and the next reveal animates again. */
+.t-skel.is-resetting .t-skel-skeleton,
+.t-skel.is-resetting .t-skel-content {
+  transition: none !important;
+}
+
+/* Pulse: place the animation on the bar/avatar children, not
+   on the skeleton itself, so the skeleton's opacity / filter
+   stay free for the cross-fade transition above. */
+.t-skel-skeleton.is-pulsing > * {
+  animation: t-skel-pulse var(--pulse-dur) ease-in-out var(--pulse-count);
+}
+@keyframes t-skel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: var(--pulse-min);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-skel-skeleton,
+  .t-skel-content {
+    transition: none !important;
+  }
+  .t-skel-skeleton.is-pulsing > * {
+    animation: none !important;
+  }
+}
+
+/* Facelift adaptation: inline text slots. The content layer stays in-flow so
+   it sizes the wrap (the recipe assumes an externally sized slot); the
+   skeleton bar overlays whatever box the content occupies. */
+.t-skel.t-skel-inline {
+  display: inline-flex;
+}
+.t-skel.t-skel-inline .t-skel-content {
+  position: relative;
+  inset: auto;
+}
+
+/* transitions.dev — Shimmer text (frontend/transitions/shimmer-text.md) */
+:root {
+  --shimmer-dur: 2000ms;
+  --shimmer-base: var(--muted-foreground);
+  --shimmer-highlight: var(--foreground);
+  --shimmer-band: 400%;
+  --shimmer-ease: linear;
+}
+
+/* Two-layer construction:
+   1. The base text renders normally in --shimmer-base.
+   2. ::before duplicates it via content: attr(data-text),
+      paints a transparent → highlight → transparent gradient
+      onto it, and clips that gradient to the glyphs via
+      background-clip: text. Animating background-position
+      sweeps the band across the text. */
+.t-shimmer {
+  position: relative;
+  display: inline-block;
+  color: var(--shimmer-base);
+}
+.t-shimmer::before {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 40%,
+    var(--shimmer-highlight) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-size: var(--shimmer-band) 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: t-shimmer var(--shimmer-dur) var(--shimmer-ease) infinite;
+}
+@keyframes t-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-shimmer::before {
+    animation: none !important;
+  }
+}
+
+/* transitions.dev — Tabs sliding (frontend/transitions/tabs-sliding.md).
+   Geometry literals adapted to the facelift segmented control (Figma
+   4693:70442: 4px bar padding/gap, 36px tabs, black/[0.04] bar, white pill);
+   the pill/transition mechanics are the recipe's, unchanged. */
+:root {
+  --tabs-dur: 250ms;
+  --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tabs-text-muted: var(--muted-foreground);
+  --tabs-text-active: var(--foreground);
+  --tabs-bar-bg: var(--accent);
+  --tabs-pill-bg: var(--segmented);
+}
+
+/* The bar is just a flex container with padding for the pill
+   to sit inside. Tabs sit on z-index: 1, the pill on z-index: 0,
+   so labels read above the pill background. */
+.t-tabs {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 9999px;
+  background: var(--tabs-bar-bg);
+}
+.t-tab {
+  position: relative;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  height: 36px;
+  padding: 8px 16px;
+  color: var(--tabs-text-muted);
+  cursor: pointer;
+  border-radius: 9999px;
+  z-index: 1;
+  transition: color var(--tabs-dur) var(--tabs-ease);
+}
+.t-tab:not([aria-selected="true"]):hover,
+.t-tab[aria-selected="true"] {
+  color: var(--tabs-text-active);
+}
+
+/* The pill: width + transform are written inline by JS so
+   the transition tweens between the previous and next
+   measured positions. */
+.t-tabs-pill {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  height: 36px;
+  width: 0;
+  background: var(--tabs-pill-bg);
+  border-radius: 9999px;
+  transform: translateX(0);
+  transition: transform var(--tabs-dur) var(--tabs-ease),
+    width var(--tabs-dur) var(--tabs-ease);
+  will-change: transform, width;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Mobile chart tabs stretch edge to edge (Figma 4693:70442). */
+@media (max-width: 795px) {
+  .t-tabs {
+    display: flex;
+    width: 100%;
+  }
+  .t-tab {
+    flex: 1 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-tabs-pill,
+  .t-tab {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Tooltip open/close (frontend/transitions/tooltip.md).
+   Pure CSS: the wrap (not the trigger) is the hover target, delayed fade+scale
+   in, instant out. */
+:root {
+  --tt-in-dur: 150ms;
+  --tt-out-dur: 50ms;
+  --tt-scale: 0.98;
+  --tt-delay: 80ms;
+  --tt-in-ease: ease-out;
+  --tt-out-ease: ease-out;
+  --tt-bg: var(--popover);
+  --tt-fg: var(--popover-foreground);
+}
+
+.t-tt-wrap {
+  position: relative;
+  display: inline-block;
+}
+.t-tt {
+  position: absolute;
+  /* Above sibling content that forms stacking contexts (animated digits). */
+  z-index: 30;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  /* --tt-shift is set by InfoTooltip's clamp measurement so the bubble
+     never crosses its clipping container; 0 keeps the pure centered look. */
+  transform: translate(calc(-50% + var(--tt-shift, 0px)), 0)
+    scale(var(--tt-scale));
+  transform-origin: calc(50% - var(--tt-shift, 0px)) 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--tt-bg);
+  color: var(--tt-fg);
+  /* max-content keeps short copy on one line (the recipe's nowrap look);
+     long copy wraps instead of running off the pane. */
+  width: max-content;
+  max-width: 260px;
+  white-space: normal;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 2px 6px 0 rgba(0, 0, 0, 0.05),
+    0 4px 42px 0 rgba(0, 0, 0, 0.06);
+  opacity: 0;
+  pointer-events: none;
+  /* Default rule controls the LEAVE state. transition-delay
+     stays unset so leaving plays without delay. */
+  transition: opacity var(--tt-out-dur) var(--tt-out-ease),
+    transform var(--tt-out-dur) var(--tt-out-ease);
+}
+/* The delay belongs ONLY to the hover rule so leaving the trigger snaps the
+   delay back to 0 and the disappear plays immediately. */
+.t-tt-wrap:hover .t-tt,
+.t-tt-trigger:focus-visible + .t-tt {
+  opacity: 1;
+  transform: translate(calc(-50% + var(--tt-shift, 0px)), 0) scale(1);
+  transition-duration: var(--tt-in-dur);
+  transition-timing-function: var(--tt-in-ease);
+  transition-delay: var(--tt-delay);
+}
+
+/* Facelift adaptation: triggers at a pane's clipped top edge (the Earn
+   headers sit ~16px under an overflow-clip section top) open downward. */
+.t-tt.t-tt-bottom {
+  bottom: auto;
+  top: calc(100% + 8px);
+  transform-origin: calc(50% - var(--tt-shift, 0px)) 0%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-tt {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Checkbox check (frontend/transitions/checkbox-check.md).
+   The box fills first, then the checkmark draws itself via stroke-dashoffset;
+   unchecking reverses quickly with no draw. */
+:root {
+  --check-box: 150ms;
+  --check-draw: 350ms;
+  --check-delay: 0ms;
+  --check-uncheck: 150ms;
+  --check-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-check {
+  transition: background var(--check-box) var(--check-ease),
+    box-shadow var(--check-box) var(--check-ease);
+}
+.t-check svg path {
+  stroke-dasharray: var(--check-len, 15);
+  stroke-dashoffset: var(--check-len, 15);
+  transition: stroke-dashoffset var(--check-uncheck) var(--check-ease);
+}
+.t-check[aria-checked="true"] svg path {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset var(--check-draw) var(--check-ease)
+    var(--check-delay);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-check,
+  .t-check svg path {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Toggle (frontend/transitions/toggle.md). The thumb
+   travels with a double bounce (overshoot, swing back, settle); the track
+   color snaps on its own clock. Travel adapted to the Autodeposit switch
+   geometry: 51px track − 2×2px padding − 27px thumb = 20px. */
+:root {
+  --toggle-dur: 350ms;
+  --toggle-travel: 20px;
+  --toggle-ov1: 1px;
+  --toggle-ov2: 0px;
+  --toggle-track: 0ms;
+  --toggle-ease: cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+
+.t-toggle {
+  transition: background var(--toggle-track) var(--toggle-ease);
+}
+.t-toggle-thumb {
+  translate: 0 0;
+  will-change: translate;
+}
+.t-toggle[data-on="true"] .t-toggle-thumb {
+  translate: var(--toggle-travel) 0;
+}
+.t-toggle.is-init[data-on="true"] .t-toggle-thumb {
+  animation: t-toggle-on var(--toggle-dur) var(--toggle-ease) both;
+}
+.t-toggle.is-init[data-on="false"] .t-toggle-thumb {
+  animation: t-toggle-off var(--toggle-dur) var(--toggle-ease) both;
+}
+@keyframes t-toggle-on {
+  0% {
+    translate: 0 0;
+  }
+  55% {
+    translate: calc(var(--toggle-travel) + var(--toggle-ov1)) 0;
+  }
+  80% {
+    translate: calc(var(--toggle-travel) - var(--toggle-ov2)) 0;
+  }
+  100% {
+    translate: var(--toggle-travel) 0;
+  }
+}
+@keyframes t-toggle-off {
+  0% {
+    translate: var(--toggle-travel) 0;
+  }
+  55% {
+    translate: calc(0px - var(--toggle-ov1)) 0;
+  }
+  80% {
+    translate: var(--toggle-ov2) 0;
+  }
+  100% {
+    translate: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toggle-thumb {
+    animation: none !important;
+  }
+}
+
+/* transitions.dev — Text states swap (frontend/transitions/text-states-swap.md).
+   Old text exits up with blur, the new text enters from below; driven by the
+   TextSwap component's three-phase class sequence. */
+:root {
+  --text-swap-dur: 150ms;
+  --text-swap-translate-y: 4px;
+  --text-swap-blur: 2px;
+  --text-swap-ease: ease-in-out;
+}
+
+.t-text-swap {
+  display: inline-block;
+  transform: translateY(0);
+  filter: blur(0);
+  opacity: 1;
+  transition: transform var(--text-swap-dur) var(--text-swap-ease),
+    filter var(--text-swap-dur) var(--text-swap-ease),
+    opacity var(--text-swap-dur) var(--text-swap-ease);
+  will-change: transform, filter, opacity;
+}
+.t-text-swap.is-exit {
+  transform: translateY(calc(var(--text-swap-translate-y) * -1));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+}
+.t-text-swap.is-enter-start {
+  transform: translateY(var(--text-swap-translate-y));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-text-swap {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Texts reveal (frontend/transitions/texts-reveal.md).
+   Lines rise into view with staggered blur; per-line delays come from the
+   StaggerLine component (calc(var(--stagger-stagger) * index)), the dynamic
+   form of the recipe's .t-stagger-line--N classes. */
+:root {
+  --stagger-dur: 500ms;
+  --stagger-distance: 12px;
+  --stagger-stagger: 40ms;
+  --stagger-blur: 3px;
+  --stagger-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-stagger-line {
+  display: block;
+  opacity: 0;
+  transform: translateY(var(--stagger-distance));
+  filter: blur(var(--stagger-blur));
+  transition: opacity var(--stagger-dur) var(--stagger-ease),
+    transform var(--stagger-dur) var(--stagger-ease),
+    filter var(--stagger-dur) var(--stagger-ease);
+  will-change: transform, opacity, filter;
+}
+.t-stagger-line--2 {
+  transition-delay: var(--stagger-stagger);
+}
+
+.t-stagger.is-shown .t-stagger-line {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+/* Exit decouples from the stagger: same fade for every line, no Y return. */
+.t-stagger.is-hiding .t-stagger-line {
+  opacity: 0;
+  transform: translateY(0);
+  filter: blur(0);
+  transition: opacity 200ms ease, transform 0s linear, filter 0s linear;
+  transition-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-stagger-line {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev-style — Flow diagram (facelift "How … works" explainers,
+   flow-explainer.tsx): the active node lights up in sequence and the
+   connector fills top-down like funds moving through the pipeline. The loop
+   reset fades the fills in place instead of draining them upward; cycle
+   timing lives in the component. */
+:root {
+  --flow-dur: 500ms;
+  --flow-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --flow-fill-dur: 800ms;
+  --flow-reset-dur: 400ms;
+}
+
+.t-flow-node {
+  background: var(--accent);
+  color: var(--tertiary);
+  transition: background var(--flow-dur) var(--flow-ease),
+    color var(--flow-dur) var(--flow-ease),
+    transform var(--flow-dur) var(--flow-ease);
+  will-change: transform;
+}
+.t-flow-node.is-reached {
+  color: var(--primary);
+}
+.t-flow-node.is-active {
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+  transform: scale(1.08);
+}
+
+.t-flow-track {
+  position: relative;
+  flex: 1;
+  width: 2px;
+  min-height: 14px;
+  margin: 4px 0;
+  border-radius: 9999px;
+  background: var(--accent-active);
+  overflow: hidden;
+}
+.t-flow-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--primary);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--flow-fill-dur) var(--flow-ease);
+  will-change: transform;
+}
+.t-flow-track.is-filled .t-flow-fill {
+  transform: scaleY(1);
+}
+/* Loop reset: fills fade out where they stand (the transform snap waits for
+   the fade), nodes ride their normal color/background transition back. The
+   class sits on each track (not the stagger group, whose is-shown React
+   would wipe on a className change). */
+.t-flow-track.is-resetting .t-flow-fill {
+  opacity: 0;
+  transform: scaleY(0);
+  transition: opacity var(--flow-reset-dur) ease,
+    transform 0s linear var(--flow-reset-dur);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-flow-node,
+  .t-flow-fill {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation: flow-layout list skeletons (transaction rows) reuse
+   the skeleton recipe's pulse clock without the absolute reveal wrap — the
+   reveal side is handled by the texts-reveal stagger on the loaded rows. */
+.t-skel-rows > * {
+  animation: t-skel-pulse var(--pulse-dur) ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-skel-rows > * {
+    animation: none;
+  }
+}
+
+/* Facelift adaptation: the activity card's red tab underline glides between
+   tabs on the tabs-sliding clock (same measure-and-tween mechanics). */
+.t-tabs-underline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  border-radius: 4px 4px 1px 1px;
+  background: var(--primary);
+  transition: transform var(--tabs-dur) var(--tabs-ease),
+    width var(--tabs-dur) var(--tabs-ease);
+  will-change: transform, width;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-tabs-underline {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Card resize (frontend/transitions/card-resize.md).
+   Tweens the chart card's height when the Earned tab hugs to 527px. */
+:root {
+  --resize-dur: 300ms;
+  --resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-resize {
+  transition: width var(--resize-dur) var(--resize-ease),
+    height var(--resize-dur) var(--resize-ease);
+  will-change: width, height;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-resize {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Panel reveal (frontend/transitions/panel-reveal.md).
+   The middle pane's content slides up into the region with a cross-blur when
+   the boot loader hands off. */
+:root {
+  --panel-open-dur: 400ms;
+  --panel-close-dur: 350ms;
+  --panel-translate-y: 100px;
+  --panel-blur: 2px;
+  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-panel-slide {
+  transform: translateY(var(--panel-translate-y));
+  opacity: 0;
+  filter: blur(var(--panel-blur));
+  pointer-events: none;
+  transition: transform var(--panel-close-dur) var(--panel-ease),
+    opacity var(--panel-close-dur) var(--panel-ease),
+    filter var(--panel-close-dur) var(--panel-ease);
+  will-change: transform, opacity, filter;
+}
+.t-panel-slide[data-open="true"] {
+  transform: translateY(0);
+  opacity: 1;
+  filter: blur(0);
+  pointer-events: auto;
+  transition: transform var(--panel-open-dur) var(--panel-ease),
+    opacity var(--panel-open-dur) var(--panel-ease),
+    filter var(--panel-open-dur) var(--panel-ease);
+}
+
+/* Facelift adaptation: once the enter settles, drop transform/filter/
+   will-change so the wrapper stops being a containing block — fixed-position
+   overlays inside the pane (autodeposit info sheet) must anchor to the
+   viewport, and a lingering translateY(0) would capture them. */
+.t-panel-slide.is-settled {
+  transform: none;
+  filter: none;
+  will-change: auto;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-panel-slide {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation — the panel reveal as keyframes for the sheet
+   overlays (withdraw source select, autodeposit info, expanded charts):
+   fill-mode `both` on a data-state flip plays regardless of prior computed
+   state — the same proven mechanism as the modal recipe's close. The scrim
+   rides the modal recipe's fade keyframes on the panel clock. */
+.t-sheet-scrim[data-state="open"] {
+  animation: t-fade-in var(--panel-open-dur) var(--panel-ease) both;
+}
+.t-sheet-scrim[data-state="closed"] {
+  animation: t-fade-out var(--panel-close-dur) var(--panel-ease) both;
+}
+.t-sheet-panel[data-state="open"] {
+  animation: t-sheet-panel-in var(--panel-open-dur) var(--panel-ease) both;
+}
+.t-sheet-panel[data-state="closed"] {
+  animation: t-sheet-panel-out var(--panel-close-dur) var(--panel-ease) both;
+}
+
+@keyframes t-sheet-panel-in {
+  from {
+    transform: translateY(var(--panel-translate-y));
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+  }
+}
+@keyframes t-sheet-panel-out {
+  to {
+    transform: translateY(var(--panel-translate-y));
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-sheet-scrim[data-state],
+  .t-sheet-panel[data-state] {
+    animation: none;
+  }
+}
+
+/* transitions.dev — Menu dropdown (frontend/transitions/menu-dropdown.md).
+   Anchored popovers (sidebar wallet menu, withdraw source select) grow from
+   their trigger with a softer scale-down on close. */
+:root {
+  --dropdown-open-dur: 250ms;
+  --dropdown-close-dur: 150ms;
+  --dropdown-pre-scale: 0.97;
+  --dropdown-closing-scale: 0.99;
+  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-dropdown {
+  transform-origin: top left;
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity var(--dropdown-open-dur) var(--dropdown-ease);
+  will-change: transform, opacity;
+}
+.t-dropdown[data-origin="top-right"] {
+  transform-origin: top right;
+}
+.t-dropdown[data-origin="top-center"] {
+  transform-origin: top center;
+}
+.t-dropdown[data-origin="bottom-left"] {
+  transform-origin: bottom left;
+}
+.t-dropdown[data-origin="bottom-center"] {
+  transform-origin: bottom center;
+}
+.t-dropdown[data-origin="bottom-right"] {
+  transform-origin: bottom right;
+}
+
+.t-dropdown.is-open {
+  transform: scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity var(--dropdown-close-dur) var(--dropdown-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-dropdown {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation — shared hover clock. The library's hover recipes all
+   transition both directions on the house ease instead of snapping; this is
+   that convention as one class for background/color/lift hover states. */
+:root {
+  --hover-dur: 150ms;
+  --hover-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Monochrome SVG assets rendered in the current text color: the asset is a
+   mask, the fill comes from currentColor, so icons follow the theme tokens. */
+/* transitions/theme-switch.md — while the theme circle-wipe runs, freeze
+   both root snapshots so the WAAPI clip-path on the new one is the only
+   motion. Scoped by the data attribute so any other view transition keeps
+   the API's default crossfade. */
+:root[data-theme-wipe]::view-transition-old(root),
+:root[data-theme-wipe]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+/* The old snapshot stacks at z-index 1 by default, which would hide the
+   clip-reveal happening on the new one — put the new snapshot on top. */
+:root[data-theme-wipe]::view-transition-new(root) {
+  z-index: 2;
+}
+
+/* In @layer components so display utilities (hidden, max-*:block) can
+   override the inline-block default — unlayered CSS would always win. */
+@layer components {
+  .icon-themed {
+    display: inline-block;
+    flex-shrink: 0;
+    background-color: currentColor;
+    mask: var(--icon) center / contain no-repeat;
+    -webkit-mask: var(--icon) center / contain no-repeat;
+  }
+}
+
+.t-hover {
+  transition: background-color var(--hover-dur) var(--hover-ease),
+    color var(--hover-dur) var(--hover-ease),
+    opacity var(--hover-dur) var(--hover-ease),
+    translate var(--hover-dur) var(--hover-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-hover {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Accordion expand (panel-only subset, no header/chevron).
+   Collapses the sign-in captcha block once verification passes, instead of
+   snapping it out of the layout. grid-template-rows 0fr ↔ 1fr animates any
+   content height with no JS measuring; the inner element clips overflow. */
+:root {
+  --acc-expand: 250ms;
+  --acc-collapse: 250ms;
+  --acc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
+}
+.t-acc-panel-inner {
+  overflow: hidden;
+  opacity: 0;
+  filter: blur(2px);
+  transition: opacity var(--acc-collapse) var(--acc-ease),
+    filter var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel-inner {
+  opacity: 1;
+  filter: blur(0);
+  transition: opacity var(--acc-expand) var(--acc-ease),
+    filter var(--acc-expand) var(--acc-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-acc-panel,
+  .t-acc-panel-inner {
+    transition: none !important;
+  }
+}
+
+/* Cap captcha widget (wallet sign-in) — aligned with the facelift language:
+   quiet neutral fill, borderless, 16px radius, h-12 row, inherited sans. */
+cap-widget {
+  display: block;
+  width: 100%;
+  /* Opaque equivalent of the facelift's bg-black/[0.04] on white — the
+     widget's label fade gradients paint with this var, so a translucent
+     value renders as grey smudges inside the row. */
+  --cap-background: #f5f5f5;
+  --cap-border-color: transparent;
+  --cap-border-radius: 16px;
+  --cap-widget-width: 100%;
+  --cap-widget-height: 48px;
+  --cap-widget-padding: 12px;
+  --cap-gap: 12px;
+  --cap-color: #0a0a0a;
+  --cap-checkbox-size: 24px;
+  --cap-checkbox-border: 1px solid rgba(60, 60, 67, 0.29);
+  --cap-checkbox-border-radius: 8px;
+  --cap-checkbox-background: #ffffff;
+  --cap-checkbox-margin: 0px;
+  --cap-font: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --cap-spinner-color: #0a0a0a;
+  --cap-spinner-background-color: rgba(0, 0, 0, 0.08);
+  --cap-spinner-thickness: 3px;
+}
+
+.dark cap-widget {
+  /* Opaque equivalent of white/[0.04] over Background/Primary #1D1B20. */
+  --cap-background: #262429;
+  --cap-color: #e1e3e6;
+  --cap-checkbox-border: 1px solid rgba(255, 255, 255, 0.29);
+  --cap-checkbox-background: #1d1b20;
+  --cap-spinner-color: #e1e3e6;
+  --cap-spinner-background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* transitions.dev — Page side-by-side (frontend/transitions/page-side-by-side.md).
+   The middle pane slides between the Earn root (page 1) and the action
+   screens — deposit / withdraw / autodeposit (page 2). */
+:root {
+  --page-slide-dur: 250ms;
+  --page-fade-dur: 250ms;
+  --page-slide-distance: 8px;
+  --page-blur: 3px;
+  --page-stagger: 200ms;
+  --page-exit-enabled: 1;
+  --page-slide-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --page-fade-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Below the sidebar breakpoint the panes are full-bleed: blurring a whole
+   viewport-sized surface is heavy enough that the blur holds through the
+   slide and only snaps off at the settle cleanup — so small screens run the
+   recipe as slide + fade only. */
+@media (width < 796px) {
+  :root {
+    --page-blur: 0px;
+  }
+}
+
+.t-page-slide {
+  position: relative;
+}
+.t-page-slide .t-page[data-page-id="1"] {
+  --t-page-from-x: calc(var(--page-slide-distance) * -1);
+}
+.t-page-slide .t-page[data-page-id="2"] {
+  --t-page-from-x: var(--page-slide-distance);
+}
+.t-page-slide .t-page {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.t-page-slide[data-page="1"] .t-page[data-page-id="1"],
+.t-page-slide[data-page="2"] .t-page[data-page-id="2"] {
+  pointer-events: auto;
+}
+
+/* Facelift adaptation, per the recipe's "animate the page sections, not the
+   container" guidance: the motion lives on each page's direct children so
+   multi-pane screens (withdraw/autodeposit mid + right panes) stagger the
+   second pane by --page-stagger in both directions. The wrapper keeps only
+   positioning + pointer-events. */
+.t-page-slide .t-page > * {
+  opacity: 0;
+  transform: translateX(
+    calc(var(--t-page-from-x, 0px) * var(--page-exit-enabled))
+  );
+  filter: blur(calc(var(--page-blur) * var(--page-exit-enabled)));
+  transition: opacity var(--page-fade-dur) var(--page-fade-ease),
+    transform var(--page-slide-dur) var(--page-slide-ease),
+    filter var(--page-slide-dur) var(--page-slide-ease);
+  will-change: opacity, transform, filter;
+}
+.t-page-slide .t-page > :nth-child(2) {
+  transition-delay: var(--page-stagger);
+}
+.t-page-slide[data-page="1"] .t-page[data-page-id="1"] > *,
+.t-page-slide[data-page="2"] .t-page[data-page-id="2"] > * {
+  opacity: 1;
+  transform: translateX(0);
+  filter: blur(0);
+}
+
+/* Facelift adaptations: page 1 (the Earn root) stays in normal flow so it
+   keeps sizing the middle pane; the action page overlays it. Once a slide
+   settles, the active page's sections drop transform/filter/will-change so
+   they stop being containing blocks — the action panes anchor fixed overlays
+   (mobile sheets, scrims) to the viewport. Must follow the active-state
+   rule: it ties its specificity and wins on source order. */
+.t-page-slide .t-page[data-page-id="1"] {
+  position: relative;
+  inset: auto;
+}
+.t-page-slide[data-page] .t-page.is-settled > * {
+  transform: none;
+  filter: none;
+  will-change: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-page-slide .t-page > * {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation — a transaction arriving after a mutation pushes the
+   list down and reveals: the accordion recipe's 0fr → 1fr track
+   (frontend/transitions/accordion.md) grows the row's slot on the resize
+   clock while the row replays the texts-reveal rise. is-entering holds a
+   line at its pre-reveal state even inside an already-shown .t-stagger
+   group (ties the is-shown rule's specificity, wins on source order). */
+.t-row-grow {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--resize-dur) var(--resize-ease);
+}
+.t-row-grow > * {
+  overflow: hidden;
+  min-height: 0;
+}
+.t-row-grow.is-open {
+  grid-template-rows: 1fr;
+}
+.t-stagger .t-stagger-line.is-entering {
+  opacity: 0;
+  transform: translateY(var(--stagger-distance));
+  filter: blur(var(--stagger-blur));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-row-grow {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Icon swap (frontend/transitions/icon-swap.md).
+   Two icons stacked in one grid cell; data-state="a"/"b" cross-fades with
+   blur + scale. Used by the sidebar copy-address button (copy ↔ check). */
+:root {
+  --icon-swap-dur: 250ms;
+  --icon-swap-blur: 2px;
+  --icon-swap-start-scale: 0.25;
+  --icon-swap-ease: ease-in-out;
+}
+
+.t-icon-swap {
+  position: relative;
+  display: inline-grid;
+}
+.t-icon-swap .t-icon {
+  grid-area: 1 / 1;
+  transition: opacity var(--icon-swap-dur) var(--icon-swap-ease),
+    filter var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--icon-swap-ease);
+  will-change: opacity, filter, transform;
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="a"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="b"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="b"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="a"] {
+  opacity: 0;
+  filter: blur(var(--icon-swap-blur));
+  transform: scale(var(--icon-swap-start-scale));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-icon-swap .t-icon {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Notification badge (03-notification-badge.md).
+   Dot pops onto the sidebar Activity trigger when unseen wallet activity
+   lands; the trigger itself never moves. .t-badge-activity anchors the dot
+   at the Figma 4813:340208 spot (6px dot, top 8 / right 8 of the 44px
+   button). */
+:root {
+  --badge-slide-dur: 260ms;
+  --badge-pop-dur: 500ms;
+  --badge-pop-close-dur: 180ms;
+  --badge-fade-dur: 400ms;
+  --badge-fade-close-dur: 180ms;
+  --badge-blur: 2px;
+  --badge-offset-x: -8.2px;
+  --badge-offset-y: 12.4px;
+  --badge-slide-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --badge-pop-ease: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --badge-close-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes t-badge-slide-in {
+  from {
+    transform: translate(var(--badge-offset-x), var(--badge-offset-y));
+  }
+  to {
+    transform: translate(0, 0);
+  }
+}
+
+.t-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  pointer-events: none;
+  will-change: transform;
+}
+.t-badge[data-open="true"] {
+  animation: t-badge-slide-in var(--badge-slide-dur) var(--badge-slide-ease);
+}
+.t-badge.t-badge-activity {
+  top: 8px;
+  right: 8px;
+}
+/* Mobile tab bar clock: anchored to the 28px icon itself, so the dot sits
+   just off its top-right corner like the sidebar variant. */
+.t-badge.t-badge-tab {
+  top: -2px;
+  right: -2px;
+}
+
+.t-badge-dot {
+  display: block;
+  transform-origin: center;
+  transform: scale(1);
+  opacity: 1;
+  filter: blur(0);
+  transition: transform var(--badge-pop-dur) var(--badge-pop-ease),
+    opacity var(--badge-fade-dur) var(--badge-pop-ease),
+    filter var(--badge-pop-dur) var(--badge-pop-ease);
+  will-change: transform, opacity, filter;
+}
+.t-badge[data-open="false"] .t-badge-dot {
+  transform: scale(0);
+  opacity: 0;
+  filter: blur(var(--badge-blur));
+  transition: transform var(--badge-pop-close-dur) var(--badge-close-ease),
+    opacity var(--badge-fade-close-dur) var(--badge-close-ease),
+    filter var(--badge-pop-close-dur) var(--badge-close-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-badge,
+  .t-badge-dot {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Success check (10-success-check.md).
+   The swap success screen's check fades in, rotates upright, settles with a
+   Y-bob and draws its check stroke. Mounted with data-state="in" so the
+   keyframes play on insertion (same pattern as the sheet panels). */
+:root {
+  --check-opacity-dur: 500ms;
+  --check-rotate-dur: 500ms;
+  --check-rotate-from: 80deg;
+  --check-bob-dur: 500ms;
+  --check-y-amount: 40px;
+  --check-blur-dur: 500ms;
+  --check-blur-from: 10px;
+  --check-path-dur: 500ms;
+  --check-path-delay: 80ms;
+  --check-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-opacity: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-rotate: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --check-ease-path: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-success-check {
+  display: inline-block;
+  transform-origin: center;
+  opacity: 0;
+  will-change: transform, opacity, filter;
+}
+.t-success-check svg {
+  display: block;
+  overflow: visible;
+}
+/* 35 = getTotalLength() of the swap check path (M20 33l8 8 16-16 ≈ 33.9),
+   rounded up per the recipe's calibration note. */
+.t-success-check svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+
+.t-success-check[data-state="in"] {
+  animation: t-check-fade var(--check-opacity-dur) var(--check-ease-opacity)
+      forwards,
+    t-check-rotate var(--check-rotate-dur) var(--check-ease-rotate) forwards,
+    t-check-blur var(--check-blur-dur) var(--check-ease-out) forwards,
+    t-check-bob var(--check-bob-dur) var(--check-ease-bob) forwards;
+}
+.t-success-check[data-state="in"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path)
+    var(--check-path-delay, 0ms) forwards;
+}
+
+@keyframes t-check-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes t-check-rotate {
+  from {
+    transform: rotate(var(--check-rotate-from));
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+@keyframes t-check-blur {
+  from {
+    filter: blur(var(--check-blur-from));
+  }
+  to {
+    filter: blur(0);
+  }
+}
+@keyframes t-check-bob {
+  from {
+    translate: 0 var(--check-y-amount);
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@keyframes t-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-success-check {
+    animation: none !important;
+    opacity: 1;
+  }
+  .t-success-check svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/* Facelift adaptation — the "Swapping..." ellipsis as three staggered
+   blinking dots (the shimmer recipe's in-progress moment, without the
+   gradient machinery a three-dot glyph doesn't need). */
+:root {
+  --dots-dur: 1.4s;
+  --dots-stagger: 200ms;
+}
+
+.t-loading-dots span {
+  animation: t-dot-blink var(--dots-dur) ease-in-out infinite;
+}
+.t-loading-dots span:nth-child(2) {
+  animation-delay: var(--dots-stagger);
+}
+.t-loading-dots span:nth-child(3) {
+  animation-delay: calc(var(--dots-stagger) * 2);
+}
+
+@keyframes t-dot-blink {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-loading-dots span {
+    animation: none !important;
+  }
+}
+
+/* Facelift original in the transitions.dev idiom (the library ships no
+   confetti recipe): particles fly out from the element center on per-particle
+   --confetti-x/-y/-rot/-delay inline props, spinning and fading on the house
+   ease. `forwards` keeps them hidden before their delay and after the burst. */
+:root {
+  --confetti-dur: 900ms;
+  --confetti-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.t-confetti i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: t-confetti-burst var(--confetti-dur) var(--confetti-ease)
+    var(--confetti-delay, 0ms) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes t-confetti-burst {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(0deg)
+      scale(var(--confetti-scale, 1));
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(
+        calc(var(--confetti-x) - 50%),
+        calc(var(--confetti-y) - 50%)
+      )
+      rotate(var(--confetti-rot)) scale(calc(var(--confetti-scale, 1) * 0.7));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-confetti i {
+    animation: none !important;
+  }
+}
+
+/* transitions.dev — Toast open / close (frontend/transitions/toast.md).
+   Earn action feedback pill (facelift/earn-toast.tsx): slides into the top
+   edge with fade + cross-blur + slight scale (the host flips
+   --toast-distance negative); opening runs the slower open clock while
+   dismissing uses the faster close clock. */
+:root {
+  --toast-open: 350ms;
+  --toast-close: 250ms;
+  --toast-distance: 16px;
+  --toast-blur: 2px;
+  --toast-scale: 0.97;
+  --toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-toast {
+  opacity: 0;
+  transform: translateY(var(--toast-distance)) scale(var(--toast-scale));
+  filter: blur(var(--toast-blur));
+  will-change: transform, opacity, filter;
+  transition: opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease);
+}
+.t-toast.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  transition: opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toast {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation — the toast's status icon is an icon-swap with THREE
+   stacked states (a: pending spinner, b: success check, c: error cross).
+   The base recipe above only styles a/b, so state "c" gets the same
+   treatment here, scoped to the toast. The white arc spins while pending,
+   and the check strokes itself in on the morph to success (reusing
+   t-check-draw; 35 = the calibrated length of the shared check path). */
+:root {
+  --toast-spin-dur: 900ms;
+}
+
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="c"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+.t-toast .t-icon-swap[data-state="a"] .t-icon[data-icon="c"],
+.t-toast .t-icon-swap[data-state="b"] .t-icon[data-icon="c"],
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="a"],
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="b"] {
+  opacity: 0;
+  filter: blur(var(--icon-swap-blur));
+  transform: scale(var(--icon-swap-start-scale));
+}
+
+.t-toast-spinner {
+  animation: t-toast-spin var(--toast-spin-dur) linear infinite;
+  transform-origin: center;
+}
+
+@keyframes t-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.t-toast .t-icon[data-icon="b"] svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+.t-toast .t-icon-swap[data-state="b"] .t-icon[data-icon="b"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toast-spinner {
+    animation: none !important;
+  }
+  .t-toast .t-icon[data-icon="b"] svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/* Facelift adaptation — Earn step card (earn-toast.tsx). Multi-stage flows
+   expand the pill into a task-steps card; height/width come from inline
+   styles and morph on the resize clock (interpolate-size lets width tween
+   back to the pill's auto width where supported; elsewhere it snaps). The
+   open/close transition list must be restated here because .is-open resets
+   `transition` wholesale. */
+.t-toast.t-toast-resize {
+  interpolate-size: allow-keywords;
+  transition: opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease),
+    height var(--resize-dur) var(--resize-ease),
+    width var(--resize-dur) var(--resize-ease);
+}
+.t-toast.t-toast-resize.is-open {
+  transition: opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease),
+    height var(--resize-dur) var(--resize-ease),
+    width var(--resize-dur) var(--resize-ease);
+}
+
+/* Step rows: the status icon is a four-state stack (p: pending dot,
+   a: spinner, b: check, c: cross) riding the icon-swap tokens, with the
+   incoming icon popping on the bob ease (slight overshoot past 1). The
+   check additionally swings upright and stroke-draws its path (t-check-draw;
+   35 = the calibrated length of the shared check path), and the next step's
+   spinner waits a beat so the landing check reads before the handoff. */
+:root {
+  --step-advance-delay: 120ms;
+}
+
+.t-step-icon {
+  position: relative;
+}
+.t-step-ico {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(var(--icon-swap-start-scale));
+  filter: blur(var(--icon-swap-blur));
+  transition: opacity var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--check-ease-bob),
+    filter var(--icon-swap-dur) var(--icon-swap-ease);
+}
+.t-step-ico[data-ico="b"] {
+  transform: scale(var(--icon-swap-start-scale)) rotate(-80deg);
+}
+.t-step-ico[data-ico="b"] svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+.t-step-icon[data-state="p"] .t-step-ico[data-ico="p"],
+.t-step-icon[data-state="a"] .t-step-ico[data-ico="a"],
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"],
+.t-step-icon[data-state="c"] .t-step-ico[data-ico="c"] {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+}
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"] {
+  transform: scale(1) rotate(0deg);
+}
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) forwards;
+}
+.t-step-icon[data-state="a"] .t-step-ico[data-ico="a"] {
+  transition-delay: var(--step-advance-delay);
+}
+
+/* Smooths the label's dim ⇄ full-black changes as rows advance. */
+.t-step-label {
+  transition: color var(--icon-swap-dur) var(--icon-swap-ease);
+}
+
+.t-step-active {
+  background-image: linear-gradient(
+    90deg,
+    var(--foreground) 42%,
+    color-mix(in oklab, var(--foreground) 35%, transparent) 50%,
+    var(--foreground) 58%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: t-step-shimmer 1.6s linear infinite;
+}
+
+@keyframes t-step-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-step-ico,
+  .t-step-label {
+    transition: none !important;
+  }
+  .t-step-icon .t-step-ico[data-ico="b"] svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .t-step-active {
+    animation: none !important;
+    background-image: none;
+    color: var(--foreground);
+  }
+}
+
+/* animate-text — soft-blur-in (banner titles). Per-character blurred rise
+   from the spec (900ms, 16px, cubic-bezier(0.22,1,0.36,1)), with blur 12→6
+   and stagger 25→15ms per its usage notes for sub-24px copy. The mobile home
+   banner slide (wallet-home-banners.tsx) toggles .is-shown when it becomes
+   the active carousel slide; --banner-char-i staggers the enter delays.
+   Exit is the undelayed reverse, so an outgoing title dissolves as one —
+   art + button ride the installed texts-reveal .t-stagger-line instead. */
+:root {
+  --banner-char-dur: 900ms;
+  --banner-char-stagger: 15ms;
+  --banner-char-distance: 16px;
+  --banner-char-blur: 6px;
+  --banner-char-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-banner-char {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(var(--banner-char-distance));
+  filter: blur(var(--banner-char-blur));
+  transition: opacity var(--banner-char-dur) var(--banner-char-ease),
+    transform var(--banner-char-dur) var(--banner-char-ease),
+    filter var(--banner-char-dur) var(--banner-char-ease);
+}
+
+.t-home-banner.is-shown .t-banner-char {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  transition-delay: calc(var(--banner-char-i, 0) * var(--banner-char-stagger));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-banner-char {
+    transition: none !important;
+  }
+}
+
+/* Desktop Earn banner (earn-banner.tsx) — the card ⇄ pill morph rides the
+   resize clock (height/radius from inline styles, brand color per banner),
+   and the active story pill fills linearly over the roll interval (duration
+   set inline from ROLL_INTERVAL_MS so bar and roll always land together). */
+.t-earn-banner {
+  transition: height var(--resize-dur) var(--resize-ease),
+    border-radius var(--resize-dur) var(--resize-ease),
+    background-color var(--resize-dur) var(--resize-ease);
+  will-change: height;
+}
+
+.t-banner-progress {
+  animation: t-banner-progress linear forwards;
+}
+
+@keyframes t-banner-progress {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-earn-banner {
+    transition: none !important;
+  }
+  /* Autoplay is off too, so the first pill just reads as full. */
+  .t-banner-progress {
+    animation: none !important;
+    width: 100%;
+  }
+}
+
+/* Milo — hovering the empty-Earn dog signs his handwritten name and an arrow
+   pointing at him (earn-empty-pane.tsx). Each stroke is a pathLength=1 path,
+   so dasharray 1 covers it and dashoffset 1→0 draws it on. Hover staggers
+   the strokes in pen order — M, i, l, o, then the i's dot, then the arrow —
+   on an easeInOutSine pen pull; unhover retracts every stroke together on
+   the quick base transition (no delays), like the pen lifting away. */
+.milo-hitbox {
+  pointer-events: auto;
+}
+/* Short viewports pull the dog up under the headline/CTA — no room for the
+   name there, so the easter egg only exists at 800px+ of height. */
+@media (height < 800px) {
+  .milo-hitbox {
+    display: none;
+  }
+}
+.milo-tag path {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  /* Round caps paint a dot at each path start even at full dashoffset, so
+     the strokes stay opacity-hidden at rest; the hide waits out the 240ms
+     retract so unhover still shows the ink rewinding. */
+  opacity: 0;
+  transition: stroke-dashoffset 240ms ease-in, opacity 0ms linear 240ms;
+}
+.milo-hitbox:hover + .milo-tag path {
+  stroke-dashoffset: 0;
+  opacity: 1;
+  transition-timing-function: cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+/* Durations pair [stroke-dashoffset, opacity]: the draw animates, the
+   opacity un-hide snaps at the same stroke's delay so ink only ever exists
+   where the pen has been. */
+.milo-hitbox:hover + .milo-tag path:nth-child(1) {
+  transition-duration: 340ms, 0ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(2) {
+  transition-duration: 130ms, 0ms;
+  transition-delay: 320ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(3) {
+  transition-duration: 170ms, 0ms;
+  transition-delay: 430ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(4) {
+  transition-duration: 220ms, 0ms;
+  transition-delay: 580ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(5) {
+  transition-duration: 60ms, 0ms;
+  transition-delay: 860ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(6) {
+  transition-duration: 240ms, 0ms;
+  transition-delay: 980ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(7) {
+  transition-duration: 140ms, 0ms;
+  transition-delay: 1200ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .milo-tag path {
+    transition: none !important;
+  }
+}

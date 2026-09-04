@@ -32,19 +32,6 @@ export type AssetSnapshot = {
   fetchedAt: number;
 };
 
-export type SecureBalanceMap = ReadonlyMap<string, bigint>;
-
-export type SecureBalanceProviderArgs = {
-  owner: PublicKey;
-  env: SolanaEnv;
-  tokenMints: PublicKey[];
-  assetBalances: AssetBalance[];
-};
-
-export type SecureBalanceProvider = (
-  args: SecureBalanceProviderArgs
-) => Promise<SecureBalanceMap>;
-
 export type AssetProviderSubscribeOptions = {
   commitment?: "processed" | "confirmed" | "finalized";
   debounceMs?: number;
@@ -61,20 +48,7 @@ export type AssetProvider = {
   ) => Promise<() => Promise<void>>;
 };
 
-export type ProgramActionType =
-  | "store"
-  | "verify_telegram_init_data"
-  | "initialize_deposit"
-  | "initialize_username_deposit"
-  | "claim_username_deposit_to_deposit"
-  | "transfer_deposit"
-  | "transfer_to_username_deposit"
-  | "create_permission"
-  | "create_username_permission"
-  | "delegate"
-  | "delegate_username_deposit"
-  | "undelegate"
-  | "undelegate_username_deposit";
+export type ProgramActionType = "earn_deposit" | "earn_withdraw";
 
 export type WalletActivityStatus = "success" | "failed";
 
@@ -116,13 +90,6 @@ export type WalletSwapActivity = WalletActivityBase & {
   counterparty?: string;
 };
 
-export type WalletSecureActivity = WalletActivityBase & {
-  type: "secure" | "unshield";
-  direction: "in" | "out";
-  token: WalletTokenAmount;
-  counterparty?: string;
-};
-
 export type WalletProgramActionActivity = WalletActivityBase & {
   type: "program_action";
   action: ProgramActionType;
@@ -137,13 +104,18 @@ export type WalletActivity =
   | WalletSolTransferActivity
   | WalletTokenTransferActivity
   | WalletSwapActivity
-  | WalletSecureActivity
   | WalletProgramActionActivity;
 
 export type GetActivityOptions = {
   limit?: number;
   before?: string;
   onlySystemTransfers?: boolean;
+  forceRefresh?: boolean;
+};
+
+export type InvalidateCachesOptions = {
+  portfolio?: AddressInput[];
+  activity?: AddressInput[];
 };
 
 export type SubscribeActivityOptions = {
@@ -174,26 +146,10 @@ export type ActivityProvider = {
 export type PortfolioPosition = {
   asset: AssetDescriptor;
   publicBalance: number;
-  securedBalance: number;
   totalBalance: number;
   priceUsd: number | null;
   publicValueUsd: number | null;
-  securedValueUsd: number | null;
   totalValueUsd: number | null;
-};
-
-export type PortfolioHolding = {
-  mint: string;
-  symbol: string;
-  name: string;
-  balance: number;
-  decimals: number;
-  priceUsd: number | null;
-  valueUsd: number | null;
-  imageUrl: string | null;
-  isNative: boolean;
-  kind: "public" | "secured" | "total";
-  isSecured?: boolean;
 };
 
 export type PortfolioTotals = {
@@ -235,7 +191,6 @@ export type CreateSolanaWalletDataClientConfig = {
   logger?: WalletDataLogger;
   assetProvider?: AssetProvider;
   activityProvider?: ActivityProvider;
-  secureBalanceProvider?: SecureBalanceProvider;
   createRpcConnection?: (
     rpcEndpoint: string,
     commitment: Commitment
@@ -270,4 +225,5 @@ export type SolanaWalletDataClient = {
     onActivity: (activity: WalletActivity) => void,
     options?: SubscribeActivityOptions
   ) => Promise<() => Promise<void>>;
+  invalidateCaches: (options?: InvalidateCachesOptions) => void;
 };

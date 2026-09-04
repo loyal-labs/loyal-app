@@ -1,0 +1,20 @@
+---
+title: "Build with Loyal"
+description: "Choose the Loyal integration path that matches the system you need to build."
+sidebarTitle: "Overview"
+icon: "rocket"
+---
+
+Begin by writing the customer promise in one sentence.
+
+A Loyal integration should let a customer approve one bounded job, see what happened, and leave without needing Loyal's permission. For the current Balance Sweep & Earn product, that means keeping a chosen USDC reserve available and moving only the eligible amount through the approved Earn path.
+
+## Before you choose an SDK
+
+Write down who has root control and which signer receives limited access. Define the event that starts the job and the action it permits. Record the amount and destination constraints.
+
+Then decide what proves submission and onchain confirmation. Name the durable product record as well. Your design must also include an exit that does not require Loyal's permission.
+
+Other automation examples need their own verified product path and status. Use the lowest-level component only when your integration requires it.
+
+Need the boundaries first? Technical leads should read [System architecture](/build/system-architecture) before assigning sources of truth or designing recovery.

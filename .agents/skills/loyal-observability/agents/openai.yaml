@@ -1,0 +1,13 @@
+interface:
+  display_name: "Loyal Observability"
+  short_description: "Investigate Loyal production telemetry"
+  default_prompt: "Use $loyal-observability to investigate this Loyal production issue with ClickStack evidence."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "clickstack"
+      description: "Loyal production logs, traces, metrics, and observability queries"
+      transport: "streamable_http"
+      url: "https://loyal-clickstack.onrender.com/api/mcp"
+policy:
+  allow_implicit_invocation: true

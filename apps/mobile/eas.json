@@ -1,0 +1,104 @@
+{
+  "cli": {
+    "version": ">= 16.0.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "autoIncrement": true,
+      "distribution": "internal",
+      "channel": "preview",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "development": {
+      "autoIncrement": true,
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "env": {
+        "APP_VARIANT": "development",
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "environment": "production",
+      "env": {
+        "PLAY_STORE_BUILD": "true",
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
+    "production-ios": {
+      "autoIncrement": true,
+      "channel": "production",
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
+    "dapp-store": {
+      "autoIncrement": true,
+      "channel": "dapp-store",
+      "environment": "production",
+      "env": {
+        "DAPP_STORE_BUILD": "true",
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
+      },
+      "android": {
+        "buildType": "apk",
+        "credentialsSource": "local"
+      }
+    },
+    "development-simulator": {
+      "autoIncrement": true,
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "env": {
+        "APP_VARIANT": "development",
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
+      },
+      "ios": {
+        "simulator": true
+      },
+      "environment": "development"
+    }
+  },
+  "submit": {
+    "production-ios": {
+      "extends": "production"
+    },
+    "production": {
+      "ios": {
+        "appleId": "vlad@askloyal.com",
+        "ascAppId": "6802734319",
+        "appleTeamId": "AP32T55T29"
+      }
+    }
+  }
+}

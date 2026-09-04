@@ -1,0 +1,1682 @@
+"use client";
+
+import {
+  ArrowDownUp,
+  ArrowLeft,
+  ChevronRight,
+  Globe,
+  Share,
+  Wallet,
+  X,
+} from "lucide-react";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { usePublicEnv } from "@/contexts/public-env-context";
+import { useSend } from "@/hooks/use-send";
+import { openTrackedLink, trackWalletSendPressed } from "@/lib/core/analytics";
+import { getExplorerTxUrl } from "@/lib/solana/explorer";
+
+import type { SubView, SwapToken } from "./types";
+
+const font = "var(--font-geist-sans), sans-serif";
+const secondary = "rgba(60, 60, 67, 0.6)";
+const red = "#F9363C";
+
+export function isValidSolanaAddress(value: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value);
+}
+
+export function truncateAddress(addr: string): string {
+  if (addr.length <= 10) return addr;
+  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
+}
+
+type SendPhase = "form" | "processing" | "success" | "error" | "details";
+
+function SendStatusHeader({
+  title,
+  onClose,
+}: {
+  title: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "8px",
+      }}
+    >
+      <div
+        style={{
+          flex: 1,
+          paddingLeft: "12px",
+          paddingTop: "4px",
+          paddingBottom: "4px",
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: font,
+            fontSize: "18px",
+            fontWeight: 600,
+            lineHeight: "28px",
+            color: "#000",
+            display: "block",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {title}
+        </span>
+      </div>
+      <button
+        className="send-status-close"
+        onClick={onClose}
+        style={{
+          width: "36px",
+          height: "36px",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          background: "rgba(0, 0, 0, 0.04)",
+          border: "none",
+          borderRadius: "9999px",
+          cursor: "pointer",
+          transition: "all 0.2s ease",
+          color: "#3C3C43",
+          flexShrink: 0,
+        }}
+        type="button"
+      >
+        <X size={24} />
+      </button>
+    </div>
+  );
+}
+
+function SendProcessing({
+  token,
+  onClose,
+}: {
+  token: SwapToken;
+  onClose: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <style jsx>{`
+        .send-status-close:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        @keyframes sendSpin {
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
+        }
+      `}</style>
+
+      <SendStatusHeader onClose={onClose} title="Send" />
+
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "20px",
+            alignItems: "center",
+            padding: "24px 32px",
+          }}
+        >
+          <div
+            style={{
+              width: "80px",
+              height: "80px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              style={{
+                width: "48px",
+                height: "48px",
+                border: "4px solid transparent",
+                borderTopColor: red,
+                borderRightColor: red,
+                borderRadius: "9999px",
+                animation: "sendSpin 1s linear infinite",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+              alignItems: "center",
+              textAlign: "center",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "20px",
+                fontWeight: 600,
+                lineHeight: "24px",
+                color: "#000",
+              }}
+            >
+              {token.symbol} is on its way
+            </span>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: secondary,
+                maxWidth: "285px",
+              }}
+            >
+              Your transaction is being processed and will be completed shortly
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: "16px 20px" }}>
+        <button
+          disabled
+          style={{
+            width: "100%",
+            padding: "12px 16px",
+            borderRadius: "9999px",
+            background: "#CCCDCD",
+            border: "none",
+            cursor: "default",
+            fontFamily: font,
+            fontSize: "16px",
+            fontWeight: 400,
+            lineHeight: "20px",
+            color: "#fff",
+            textAlign: "center",
+          }}
+          type="button"
+        >
+          In progress...
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SendResult({
+  variant,
+  token,
+  amount,
+  recipient,
+  errorMessage,
+  onClose,
+  onDone,
+  onDetails,
+}: {
+  variant: "success" | "error";
+  token: SwapToken;
+  amount: string;
+  recipient: string;
+  errorMessage?: string;
+  onClose: () => void;
+  onDone: () => void;
+  onDetails: () => void;
+}) {
+  const isSuccess = variant === "success";
+  const displayRecipient = truncateAddress(recipient);
+  const headerTitle = isSuccess ? `Send to ${displayRecipient}` : "Send";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <style jsx>{`
+        .send-status-close:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .send-done-btn:hover {
+          background: #333 !important;
+        }
+        .send-done-secondary-btn:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        @keyframes mascotNod {
+          0%,
+          100% {
+            transform: rotate(0deg);
+          }
+          25% {
+            transform: rotate(4deg);
+          }
+          75% {
+            transform: rotate(-4deg);
+          }
+        }
+      `}</style>
+
+      <SendStatusHeader onClose={onClose} title={headerTitle} />
+
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "20px",
+            alignItems: "center",
+            padding: "24px 32px",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt={isSuccess ? "Success" : "Error"}
+            src={isSuccess ? "/hero-new/success.svg" : "/hero-new/error.svg"}
+            style={{
+              width: "100px",
+              height: "80px",
+              animation: "mascotNod 0.6s ease-in-out 2",
+              transformOrigin: "center bottom",
+            }}
+          />
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+              alignItems: "center",
+              textAlign: "center",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "20px",
+                fontWeight: 600,
+                lineHeight: "24px",
+                color: "#000",
+              }}
+            >
+              {isSuccess ? `${token.symbol} sent` : "Send failed"}
+            </span>
+            {isSuccess ? (
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: secondary,
+                  maxWidth: "255px",
+                }}
+              >
+                <span style={{ color: "#000" }}>
+                  {amount} {token.symbol}
+                </span>
+                {" successfully sent to "}
+                <span style={{ color: "#000" }}>{displayRecipient}</span>
+              </span>
+            ) : (
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: secondary,
+                  maxWidth: "255px",
+                }}
+              >
+                {errorMessage || "Something went wrong. Please try again."}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          padding: "16px 20px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+        }}
+      >
+        {isSuccess && (
+          <button
+            className="send-done-btn"
+            onClick={onDetails}
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              background: "#000",
+              border: "none",
+              cursor: "pointer",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "#fff",
+              textAlign: "center",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            Transaction Details
+          </button>
+        )}
+        <button
+          className={isSuccess ? "send-done-secondary-btn" : "send-done-btn"}
+          onClick={onDone}
+          style={{
+            width: "100%",
+            padding: "12px 16px",
+            borderRadius: "9999px",
+            background: isSuccess ? "rgba(0, 0, 0, 0.04)" : "#000",
+            border: "none",
+            cursor: "pointer",
+            fontFamily: font,
+            fontSize: "16px",
+            fontWeight: 400,
+            lineHeight: "20px",
+            color: isSuccess ? "#000" : "#fff",
+            textAlign: "center",
+            transition: "background 0.15s ease",
+          }}
+          type="button"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SendTransactionDetail({
+  token,
+  amount,
+  recipient,
+  usdValue,
+  signature,
+  onClose,
+  onDone,
+}: {
+  token: SwapToken;
+  amount: string;
+  recipient: string;
+  usdValue: string;
+  signature?: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const publicEnv = usePublicEnv();
+  const displayRecipient = truncateAddress(recipient);
+  const transactionUrl = signature ? getExplorerTxUrl(signature) : null;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  const timeStr = now.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <style jsx>{`
+        .send-status-close:hover {
+          background: rgba(0, 0, 0, 0.08) !important;
+        }
+        .send-tx-action-btn:hover {
+          background: rgba(249, 54, 60, 0.22) !important;
+        }
+        .send-tx-done-btn:hover {
+          background: #333 !important;
+        }
+      `}</style>
+
+      <SendStatusHeader
+        onClose={onClose}
+        title={`Send to ${displayRecipient}`}
+      />
+
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          padding: "8px",
+          overflowY: "auto",
+          overflowX: "hidden",
+        }}
+      >
+        {/* Amount hero */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "32px 12px 24px",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "8px",
+                fontFamily: font,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span
+                style={{ fontSize: "40px", lineHeight: "48px", color: red }}
+              >
+                −{amount}
+              </span>
+              <span
+                style={{
+                  fontSize: "28px",
+                  lineHeight: "32px",
+                  color: "rgba(60, 60, 67, 0.4)",
+                  letterSpacing: "0.4px",
+                }}
+              >
+                {token.symbol}
+              </span>
+            </div>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: secondary,
+              }}
+            >
+              ≈{usdValue}
+            </span>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 400,
+                lineHeight: "20px",
+                color: secondary,
+              }}
+            >
+              {dateStr}, {timeStr}
+            </span>
+          </div>
+        </div>
+
+        {/* Details card */}
+        <div style={{ width: "100%" }}>
+          <div
+            style={{
+              background: "rgba(0, 0, 0, 0.04)",
+              borderRadius: "16px",
+              padding: "4px 0",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div style={{ padding: "9px 12px" }}>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  color: secondary,
+                  display: "block",
+                }}
+              >
+                Recipient
+              </span>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#000",
+                  display: "block",
+                  marginTop: "2px",
+                  wordBreak: "break-all",
+                }}
+              >
+                {recipient}
+              </span>
+            </div>
+            <div style={{ padding: "9px 12px" }}>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  color: secondary,
+                  display: "block",
+                }}
+              >
+                Status
+              </span>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#000",
+                  display: "block",
+                  marginTop: "2px",
+                }}
+              >
+                Completed
+              </span>
+            </div>
+            <div style={{ padding: "9px 12px" }}>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
+                  color: secondary,
+                  display: "block",
+                }}
+              >
+                Network Fee
+              </span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  marginTop: "2px",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                }}
+              >
+                <span style={{ color: "#000" }}>0.00005 SOL</span>
+                <span style={{ color: secondary }}>≈ $0.00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            paddingTop: "20px",
+            paddingBottom: "16px",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <button
+              className="send-tx-action-btn"
+              onClick={() =>
+                transactionUrl &&
+                openTrackedLink(publicEnv, {
+                  href: transactionUrl,
+                  linkText: "View in explorer",
+                  source: "send_transaction_detail",
+                })
+              }
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "9999px",
+                background: "rgba(249, 54, 60, 0.14)",
+                border: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: signature ? "pointer" : "default",
+                opacity: signature ? 1 : 0.5,
+                transition: "background-color 0.15s ease",
+              }}
+              type="button"
+            >
+              <Globe size={24} style={{ color: "#3C3C43" }} />
+            </button>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                color: secondary,
+                textAlign: "center",
+              }}
+            >
+              View in explorer
+            </span>
+          </div>
+
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <button
+              className="send-tx-action-btn"
+              onClick={() => {
+                if (transactionUrl) {
+                  void navigator.clipboard.writeText(transactionUrl);
+                }
+              }}
+              style={{
+                width: "48px",
+                height: "48px",
+                borderRadius: "9999px",
+                background: "rgba(249, 54, 60, 0.14)",
+                border: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: signature ? "pointer" : "default",
+                opacity: signature ? 1 : 0.5,
+                transition: "background-color 0.15s ease",
+              }}
+              type="button"
+            >
+              <Share size={24} style={{ color: "#3C3C43" }} />
+            </button>
+            <span
+              style={{
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 400,
+                lineHeight: "16px",
+                color: secondary,
+                textAlign: "center",
+              }}
+            >
+              Share
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Done button */}
+      <div style={{ padding: "16px 20px" }}>
+        <button
+          className="send-tx-done-btn"
+          onClick={onDone}
+          style={{
+            width: "100%",
+            padding: "12px 16px",
+            borderRadius: "9999px",
+            background: "#000",
+            border: "none",
+            cursor: "pointer",
+            fontFamily: font,
+            fontSize: "16px",
+            fontWeight: 400,
+            lineHeight: "20px",
+            color: "#fff",
+            textAlign: "center",
+            transition: "background 0.15s ease",
+          }}
+          type="button"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export type SendContentVaultExecuteResult = {
+  success: boolean;
+  signature?: string;
+  error?: string;
+  /**
+   * "executed" — funds actually moved.
+   * "proposed" — proposal queued on chain.
+   * "draft" — local-only preview created in Approvals; no on-chain action yet.
+   */
+  status?: "executed" | "proposed" | "draft";
+};
+
+export type SendContentVaultExecutor = (request: {
+  mint: string;
+  symbol: string;
+  amount: number;
+  recipientAddress: string;
+}) => Promise<SendContentVaultExecuteResult>;
+
+export type SendContentVaultContext =
+  | { mode: "blocked"; reason: string }
+  | {
+      mode: "ready";
+      execute: SendContentVaultExecutor;
+      /** Optional notice rendered above the submit button (e.g. expected sign count). */
+      notice?: string;
+    };
+
+export type RecipientSuggestion = {
+  id: string;
+  label: string;
+  address: string;
+  icon?: string;
+  kind: "stash" | "agent";
+};
+
+export function SendContent({
+  onBack,
+  onClose,
+  onDone,
+  onNavigate,
+  onSuccess,
+  token,
+  initialRecipient = "",
+  vaultContext,
+  recipientSuggestions,
+}: {
+  onBack?: () => void;
+  onClose: () => void;
+  onDone: () => void;
+  onNavigate: (view: Exclude<SubView, null>) => void;
+  onSuccess?: (info: {
+    recipientAddress: string;
+    signature?: string;
+  }) => Promise<void> | void;
+  token: SwapToken;
+  initialRecipient?: string;
+  vaultContext?: SendContentVaultContext;
+  recipientSuggestions?: RecipientSuggestion[];
+}) {
+  const publicEnv = usePublicEnv();
+  const { executeSend } = useSend();
+  const [amount, setAmount] = useState("");
+  const [recipient, setRecipient] = useState(initialRecipient);
+  const [phase, setPhase] = useState<SendPhase>("form");
+  const [resultAmount, setResultAmount] = useState("");
+  const [resultUsd, setResultUsd] = useState("");
+  const [resultRecipient, setResultRecipient] = useState("");
+  const [resultSignature, setResultSignature] = useState<string | undefined>();
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
+
+  const numericAmount = Number.parseFloat(amount) || 0;
+  const hasAmount = numericAmount > 0;
+  const insufficientFunds = numericAmount > token.balance;
+  const amountColor = insufficientFunds && hasAmount ? red : "#000";
+
+  const usdValue = useMemo(
+    () => (numericAmount * token.price).toFixed(2),
+    [numericAmount, token.price]
+  );
+
+  const recipientTrimmed = recipient.trim();
+  const hasRecipient = recipientTrimmed.length > 0;
+  const isValidRecipient = isValidSolanaAddress(recipientTrimmed);
+  const showInvalidHint = hasRecipient && !isValidRecipient;
+
+  useEffect(() => {
+    setRecipient(initialRecipient);
+  }, [initialRecipient]);
+
+  const isVaultBlocked = vaultContext?.mode === "blocked";
+  const buttonLabel = isVaultBlocked
+    ? vaultContext.reason
+    : !hasAmount
+    ? "Enter Amount"
+    : insufficientFunds
+    ? "Insufficient Funds"
+    : !hasRecipient
+    ? "Enter Recipient"
+    : !isValidRecipient
+    ? "Invalid Address"
+    : "Send";
+  const buttonDisabled =
+    isVaultBlocked || !hasAmount || insufficientFunds || !isValidRecipient;
+
+  const handlePercentage = useCallback(
+    (pct: number) => {
+      let val = pct === 100 ? token.balance : token.balance * (pct / 100);
+      if (token.symbol.toUpperCase() === "SOL") {
+        // Vault PDAs must keep a rent-exempt minimum (~0.00089 SOL for a
+        // bare system account); leave a slightly larger cushion so the
+        // multisig transfer doesn't fail with "insufficient funds for rent".
+        // For User-wallet sends only the per-tx fee needs to stay behind.
+        const reserve = vaultContext ? 0.001 : 0.00005;
+        if (token.balance - val < reserve) {
+          val = Math.max(0, token.balance - reserve);
+        }
+      }
+      setAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
+    },
+    [token.balance, token.symbol, vaultContext]
+  );
+
+  const handleConfirm = useCallback(async () => {
+    if (vaultContext?.mode === "blocked") {
+      // Defense-in-depth: button should already be disabled.
+      return;
+    }
+    const currentAmount = hasAmount ? String(numericAmount) : "0";
+    const currentUsd = `$${
+      hasAmount
+        ? (numericAmount * token.price).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })
+        : "0"
+    }`;
+    setResultAmount(currentAmount);
+    setResultUsd(currentUsd);
+    setResultRecipient(recipientTrimmed);
+    setResultSignature(undefined);
+    setErrorMessage(undefined);
+    setPhase("processing");
+
+    const destinationType = "wallet";
+    const cleanRecipient = recipientTrimmed;
+
+    trackWalletSendPressed(publicEnv, {
+      source: "send_confirm",
+      interaction: "confirm",
+      token_symbol: token.symbol,
+      token_mint: token.mint,
+      amount: currentAmount,
+      usd_value: currentUsd,
+      destination_type: destinationType,
+      is_private: false,
+    });
+
+    let result: {
+      success: boolean;
+      signature?: string;
+      error?: string;
+      status?: SendContentVaultExecuteResult["status"];
+    };
+
+    if (vaultContext?.mode === "ready") {
+      if (!token.mint) {
+        result = {
+          success: false,
+          error: "Stash transfers require a known token mint.",
+        };
+      } else {
+        const vaultResult = await vaultContext.execute({
+          mint: token.mint,
+          symbol: token.symbol,
+          amount: numericAmount,
+          recipientAddress: cleanRecipient,
+        });
+        result = vaultResult;
+      }
+    } else {
+      result = await executeSend(
+        token.symbol,
+        currentAmount,
+        cleanRecipient,
+        token.mint,
+        undefined,
+        {
+          token_symbol: token.symbol,
+          token_mint: token.mint,
+          amount: currentAmount,
+          usd_value: currentUsd,
+          destination_type: destinationType,
+          is_private: false,
+        }
+      );
+    }
+
+    if (result.success) {
+      // Multisig draft path: workspace already routed the user to the
+      // Approvals preview. Close the form silently — no success screen, no
+      // balance refresh (nothing moved on chain yet).
+      if (result.status === "draft") {
+        setAmount("");
+        setRecipient("");
+        onDone();
+        return;
+      }
+
+      setResultSignature(result.signature);
+      setPhase("success");
+      setAmount("");
+      setRecipient("");
+
+      if (onSuccess) {
+        void Promise.resolve(
+          onSuccess({
+            recipientAddress: cleanRecipient,
+            signature: result.signature,
+          })
+        ).catch((err) => {
+          console.error("[SendContent] onSuccess callback failed", err);
+        });
+      }
+    } else {
+      setErrorMessage(result.error);
+      setPhase("error");
+    }
+  }, [
+    executeSend,
+    hasAmount,
+    numericAmount,
+    onDone,
+    onSuccess,
+    publicEnv,
+    recipientTrimmed,
+    token.mint,
+    token.price,
+    token.symbol,
+    vaultContext,
+  ]);
+
+  // Cross-fade between phases
+  const [phaseOpacity, setPhaseOpacity] = useState(1);
+  const [displayPhase, setDisplayPhase] = useState<SendPhase>(phase);
+  const prevPhase = useRef(phase);
+  useEffect(() => {
+    if (phase !== prevPhase.current) {
+      setPhaseOpacity(0);
+      const t = setTimeout(() => {
+        setDisplayPhase(phase);
+        setPhaseOpacity(1);
+        prevPhase.current = phase;
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [phase]);
+
+  // Auto-close the form shortly after a successful send. Cancelled if the user
+  // jumps to the transaction-details view within the window.
+  useEffect(() => {
+    if (phase !== "success") return;
+    const t = setTimeout(() => {
+      onDone();
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [phase, onDone]);
+
+  const renderPhaseContent = (p: SendPhase) => {
+    if (p === "processing") {
+      return <SendProcessing onClose={onClose} token={token} />;
+    }
+    if (p === "success" || p === "error") {
+      return (
+        <SendResult
+          amount={resultAmount}
+          errorMessage={errorMessage}
+          onClose={onClose}
+          onDetails={() => setPhase("details")}
+          onDone={onDone}
+          recipient={resultRecipient}
+          token={token}
+          variant={p}
+        />
+      );
+    }
+    if (p === "details") {
+      return (
+        <SendTransactionDetail
+          amount={resultAmount}
+          onClose={onClose}
+          onDone={onDone}
+          recipient={resultRecipient}
+          signature={resultSignature}
+          token={token}
+          usdValue={resultUsd}
+        />
+      );
+    }
+
+    // Form phase
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <style jsx>{`
+          .send-back:hover,
+          .send-close:hover {
+            background: rgba(0, 0, 0, 0.08) !important;
+          }
+          .pct-btn:hover {
+            opacity: 0.7;
+          }
+          .confirm-btn:not(:disabled):hover {
+            background: #333 !important;
+          }
+          .clear-btn:hover {
+            opacity: 0.7;
+          }
+        `}</style>
+
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "8px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
+            {onBack && (
+              <button
+                className="send-back"
+                onClick={onBack}
+                style={{
+                  width: "36px",
+                  height: "36px",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  background: "rgba(0, 0, 0, 0.04)",
+                  border: "none",
+                  borderRadius: "9999px",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                  color: "#3C3C43",
+                }}
+                type="button"
+              >
+                <ArrowLeft size={24} />
+              </button>
+            )}
+            <div
+              style={{
+                paddingLeft: onBack ? "8px" : "12px",
+                paddingTop: "4px",
+                paddingBottom: "4px",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "18px",
+                  fontWeight: 600,
+                  lineHeight: "28px",
+                  color: "#000",
+                }}
+              >
+                Send
+              </span>
+            </div>
+          </div>
+          <button
+            className="send-close"
+            onClick={onClose}
+            style={{
+              width: "36px",
+              height: "36px",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              background: "rgba(0, 0, 0, 0.04)",
+              border: "none",
+              borderRadius: "9999px",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+              color: "#3C3C43",
+            }}
+            type="button"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            overflow: "auto",
+            padding: "8px 8px 16px",
+          }}
+        >
+          {/* Amount card */}
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <div
+              style={{
+                border: "1px solid rgba(0, 0, 0, 0.08)",
+                borderRadius: "16px",
+                padding: "10px 12px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontFamily: font,
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span style={{ fontSize: "16px", color: secondary }}>
+                  Amount
+                </span>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "16px",
+                    alignItems: "center",
+                    fontSize: "14px",
+                    color: red,
+                  }}
+                >
+                  <button
+                    className="pct-btn"
+                    onClick={() => handlePercentage(25)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: red,
+                      fontFamily: font,
+                      fontSize: "14px",
+                      fontWeight: 400,
+                      padding: 0,
+                    }}
+                    type="button"
+                  >
+                    25%
+                  </button>
+                  <button
+                    className="pct-btn"
+                    onClick={() => handlePercentage(50)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: red,
+                      fontFamily: font,
+                      fontSize: "14px",
+                      fontWeight: 400,
+                      padding: 0,
+                    }}
+                    type="button"
+                  >
+                    50%
+                  </button>
+                  <button
+                    className="pct-btn"
+                    onClick={() => handlePercentage(100)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: red,
+                      fontFamily: font,
+                      fontSize: "14px",
+                      fontWeight: 400,
+                      padding: 0,
+                    }}
+                    type="button"
+                  >
+                    Max
+                  </button>
+                </div>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "4px",
+                  height: "48px",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  inputMode="decimal"
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
+                  }}
+                  placeholder="0"
+                  style={{
+                    flex: 1,
+                    fontFamily: font,
+                    fontSize: "32px",
+                    fontWeight: 600,
+                    lineHeight: "36px",
+                    color: amountColor,
+                    background: "none",
+                    border: "none",
+                    outline: "none",
+                    padding: 0,
+                    minWidth: 0,
+                  }}
+                  type="text"
+                  value={amount}
+                />
+                <button
+                  onClick={() => onNavigate({ type: "sendTokenSelect" })}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    background: "#F5F5F5",
+                    borderRadius: "54px",
+                    padding: "0 4px",
+                    border: "none",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                  type="button"
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      paddingRight: "6px",
+                      padding: "4px 6px 4px 4px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "28px",
+                        height: "28px",
+                        borderRadius: "9999px",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <Image
+                        alt={token.symbol}
+                        height={28}
+                        src={token.icon}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                        width={28}
+                      />
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 500,
+                      lineHeight: "20px",
+                      color: "#000",
+                      letterSpacing: "-0.176px",
+                      whiteSpace: "nowrap",
+                      padding: "8px 0",
+                    }}
+                  >
+                    {token.symbol}
+                  </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      height: "36px",
+                      padding: "8px 0",
+                    }}
+                  >
+                    <ChevronRight size={16} style={{ color: "#3C3C43" }} />
+                  </div>
+                </button>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <div
+                  style={{ display: "flex", gap: "6px", alignItems: "center" }}
+                >
+                  <div
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      borderRadius: "9999px",
+                      background: "#F5F5F5",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <ArrowDownUp
+                      size={12}
+                      style={{ color: secondary, opacity: 0.4 }}
+                    />
+                  </div>
+                  <span
+                    style={{
+                      fontFamily: font,
+                      fontSize: "14px",
+                      fontWeight: 400,
+                      lineHeight: "20px",
+                      color: secondary,
+                    }}
+                  >
+                    {hasAmount
+                      ? `≈$${Number(usdValue).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`
+                      : `1 ${token.symbol} ≈ $${token.price.toLocaleString(
+                          undefined,
+                          { minimumFractionDigits: 2, maximumFractionDigits: 4 }
+                        )}`}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "14px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: secondary,
+                  }}
+                >
+                  Balance: {token.balance.toLocaleString()}{" "}
+                </span>
+              </div>
+            </div>
+
+            {/* Recipient section */}
+            <div style={{ padding: "12px 12px 8px" }}>
+              <span
+                style={{
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: secondary,
+                }}
+              >
+                Recipient
+              </span>
+            </div>
+            <div
+              style={{
+                border: "1px solid rgba(0, 0, 0, 0.08)",
+                borderRadius: "16px",
+                display: "flex",
+                alignItems: "flex-start",
+                padding: "0 12px",
+                overflow: "hidden",
+              }}
+            >
+              {hasRecipient && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    paddingRight: "12px",
+                    flexShrink: 0,
+                    color: "#3C3C43",
+                    paddingTop: "15px",
+                  }}
+                >
+                  <Wallet size={20} />
+                </div>
+              )}
+              <textarea
+                onChange={(e) =>
+                  setRecipient(e.target.value.replace(/\n/g, ""))
+                }
+                placeholder="Wallet address"
+                rows={1}
+                style={
+                  {
+                    flex: 1,
+                    fontFamily: font,
+                    fontSize: "16px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: "#000",
+                    background: "none",
+                    border: "none",
+                    outline: "none",
+                    padding: "15px 0",
+                    minWidth: 0,
+                    resize: "none",
+                    overflow: "hidden",
+                    wordBreak: "break-all",
+                    fieldSizing: "content",
+                  } as React.CSSProperties
+                }
+                value={recipient}
+              />
+              {hasRecipient && (
+                <button
+                  className="clear-btn"
+                  onClick={() => setRecipient("")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "15px 0 15px 12px",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "#3C3C43",
+                    flexShrink: 0,
+                  }}
+                  type="button"
+                >
+                  <X size={20} />
+                </button>
+              )}
+            </div>
+            {showInvalidHint && (
+              <div style={{ padding: "4px 12px 0" }}>
+                <span
+                  style={{
+                    fontFamily: font,
+                    fontSize: "14px",
+                    fontWeight: 400,
+                    lineHeight: "20px",
+                    color: red,
+                  }}
+                >
+                  Invalid address
+                </span>
+              </div>
+            )}
+            {recipientSuggestions && recipientSuggestions.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px",
+                  padding: "8px 12px 0",
+                }}
+              >
+                {recipientSuggestions.map((suggestion) => {
+                  const isActive = recipientTrimmed === suggestion.address;
+                  return (
+                    <button
+                      key={suggestion.id}
+                      onClick={() => setRecipient(suggestion.address)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "4px 10px 4px 4px",
+                        borderRadius: "9999px",
+                        border: `1px solid ${
+                          isActive ? "#000" : "rgba(0, 0, 0, 0.08)"
+                        }`,
+                        background: isActive ? "rgba(0, 0, 0, 0.04)" : "#fff",
+                        cursor: "pointer",
+                        fontFamily: font,
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        lineHeight: "16px",
+                        color: "#000",
+                        transition:
+                          "background 0.15s ease, border-color 0.15s ease",
+                      }}
+                      type="button"
+                    >
+                      {suggestion.icon ? (
+                        <span
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "9999px",
+                            overflow: "hidden",
+                            flexShrink: 0,
+                            display: "flex",
+                          }}
+                        >
+                          <Image
+                            alt=""
+                            height={20}
+                            src={suggestion.icon}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                            width={20}
+                          />
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            borderRadius: "9999px",
+                            background: "rgba(0, 0, 0, 0.06)",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <span>{suggestion.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+        </div>
+
+        {/* Bottom button */}
+        <div style={{ padding: "16px 20px" }}>
+          {vaultContext?.mode === "ready" && vaultContext.notice ? (
+            <div
+              style={{
+                marginBottom: "8px",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                background: "rgba(60, 60, 67, 0.06)",
+                fontFamily: font,
+                fontSize: "12px",
+                lineHeight: "16px",
+                color: secondary,
+              }}
+            >
+              {vaultContext.notice}
+            </div>
+          ) : null}
+          <button
+            className="confirm-btn"
+            disabled={buttonDisabled}
+            onClick={handleConfirm}
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              borderRadius: "9999px",
+              background: buttonDisabled ? "#CCCDCD" : "#000",
+              border: "none",
+              cursor: buttonDisabled ? "default" : "pointer",
+              fontFamily: font,
+              fontSize: "16px",
+              fontWeight: 400,
+              lineHeight: "20px",
+              color: "#fff",
+              textAlign: "center",
+              transition: "background 0.15s ease",
+            }}
+            type="button"
+          >
+            {buttonLabel}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        opacity: phaseOpacity,
+        transition: "opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+      }}
+    >
+      {renderPhaseContent(displayPhase)}
+    </div>
+  );
+}

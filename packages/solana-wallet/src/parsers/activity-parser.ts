@@ -3,7 +3,7 @@ import {
   type ParsedInstruction,
   type ParsedMessage,
   type ParsedTransactionWithMeta,
-  PartiallyDecodedInstruction,
+  type PartiallyDecodedInstruction,
   PublicKey,
 } from "@solana/web3.js";
 
@@ -13,7 +13,7 @@ import {
   NATIVE_SOL_DECIMALS,
   NATIVE_SOL_MINT,
 } from "../constants";
-import { decodeWalletInstruction } from "./instruction-manifest";
+import { isDustSolTransfer, isDustTokenTransfer } from "../domain/dust-filter";
 import type {
   WalletActivity,
   WalletProgramActionActivity,
@@ -42,6 +42,17 @@ type TokenChange = {
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
+
+// Earn (autodeposit/deposit/withdraw) transactions have no transfer
+// counterparty from the wallet's perspective — the wallet pays fees while the
+// smart-account vaults program moves funds in and out of Kamino — so without
+// classification they render as "Sent to Unknown recipient" in activity feeds.
+const EARN_PROGRAM_IDS = new Set([
+  "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG", // smart-account vaults
+  "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD", // Kamino Lend
+  "FarmsPZpWu9i7Kky8tPN37rs2TpmMrAZrC7S7vJa91Hr", // Kamino Farms
+]);
+const KAMINO_LEND_PROGRAM_ID = "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD";
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 );
@@ -57,9 +68,7 @@ const accountKeyToString = (
   }
 
   if ("pubkey" in (key as ParsedMessage["accountKeys"][number])) {
-    return (
-      key as ParsedMessage["accountKeys"][number]
-    ).pubkey.toString();
+    return (key as ParsedMessage["accountKeys"][number]).pubkey.toString();
   }
 
   return (key as PublicKey).toString();
@@ -341,7 +350,10 @@ function findSplTokenTransferCounterparty(args: {
     }
   }
 
-  const instructions = flattenInstructions(args.message, args.innerInstructions);
+  const instructions = flattenInstructions(
+    args.message,
+    args.innerInstructions
+  );
   for (const instruction of instructions) {
     if (!("program" in instruction)) {
       continue;
@@ -384,6 +396,92 @@ function findSplTokenTransferCounterparty(args: {
   }
 
   return undefined;
+}
+
+type EarnDetection = {
+  action: "earn_deposit" | "earn_withdraw";
+  counterparty: string;
+};
+
+function detectEarnActivity(args: {
+  message: ParsedMessage;
+  innerInstructions: ParsedInnerInstruction[] | null | undefined;
+  meta: NonNullable<ParsedTransactionWithMeta["meta"]>;
+  walletAddress: string;
+  tokenChange: TokenChange | null;
+}): EarnDetection | undefined {
+  const instructions = flattenInstructions(
+    args.message,
+    args.innerInstructions
+  );
+
+  let hasEarnProgram = false;
+  let hasKaminoLend = false;
+  for (const instruction of instructions) {
+    const programId =
+      "programId" in instruction
+        ? instruction.programId?.toBase58?.()
+        : undefined;
+    if (programId && EARN_PROGRAM_IDS.has(programId)) {
+      hasEarnProgram = true;
+      hasKaminoLend = hasKaminoLend || programId === KAMINO_LEND_PROGRAM_ID;
+    }
+  }
+
+  // The sweep's setup leg: a standalone ATA create funded by the wallet for
+  // an account it doesn't own (the vault). Regular token sends that create a
+  // recipient ATA also carry a token transfer, so they classify as
+  // token_transfer with a real counterparty before Earn detection matters.
+  let isVaultAtaSetup = false;
+  if (!hasEarnProgram) {
+    for (const instruction of instructions) {
+      if (!("program" in instruction)) {
+        continue;
+      }
+      if (instruction.program !== "spl-associated-token-account") {
+        continue;
+      }
+
+      const parsed = (
+        instruction as ParsedInstruction & {
+          parsed?: { type?: string; info?: Record<string, string> };
+        }
+      ).parsed;
+      if (parsed?.type !== "create" && parsed?.type !== "createIdempotent") {
+        continue;
+      }
+
+      const owner = parsed.info?.wallet;
+      if (
+        owner &&
+        owner !== args.walletAddress &&
+        parsed.info?.source === args.walletAddress
+      ) {
+        isVaultAtaSetup = true;
+        break;
+      }
+    }
+  }
+
+  if (!hasEarnProgram && !isVaultAtaSetup) {
+    return undefined;
+  }
+
+  // Token movement on the wallet tells the operation directly; fee-only legs
+  // (the wallet just paid the network fee) fall back to Kamino's instruction
+  // logs, and the ATA setup leg is always the deposit flow.
+  const action: EarnDetection["action"] = args.tokenChange
+    ? args.tokenChange.direction === "in"
+      ? "earn_withdraw"
+      : "earn_deposit"
+    : (args.meta.logMessages ?? []).some((log) => log.includes("Withdraw"))
+    ? "earn_withdraw"
+    : "earn_deposit";
+
+  return {
+    action,
+    counterparty: hasKaminoLend ? "Kamino Lend" : "Earn",
+  };
 }
 
 function findSystemTransfer(
@@ -457,9 +555,7 @@ function toProgramActionActivity(args: {
     feeLamports: args.tx.meta?.fee ?? 0,
     status: args.tx.meta?.err ? "failed" : "success",
     counterparty: args.counterparty,
-    ...(args.tokenChange
-      ? { token: toTokenAmount(args.tokenChange) }
-      : {}),
+    ...(args.tokenChange ? { token: toTokenAmount(args.tokenChange) } : {}),
   };
 }
 
@@ -517,9 +613,23 @@ export function normalizeParsedTransaction(args: {
   const netChangeLamports = postLamports - preLamports;
 
   if (
-    !isSigner &&
-    !tokenChange &&
-    Math.abs(netChangeLamports) < DUST_LAMPORTS_THRESHOLD
+    isDustSolTransfer({
+      isUserSigned: isSigner,
+      hasTokenChange: tokenChange !== null,
+      lamports: netChangeLamports,
+    })
+  ) {
+    return null;
+  }
+
+  if (
+    tokenChange &&
+    isDustTokenTransfer({
+      isUserSigned: isSigner,
+      direction: tokenChange.direction,
+      rawAmount: tokenChange.absRaw,
+      decimals: tokenChange.decimals,
+    })
   ) {
     return null;
   }
@@ -534,36 +644,6 @@ export function normalizeParsedTransaction(args: {
     systemTransfer,
     direction: solDirection,
   });
-
-  const decodedInstruction = flattenInstructions(
-    message,
-    innerInstructions
-  )
-    .filter(
-      (
-        instruction
-      ): instruction is PartiallyDecodedInstruction =>
-        "data" in instruction && typeof instruction.data === "string"
-    )
-    .map((instruction) => decodeWalletInstruction(instruction.data))
-    .find((instruction) => instruction !== null);
-
-  if (
-    decodedInstruction?.type === "modify_balance" &&
-    tokenChange !== null
-  ) {
-    return {
-      type: decodedInstruction.increase ? "secure" : "unshield",
-      signature: args.signature,
-      slot: args.tx.slot,
-      timestamp: args.tx.blockTime ? args.tx.blockTime * 1000 : null,
-      direction: decodedInstruction.increase ? "out" : "in",
-      token: toTokenAmount(tokenChange),
-      feeLamports: meta.fee ?? 0,
-      status: meta.err ? "failed" : "success",
-      counterparty,
-    };
-  }
 
   const instructions = flattenInstructions(message, innerInstructions);
   const isJupiterSwap =
@@ -661,17 +741,22 @@ export function normalizeParsedTransaction(args: {
     }
   }
 
-  if (decodedInstruction?.type === "program_action") {
+  const earn = detectEarnActivity({
+    message,
+    innerInstructions,
+    meta,
+    walletAddress: args.walletAddress,
+    tokenChange,
+  });
+  if (earn) {
     return toProgramActionActivity({
       signature: args.signature,
       tx: args.tx,
-      decodedAction: decodedInstruction.action,
-      direction:
-        tokenChange !== null ? tokenChange.direction : solDirection,
-      amountLamports:
-        tokenChange !== null ? 0 : solAmountLamports,
+      decodedAction: earn.action,
+      direction: tokenChange !== null ? tokenChange.direction : solDirection,
+      amountLamports: tokenChange !== null ? 0 : solAmountLamports,
       netChangeLamports,
-      counterparty,
+      counterparty: earn.counterparty,
       tokenChange,
     });
   }

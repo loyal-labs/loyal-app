@@ -1,0 +1,1 @@
+Fixes sheet layout, keyboard and text rendering issues on iOS.

@@ -1,0 +1,43 @@
+---
+title: "Audits and deployed scope"
+description: "What has been reviewed, what each review covers, and what still requires deployment verification."
+---
+
+import { AuditRecord } from "/snippets/audit-record.jsx";
+
+The upstream programs publish scoped security reviews. This page selects one report per component. Each record names the reviewed code with its reviewer and date. Deployment matching remains a separate check.
+
+<AccordionGroup>
+  <Accordion title="Squads Smart Account Program" icon="wallet">
+    <AuditRecord
+      reviewer="OtterSec."
+      scope={<>The <a href="https://github.com/Squads-Protocol/smart-account-program/blob/main/audits/ottersec_smart_account_audit.pdf">Squads Smart Account Security Assessment</a> covers commits <code>0ebe5f5</code>, <code>e4f9f0e</code>, <code>f0aa9a0</code>, and <code>3ee6356</code>.</>}
+      reviewDate="May 21, 2025. The report states that the assessment ran from December 31, 2024 through January 1, 2025."
+      deployment="No comparison is recorded on this page. Verify the deployed binary against the reviewed source."
+    />
+  </Accordion>
+  <Accordion title="Kamino K-Lend" icon="building-columns">
+    <AuditRecord
+      reviewer="OtterSec."
+      scope={<>The selected <a href="https://github.com/Kamino-Finance/audits/blob/master/kamino_lend_ottersec_1.16.0_and_1.17.0.pdf">K-Lend assessment</a> is published for versions 1.16.0 and 1.17.0. Its scope lists the reviewed K-Lend pull requests.</>}
+      reviewDate="March 30, 2026. The report states that the assessment ran from February 15 through March 27, 2025."
+      deployment="Match the configured K-Lend deployment to the selected report's scope. No result is recorded here."
+    />
+  </Accordion>
+  <Accordion title="Solana Foundation Subscriptions" icon="calendar-repeat">
+    <AuditRecord
+      reviewer="Cantina."
+      scope={<>The <a href="https://github.com/solana-foundation/subscriptions/blob/main/audits/report-cli-cantina-a1f6fc40-7817-446d-bb88-abd0f2b96106-2026-07-30-solana-foundation-subscriptions.pdf">selected Cantina report</a> covers commit <code>d6b3a5dc7ab18c4168441af733c81ab0a599d414</code>. The <a href="https://github.com/solana-foundation/subscriptions/blob/main/audits/AUDIT_STATUS.md">audit status</a> records fixes through <code>debb4f75ff7571218b39de3b633074dd843e70db</code>.</>}
+      reviewDate="July 30, 2026."
+      deployment="Compare the deployed program with the reviewed and remediated commits. This page does not record a result."
+    />
+  </Accordion>
+</AccordionGroup>
+
+## What remains to verify
+
+For each production release, compare the configured program address and deployed binary or release identity with the reviewed scope. Record the date and evidence. Do not infer a match from a program name alone.
+
+This page does not claim that every deployed dependency matches every reviewed commit. It also does not claim that the full Loyal product has received an external audit.
+
+Use [Networks and deployments](/build/networks-and-deployments) for configured identities and verification dates.

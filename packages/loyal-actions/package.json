@@ -1,0 +1,40 @@
+{
+  "name": "@loyal-labs/actions",
+  "version": "0.1.1",
+  "type": "module",
+  "description": "Unsigned Loyal yield-route action instruction builders.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./constants": {
+      "types": "./dist/constants.d.ts",
+      "import": "./dist/constants.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun run generate:abi && tsc -p tsconfig.build.json && bun ./scripts/rewrite-declaration-imports.ts",
+    "generate:abi": "bun ./scripts/generate-loyal-hub-abi.ts",
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@loyal-labs/loyal-smart-accounts": "workspace:*",
+    "@loyal-labs/solana-rpc": "^0.1.1",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^5"
+  }
+}

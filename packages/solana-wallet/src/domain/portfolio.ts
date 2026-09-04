@@ -1,11 +1,9 @@
 import { NATIVE_SOL_MINT } from "../constants";
 import type {
   AssetSnapshot,
-  PortfolioHolding,
   PortfolioPosition,
   PortfolioSnapshot,
   PortfolioTotals,
-  SecureBalanceMap,
 } from "../types";
 
 function floorToDecimals(value: number, decimals: number): number {
@@ -40,7 +38,30 @@ function resolveValueUsd(args: {
   return null;
 }
 
-function comparePositions(left: PortfolioPosition, right: PortfolioPosition): number {
+function resolveEffectivePriceUsd(args: {
+  balance: number;
+  providedValueUsd: number | null;
+  priceUsd: number | null;
+}): number | null {
+  if (typeof args.priceUsd === "number" && Number.isFinite(args.priceUsd)) {
+    return args.priceUsd;
+  }
+
+  if (
+    args.balance > 0 &&
+    typeof args.providedValueUsd === "number" &&
+    Number.isFinite(args.providedValueUsd)
+  ) {
+    return args.providedValueUsd / args.balance;
+  }
+
+  return null;
+}
+
+function comparePositions(
+  left: PortfolioPosition,
+  right: PortfolioPosition
+): number {
   const valueDelta = (right.totalValueUsd ?? -1) - (left.totalValueUsd ?? -1);
   if (valueDelta !== 0) {
     return valueDelta;
@@ -86,9 +107,9 @@ export function computePortfolioTotals(
     Number.isFinite(nativePosition.priceUsd)
       ? nativePosition.priceUsd
       : typeof fallbackSolPriceUsd === "number" &&
-          Number.isFinite(fallbackSolPriceUsd)
-        ? fallbackSolPriceUsd
-        : null;
+        Number.isFinite(fallbackSolPriceUsd)
+      ? fallbackSolPriceUsd
+      : null;
 
   totalUsd = floorToDecimals(totalUsd, 2);
 
@@ -106,42 +127,28 @@ export function computePortfolioTotals(
 
 export function buildPortfolioSnapshot(args: {
   assetSnapshot: AssetSnapshot;
-  secureBalances?: SecureBalanceMap;
   fallbackSolPriceUsd?: number | null;
 }): PortfolioSnapshot {
-  const secureBalances = args.secureBalances ?? new Map<string, bigint>();
   const positions: PortfolioPosition[] = args.assetSnapshot.assets.map(
     (assetBalance) => {
-      const secureRaw = secureBalances.get(assetBalance.asset.mint) ?? BigInt(0);
-      const securedBalance =
-        Number(secureRaw) / Math.pow(10, assetBalance.asset.decimals);
       const publicValueUsd = resolveValueUsd({
         balance: assetBalance.balance,
         priceUsd: assetBalance.priceUsd,
         providedValueUsd: assetBalance.valueUsd,
       });
-      const securedValueUsd = resolveValueUsd({
-        balance: securedBalance,
+      const effectivePriceUsd = resolveEffectivePriceUsd({
+        balance: assetBalance.balance,
+        providedValueUsd: publicValueUsd,
         priceUsd: assetBalance.priceUsd,
-        providedValueUsd: null,
       });
 
       return {
         asset: assetBalance.asset,
         publicBalance: assetBalance.balance,
-        securedBalance,
-        totalBalance: assetBalance.balance + securedBalance,
-        priceUsd: assetBalance.priceUsd,
+        totalBalance: assetBalance.balance,
+        priceUsd: effectivePriceUsd,
         publicValueUsd,
-        securedValueUsd,
-        totalValueUsd:
-          publicValueUsd === null || securedValueUsd === null
-            ? publicValueUsd === null && securedValueUsd === null
-              ? null
-              : publicValueUsd === null
-                ? securedValueUsd
-                : publicValueUsd
-            : publicValueUsd + securedValueUsd,
+        totalValueUsd: publicValueUsd,
       };
     }
   );
@@ -152,77 +159,7 @@ export function buildPortfolioSnapshot(args: {
     owner: args.assetSnapshot.owner,
     nativeBalanceLamports: args.assetSnapshot.nativeBalanceLamports,
     positions,
-    totals: computePortfolioTotals(
-      positions,
-      args.fallbackSolPriceUsd ?? null
-    ),
+    totals: computePortfolioTotals(positions, args.fallbackSolPriceUsd ?? null),
     fetchedAt: args.assetSnapshot.fetchedAt,
   };
-}
-
-export function flattenPortfolioPositions(
-  positions: PortfolioPosition[],
-  options: {
-    splitSecuredBalances?: boolean;
-    includeZeroBalances?: boolean;
-  } = {}
-): PortfolioHolding[] {
-  const splitSecuredBalances = options.splitSecuredBalances ?? false;
-  const includeZeroBalances = options.includeZeroBalances ?? false;
-  const holdings: PortfolioHolding[] = [];
-
-  for (const position of positions) {
-    if (splitSecuredBalances) {
-      if (position.publicBalance > 0 || includeZeroBalances) {
-        holdings.push({
-          mint: position.asset.mint,
-          symbol: position.asset.symbol,
-          name: position.asset.name,
-          balance: position.publicBalance,
-          decimals: position.asset.decimals,
-          priceUsd: position.priceUsd,
-          valueUsd: position.publicValueUsd,
-          imageUrl: position.asset.imageUrl,
-          isNative: position.asset.isNative,
-          kind: "public",
-        });
-      }
-
-      if (position.securedBalance > 0 || includeZeroBalances) {
-        holdings.push({
-          mint: position.asset.mint,
-          symbol: position.asset.symbol,
-          name: position.asset.name,
-          balance: position.securedBalance,
-          decimals: position.asset.decimals,
-          priceUsd: position.priceUsd,
-          valueUsd: position.securedValueUsd,
-          imageUrl: position.asset.imageUrl,
-          isNative: position.asset.isNative,
-          kind: "secured",
-          isSecured: true,
-        });
-      }
-
-      continue;
-    }
-
-    if (position.totalBalance > 0 || includeZeroBalances) {
-      holdings.push({
-        mint: position.asset.mint,
-        symbol: position.asset.symbol,
-        name: position.asset.name,
-        balance: position.totalBalance,
-        decimals: position.asset.decimals,
-        priceUsd: position.priceUsd,
-        valueUsd: position.totalValueUsd,
-        imageUrl: position.asset.imageUrl,
-        isNative: position.asset.isNative,
-        kind: "total",
-        isSecured: position.publicBalance === 0 && position.securedBalance > 0,
-      });
-    }
-  }
-
-  return holdings;
 }

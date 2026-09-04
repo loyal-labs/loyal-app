@@ -1,6 +1,6 @@
 # Folder Reference
 
-Detailed breakdown of `/app/src/lib/`.
+Detailed breakdown of `/apps/telegram/src/lib/`.
 
 ---
 
@@ -14,9 +14,6 @@ Detailed breakdown of `/app/src/lib/`.
 | `SECRET_KEY_STORAGE_KEY` | Hardcoded | Cloud storage key: `"solana_secret_key"` |
 | `TELEGRAM_BOT_ID` | Env var | From `NEXT_PUBLIC_TELEGRAM_BOT_ID` |
 | `TELEGRAM_PUBLIC_KEYS` | Hardcoded | Test + prod keys for signature verification |
-| `DEPOSIT_SEED` | Hardcoded | PDA seed: `"deposit_v2"` |
-| `VAULT_SEED` | Hardcoded | PDA seed: `"vault"` |
-| `SESSION_SEED` | Hardcoded | PDA seed: `"tg_session_v2"` |
 | `SOL_PRICE_USD` | Hardcoded | Fallback price (use MagicBlock for live) |
 | `STARS_FEE_AMOUNT` | Hardcoded | `2000` Stars (testing value) |
 | `STARS_TO_USD` | Hardcoded | `0.013` conversion rate |
@@ -200,18 +197,6 @@ const unsubscribe = await subscribeToWalletAssetChanges(
 await unsubscribe();
 ```
 
-### `/solana/deposits/`
-
-Deposit/claim logic using Anchor programs and PDAs.
-
-**Key exports:** `getDeposit()`, `claimDeposit()`, `refundDeposit()`, `topUpDeposit()`
-
-### `/solana/verification/`
-
-On-chain Telegram signature verification using Ed25519.
-
-**Key exports:** `verifyInitData()`, `storeInitData()`, `fetchSessionData()`
-
 ### `/solana/token-holdings/`
 
 Fetches all fungible token holdings (SPL tokens + native SOL) with USD prices via Helius DAS API.
@@ -263,12 +248,6 @@ const totals = computePortfolioTotals(holdings, solPriceUsd);
 - Returns empty array on localnet (DAS API unavailable)
 - Price data available for top 10k tokens by volume
 - `computePortfolioTotals` resolves SOL price via a fallback chain: holdings price → passed-in `fallbackSolPriceUsd` → `SOL_PRICE_USD` constant
-
-### `solana-helpers.ts`
-
-Anchor program initialization and PDA derivation.
-
-**Key exports:** `getDepositPda()`, `getVaultPda()`
 
 ---
 
@@ -367,7 +346,7 @@ MagicBlock integration for live SOL/USD price via Pyth Lazer oracle.
 
 | Constant | Source | Value |
 |----------|--------|-------|
-| `MAGICBLOCK_DEVNET_RPC_URL` | Hardcoded | `https://devnet.magicblock.app` |
+| `MAGICBLOCK_DEVNET_RPC_URL` | Hardcoded | `https://devnet-tee.magicblock.app` |
 | `PRICE_PROGRAM_ID` | Hardcoded | Pyth price program address |
 | `SOLANA_PYTH_LAZER_ID` | Hardcoded | `6` (SOL/USD feed) |
 

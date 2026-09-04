@@ -1,9 +1,9 @@
 name: Extension CI
 on:
   push:
-    paths: ["extension/**", "packages/wallet-core/**"]
+    paths: ["apps/extension/**", "packages/wallet-core/**"]
   pull_request:
-    paths: ["extension/**", "packages/wallet-core/**"]
+    paths: ["apps/extension/**", "packages/wallet-core/**"]
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,21 +16,26 @@ jobs:
       - run: bun run build:solana-packages
       - run: cd packages/wallet-core && bun run typecheck && bun run build
       - id: version
-        run: echo "v=$(jq -r .version extension/package.json)" >> "$GITHUB_OUTPUT"
-      - run: cd extension && bun run build
+        run: echo "v=$(jq -r .version apps/extension/package.json)" >> "$GITHUB_OUTPUT"
+      - name: Write extension .env
+        env:
+          VITE_COINGECKO_API_KEY: ${{ secrets.VITE_COINGECKO_API_KEY }}
+          VITE_MIXPANEL_TOKEN: ${{ secrets.VITE_MIXPANEL_TOKEN }}
+        run: printf 'VITE_COINGECKO_API_KEY=%s\nVITE_MIXPANEL_TOKEN=%s\n' "$VITE_COINGECKO_API_KEY" "$VITE_MIXPANEL_TOKEN" > apps/extension/.env
+      - run: cd apps/extension && bun run build
       - uses: actions/upload-artifact@v4
         with:
           name: loyal-ext-universal-v${{ steps.version.outputs.v }}
-          path: extension/.output/chrome-mv3/
-      - run: cd extension && bun run build:firefox
+          path: apps/extension/.output/chrome-mv3/
+      - run: cd apps/extension && bun run build:firefox
       - uses: actions/upload-artifact@v4
         with:
           name: loyal-ext-firefox-v${{ steps.version.outputs.v }}
-          path: extension/.output/firefox-mv2/
+          path: apps/extension/.output/firefox-mv2/
       - name: Create release
         if: github.ref == 'refs/heads/main'
         run: |
-          cd extension/.output
+          cd apps/extension/.output
           zip -r loyal-ext-universal-v${{ steps.version.outputs.v }}.zip chrome-mv3/
           zip -r loyal-ext-firefox-v${{ steps.version.outputs.v }}.zip firefox-mv2/
       - uses: softprops/action-gh-release@v2
@@ -40,5 +45,5 @@ jobs:
           name: Extension v${{ steps.version.outputs.v }}
           make_latest: false
           files: |
-            extension/.output/loyal-ext-universal-v${{ steps.version.outputs.v }}.zip
-            extension/.output/loyal-ext-firefox-v${{ steps.version.outputs.v }}.zip
+            apps/extension/.output/loyal-ext-universal-v${{ steps.version.outputs.v }}.zip
+            apps/extension/.output/loyal-ext-firefox-v${{ steps.version.outputs.v }}.zip

@@ -1,0 +1,208 @@
+name: Trusted Vercel Previews
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to reconcile
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-vercel-preview-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    env:
+      EVENT_ACTION: ${{ github.event.action }}
+      EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      EVENT_NAME: ${{ github.event_name }}
+      EVENT_SENDER: ${{ github.event.sender.login }}
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      TRUSTED_USERS: ${{ vars.TRUSTED_VERCEL_PREVIEW_USERS }}
+    steps:
+      - name: Evaluate preview policy
+        id: policy
+        run: |
+          pull_request="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          state="$(jq -r '.state' <<<"$pull_request")"
+          live_head_sha="$(jq -r '.head.sha' <<<"$pull_request")"
+          echo "live_head_sha=$live_head_sha" >> "$GITHUB_OUTPUT"
+
+          if [[ "$state" != "open" ]]; then
+            echo "action=delete" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            if [[ "$EVENT_ACTION" == "closed" || \
+              "$EVENT_HEAD_SHA" != "$live_head_sha" ]]; then
+              echo "action=noop" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          if ! jq -e \
+            'type == "array" and all(.[]; type == "string")' \
+            <<<"$TRUSTED_USERS" >/dev/null; then
+            echo "action=delete" >> "$GITHUB_OUTPUT"
+            echo "::error::TRUSTED_VERCEL_PREVIEW_USERS must be a JSON array of GitHub logins"
+            exit 1
+          fi
+
+          pr_author="$(jq -r '.user.login' <<<"$pull_request")"
+          head_owner="$(jq -r '.head.repo.owner.login // ""' <<<"$pull_request")"
+          head_is_fork="$(jq -r '.head.repo.fork // false' <<<"$pull_request")"
+          head_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pull_request")"
+          base_repo="$(jq -r '.base.repo.full_name' <<<"$pull_request")"
+
+          author_trusted=false
+          sender_trusted=false
+          if jq -e --arg login "$pr_author" \
+            'index($login) != null' <<<"$TRUSTED_USERS" >/dev/null; then
+            author_trusted=true
+          fi
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]] || \
+            jq -e --arg login "$EVENT_SENDER" \
+              'index($login) != null' <<<"$TRUSTED_USERS" >/dev/null; then
+            sender_trusted=true
+          fi
+
+          if [[ "$author_trusted" != "true" || \
+            "$head_is_fork" != "true" || \
+            "$head_owner" != "$pr_author" || \
+            "$head_repo" == "$base_repo" ]]; then
+            echo "action=delete" >> "$GITHUB_OUTPUT"
+          elif [[ "$sender_trusted" != "true" ]]; then
+            echo "action=guarded_delete" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=mirror" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report stale reconciliation
+        if: steps.policy.outputs.action == 'noop'
+        run: |
+          echo "::warning::Stale pull request event ignored. If the current head has no preview, dispatch this workflow for PR ${PR_NUMBER}."
+
+      - name: Delete ineligible preview branch
+        if: always() && steps.policy.outputs.action == 'delete'
+        run: |
+          response="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/git/ref/heads/vercel-preview/pr-${PR_NUMBER}" \
+            2>&1)" || {
+              if grep -Fq "(HTTP 404)" <<<"$response"; then
+                exit 0
+              fi
+              printf '%s\n' "$response" >&2
+              exit 1
+            }
+          gh api --method DELETE \
+            "/repos/${GITHUB_REPOSITORY}/git/refs/heads/vercel-preview/pr-${PR_NUMBER}"
+
+      - name: Delete obsolete branch for untrusted event
+        if: steps.policy.outputs.action == 'guarded_delete'
+        env:
+          LIVE_HEAD_SHA: ${{ steps.policy.outputs.live_head_sha }}
+        run: |
+          preview_head_sha="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/git/ref/heads/vercel-preview/pr-${PR_NUMBER}" \
+            --jq '.object.sha' 2>&1)" || {
+              if grep -Fq "(HTTP 404)" <<<"$preview_head_sha"; then
+                exit 0
+              fi
+              printf '%s\n' "$preview_head_sha" >&2
+              exit 1
+            }
+
+          if [[ "$preview_head_sha" == "$LIVE_HEAD_SHA" ]]; then
+            exit 0
+          fi
+
+          gh api --method DELETE \
+            "/repos/${GITHUB_REPOSITORY}/git/refs/heads/vercel-preview/pr-${PR_NUMBER}"
+
+      - name: Checkout trusted base revision
+        if: steps.policy.outputs.action == 'mirror'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+
+      - name: Mirror pull request head
+        if: steps.policy.outputs.action == 'mirror'
+        env:
+          POLICY_HEAD_SHA: ${{ steps.policy.outputs.live_head_sha }}
+        run: |
+          delete_preview_branch() {
+            local response
+            response="$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/git/ref/heads/vercel-preview/pr-${PR_NUMBER}" \
+              2>&1)" || {
+                if grep -Fq "(HTTP 404)" <<<"$response"; then
+                  return 0
+                fi
+                printf '%s\n' "$response" >&2
+                return 1
+              }
+            gh api --method DELETE \
+              "/repos/${GITHUB_REPOSITORY}/git/refs/heads/vercel-preview/pr-${PR_NUMBER}"
+          }
+
+          delete_preview_branch_if_sha() {
+            local expected_sha="$1"
+            local preview_head_sha
+            preview_head_sha="$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/git/ref/heads/vercel-preview/pr-${PR_NUMBER}" \
+              --jq '.object.sha' 2>&1)" || {
+                if grep -Fq "(HTTP 404)" <<<"$preview_head_sha"; then
+                  return 0
+                fi
+                printf '%s\n' "$preview_head_sha" >&2
+                return 1
+              }
+            if [[ "$preview_head_sha" == "$expected_sha" ]]; then
+              gh api --method DELETE \
+                "/repos/${GITHUB_REPOSITORY}/git/refs/heads/vercel-preview/pr-${PR_NUMBER}"
+            fi
+          }
+
+          pull_request="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          state="$(jq -r '.state' <<<"$pull_request")"
+          live_head_sha="$(jq -r '.head.sha' <<<"$pull_request")"
+          expected_head_sha="${EVENT_HEAD_SHA:-$POLICY_HEAD_SHA}"
+
+          if [[ "$state" != "open" ]]; then
+            delete_preview_branch
+            exit 0
+          fi
+          if [[ "$expected_head_sha" != "$live_head_sha" ]]; then
+            exit 0
+          fi
+
+          git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/head"
+          fetched_head_sha="$(git rev-parse FETCH_HEAD)"
+          if [[ "$fetched_head_sha" != "$live_head_sha" ]]; then
+            exit 0
+          fi
+
+          git push --force origin \
+            "FETCH_HEAD:refs/heads/vercel-preview/pr-${PR_NUMBER}"
+
+          post_mirror="$(gh api "/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          post_mirror_state="$(jq -r '.state' <<<"$post_mirror")"
+          post_mirror_head_sha="$(jq -r '.head.sha' <<<"$post_mirror")"
+          if [[ "$post_mirror_state" != "open" || \
+            "$post_mirror_head_sha" != "$fetched_head_sha" ]]; then
+            delete_preview_branch_if_sha "$fetched_head_sha"
+          fi

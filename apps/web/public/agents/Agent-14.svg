@@ -1,0 +1,56 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_1439_14922)">
+<rect width="48" height="48" fill="#FFD41B"/>
+<rect x="27.7031" y="21.0337" width="8" height="8" fill="#32B67C"/>
+<rect x="27.2188" y="13.5488" width="8" height="8" fill="#32B67C"/>
+<rect x="20.3125" y="22.9863" width="8" height="8" fill="#32B67C"/>
+<rect x="40" y="1.58887" width="8" height="8" fill="#32B67C"/>
+<rect x="27.8047" y="40" width="8" height="8" fill="#32B67C"/>
+<rect x="2.53125" y="40" width="8" height="8" fill="#32B67C"/>
+<rect x="0.96875" y="21.8984" width="8" height="8" fill="#32B67C"/>
+<rect x="1.4375" y="8.10547" width="8" height="8" fill="#32B67C"/>
+<rect x="36.5938" y="40" width="8" height="8" fill="#32B67C"/>
+<rect x="11.1875" y="23.0195" width="8" height="8" fill="#32B67C"/>
+<rect x="37.7969" y="26.4312" width="8" height="8" fill="#32B67C"/>
+<rect x="20.0469" y="25.8052" width="8" height="8" fill="#32B67C"/>
+<rect x="4.5625" y="7.16699" width="8" height="8" fill="#32B67C"/>
+<rect x="40" y="8.43115" width="8" height="8" fill="#32B67C"/>
+<rect x="31.5391" y="15.5205" width="8" height="8" fill="#32B67C"/>
+<rect x="40" y="12.8452" width="8" height="8" fill="#32B67C"/>
+<rect x="40" y="38.5107" width="8" height="8" fill="#32B67C"/>
+<rect x="15.0078" y="22.0752" width="8" height="8" fill="#32B67C"/>
+<rect x="40" y="8.93848" width="8" height="8" fill="#32B67C"/>
+<rect x="25.7578" y="10.998" width="8" height="8" fill="#32B67C"/>
+<rect x="31.5156" y="40" width="8" height="8" fill="#32B67C"/>
+<rect x="13.9141" y="6.55469" width="8" height="8" fill="#32B67C"/>
+<rect x="11.6406" y="9.16699" width="8" height="8" fill="#32B67C"/>
+<rect x="1.54688" y="37.0273" width="8" height="8" fill="#32B67C"/>
+<rect x="2.09375" y="11.1455" width="8" height="8" fill="#32B67C"/>
+<rect x="7.01562" y="25.8843" width="8" height="8" fill="#32B67C"/>
+<rect x="3.99219" y="12.9458" width="8" height="8" fill="#32B67C"/>
+<rect x="32.5781" y="6.1084" width="8" height="8" fill="#32B67C"/>
+<rect x="39.7812" y="27.9424" width="8" height="8" fill="#32B67C"/>
+<rect x="4.39062" y="40" width="8" height="8" fill="#32B67C"/>
+<rect x="21.1562" y="40" width="8" height="8" fill="#32B67C"/>
+<rect x="4.60938" y="21.6255" width="8" height="8" fill="#32B67C"/>
+<rect x="20.1797" y="21.7173" width="8" height="8" fill="#32B67C"/>
+<rect x="15.3828" y="40" width="8" height="8" fill="#32B67C"/>
+<rect x="39.1641" y="39.2852" width="8" height="8" fill="#32B67C"/>
+<rect x="30.6797" y="33.0811" width="8" height="8" fill="#32B67C"/>
+<circle cx="39" cy="39" r="5" fill="#DDFF88"/>
+<path d="M13.5293 46.0023L6 28.434H28.5878V10.8657L38.6268 28.434L41.1366 10.8657L56.1951 51.0218L13.5293 46.0023Z" fill="black"/>
+<path d="M34.442 31.5176C30.2894 31.2999 26.7701 34.041 26.5815 37.6399L41.6194 38.428C41.808 34.8291 38.5946 31.7352 34.442 31.5176Z" fill="white"/>
+<mask id="mask0_1439_14922" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="26" y="31" width="16" height="8">
+<path d="M34.442 31.5176C30.2894 31.2999 26.7701 34.041 26.5815 37.6399L41.6194 38.428C41.808 34.8291 38.5946 31.7352 34.442 31.5176Z" fill="white"/>
+</mask>
+<g mask="url(#mask0_1439_14922)">
+<circle cx="3.38817" cy="3.38817" r="3.38817" transform="matrix(-0.99863 -0.052336 -0.052336 0.99863 37.0469 30.9634)" fill="black"/>
+</g>
+<path d="M24.2324 35.492L43.9966 32.8441L27.2051 29.2549L24.2324 35.492Z" fill="black"/>
+</g>
+<defs>
+<clipPath id="clip0_1439_14922">
+<rect width="48" height="48" fill="white"/>
+</clipPath>
+</defs>
+</svg>

@@ -1,87 +1,172 @@
-import type { JupiterQuoteResponse, JupiterSwapResponse } from "./types";
+import { VersionedTransaction } from "@solana/web3.js";
+import { Buffer } from "buffer";
 
-const JUPITER_QUOTE_API_URL = "https://api.jup.ag/swap/v1/quote";
-const JUPITER_SWAP_API_URL = "https://api.jup.ag/swap/v1/swap";
+import type {
+  JupiterQuoteResponse,
+  JupiterSwapInstructionsResponse,
+  JupiterSwapResponse,
+} from "./types";
+
+const DEFAULT_JUPITER_SWAP_API_BASE_URL = "https://lite-api.jup.ag/swap/v1";
+
+const buildJupiterHeaders = (
+  apiKey?: string,
+  extra?: Record<string, string>
+): Record<string, string> => ({
+  ...(extra ?? {}),
+  ...(apiKey ? { "x-api-key": apiKey } : {}),
+});
+
+const normalizeBaseUrl = (baseUrl?: string): string =>
+  (baseUrl || DEFAULT_JUPITER_SWAP_API_BASE_URL).replace(/\/+$/, "");
+
+const buildJupiterUrl = (baseUrl: string | undefined, path: string): string =>
+  `${normalizeBaseUrl(baseUrl)}/${path.replace(/^\/+/, "")}`;
+
+const fetchJson = async <T>(
+  url: string,
+  init?: RequestInit,
+  fetchFn: typeof fetch = fetch
+): Promise<T> => {
+  const response = await fetchFn(url, init);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Jupiter API failed: ${response.statusText} - ${errorText}`
+    );
+  }
+
+  return response.json() as Promise<T>;
+};
+
+const decodeBase64 = (value: string): Uint8Array => {
+  return new Uint8Array(Buffer.from(value, "base64"));
+};
+
+export { DEFAULT_JUPITER_SWAP_API_BASE_URL };
 
 export interface JupiterQuoteParams {
-	inputMint: string;
-	outputMint: string;
-	amount: string; // in smallest unit (lamports etc.)
-	slippageBps?: number;
-	apiKey: string;
+  inputMint: string;
+  outputMint: string;
+  amount: string; // in smallest unit (lamports etc.)
+  slippageBps?: number;
+  apiKey?: string;
+  baseUrl?: string;
+  fetchFn?: typeof fetch;
+  signal?: AbortSignal;
 }
 
 export async function getJupiterQuote(
-	params: JupiterQuoteParams,
+  params: JupiterQuoteParams
 ): Promise<JupiterQuoteResponse> {
-	const { inputMint, outputMint, amount, slippageBps = 50, apiKey } = params;
+  const {
+    inputMint,
+    outputMint,
+    amount,
+    slippageBps = 50,
+    apiKey,
+    baseUrl,
+    fetchFn,
+    signal,
+  } = params;
 
-	const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+  const url = new URL(buildJupiterUrl(baseUrl, "quote"));
+  url.searchParams.set("inputMint", inputMint);
+  url.searchParams.set("outputMint", outputMint);
+  url.searchParams.set("amount", amount);
+  url.searchParams.set("slippageBps", String(slippageBps));
 
-	const response = await fetch(url, {
-		headers: { "x-api-key": apiKey },
-	});
-
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(
-			`Failed to get Jupiter quote: ${response.statusText} - ${errorText}`,
-		);
-	}
-
-	return response.json();
+  return fetchJson<JupiterQuoteResponse>(
+    url.toString(),
+    {
+      headers: buildJupiterHeaders(apiKey),
+      signal,
+    },
+    fetchFn
+  );
 }
 
 export interface JupiterSwapParams {
-	userPublicKey: string;
-	quoteResponse: JupiterQuoteResponse;
-	apiKey: string;
-	wrapAndUnwrapSol?: boolean;
-	dynamicComputeUnitLimit?: boolean;
-	priorityLevel?: string;
-	maxPriorityFeeLamports?: number;
+  userPublicKey: string;
+  quoteResponse: JupiterQuoteResponse;
+  apiKey?: string;
+  baseUrl?: string;
+  fetchFn?: typeof fetch;
+  signal?: AbortSignal;
+  wrapAndUnwrapSol?: boolean;
+  dynamicComputeUnitLimit?: boolean;
+  priorityLevel?: string;
+  maxPriorityFeeLamports?: number;
+}
+
+const buildSwapRequestBody = (params: JupiterSwapParams) => {
+  const {
+    userPublicKey,
+    quoteResponse,
+    wrapAndUnwrapSol = true,
+    dynamicComputeUnitLimit = true,
+    priorityLevel = "veryHigh",
+    maxPriorityFeeLamports = 50_000_000,
+  } = params;
+
+  return {
+    userPublicKey,
+    quoteResponse,
+    wrapAndUnwrapSol,
+    dynamicComputeUnitLimit,
+    prioritizationFeeLamports: {
+      priorityLevelWithMaxLamports: {
+        priorityLevel,
+        maxLamports: maxPriorityFeeLamports,
+        global: true,
+      },
+    },
+  };
+};
+
+export async function getJupiterSwapTransaction(
+  params: JupiterSwapParams
+): Promise<JupiterSwapResponse> {
+  return fetchJson<JupiterSwapResponse>(
+    buildJupiterUrl(params.baseUrl, "swap"),
+    {
+      method: "POST",
+      headers: buildJupiterHeaders(params.apiKey, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(buildSwapRequestBody(params)),
+      signal: params.signal,
+    },
+    params.fetchFn
+  );
 }
 
 export async function executeJupiterSwap(
-	params: JupiterSwapParams,
+  params: JupiterSwapParams
 ): Promise<JupiterSwapResponse> {
-	const {
-		userPublicKey,
-		quoteResponse,
-		apiKey,
-		wrapAndUnwrapSol = true,
-		dynamicComputeUnitLimit = true,
-		priorityLevel = "veryHigh",
-		maxPriorityFeeLamports = 50_000_000,
-	} = params;
+  return getJupiterSwapTransaction(params);
+}
 
-	const response = await fetch(JUPITER_SWAP_API_URL, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-api-key": apiKey,
-		},
-		body: JSON.stringify({
-			userPublicKey,
-			quoteResponse,
-			wrapAndUnwrapSol,
-			dynamicComputeUnitLimit,
-			prioritizationFeeLamports: {
-				priorityLevelWithMaxLamports: {
-					priorityLevel,
-					maxLamports: maxPriorityFeeLamports,
-					global: true,
-				},
-			},
-		}),
-	});
+export async function getJupiterSwapInstructions(
+  params: JupiterSwapParams
+): Promise<JupiterSwapInstructionsResponse> {
+  return fetchJson<JupiterSwapInstructionsResponse>(
+    buildJupiterUrl(params.baseUrl, "swap-instructions"),
+    {
+      method: "POST",
+      headers: buildJupiterHeaders(params.apiKey, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(buildSwapRequestBody(params)),
+      signal: params.signal,
+    },
+    params.fetchFn
+  );
+}
 
-	if (!response.ok) {
-		const errorText = await response.text();
-		throw new Error(
-			`Jupiter Swap API failed: ${response.statusText} - ${errorText}`,
-		);
-	}
-
-	return response.json();
+export function deserializeJupiterSwapTransaction(
+  swapTransaction: string
+): VersionedTransaction {
+  return VersionedTransaction.deserialize(decodeBase64(swapTransaction));
 }

@@ -1,0 +1,443 @@
+---
+title: "Withdraw manually"
+description: "Use your wallet and Solana RPC to withdraw every Earn balance without Loyal."
+icon: "arrow-right-from-bracket"
+---
+
+Your Smart Account is completely self-custodial. You do not need Loyal to withdraw. If Loyal is unavailable, you can reconstruct the required transactions from Solana RPC data, sign them with your wallet, and withdraw all USDC held in Earn.
+
+<Warning>
+  Loyal uses the [Squads Smart Account
+  Program](https://github.com/Squads-Protocol/smart-account-program) at
+  `SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG`. Keep SOL in the signer wallet
+  for fees. Never paste a seed phrase into a script. If a Settings account
+  needs more than one root signature, collect its normal threshold before
+  submitting.
+</Warning>
+
+## Recovery console
+
+<Tabs sync={false} borderBottom>
+  <Tab title="Find" icon="magnifying-glass">
+    ### Find the Settings account
+
+    Scan Smart Account `Settings` accounts, decode them, and keep the accounts
+    where the connected wallet appears in `signers`. Do not select a match by
+    address order. If several match, show all of them and let the customer
+    verify the Earn vault and balances.
+
+    ```ts
+    import bs58 from "bs58";
+    import {
+      PROGRAM_ID,
+      generated,
+      pda,
+    } from "@loyal-labs/loyal-smart-accounts";
+    import { Connection, PublicKey } from "@solana/web3.js";
+
+    const connection = new Connection(RPC_URL, "confirmed");
+    const walletAddress = new PublicKey(WALLET_ADDRESS);
+    const { Settings, settingsDiscriminator } = generated;
+
+    const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
+      commitment: "confirmed",
+      filters: [{
+        memcmp: {
+          offset: 0,
+          bytes: bs58.encode(Buffer.from(settingsDiscriminator)),
+        },
+      }],
+    });
+
+    const matches = accounts.flatMap(({ account, pubkey }) => {
+      const settings = Settings.fromAccountInfo(account)[0];
+      return settings.signers.some(({ key }) => key.equals(walletAddress))
+        ? [{ pubkey, settings }]
+        : [];
+    });
+
+    if (matches.length !== 1) {
+      throw new Error(`Review Settings matches: ${matches.map(
+        ({ pubkey }) => pubkey.toBase58()
+      ).join(", ")}`);
+    }
+
+    const settingsPda = matches[0].pubkey;
+    const earnVault = pda.getSmartAccountPda({
+      programId: PROGRAM_ID,
+      settingsPda,
+      accountIndex: 1,
+    })[0];
+    ```
+  </Tab>
+
+  <Tab title="Review" icon="shield-halved">
+    ### Rebuild the exit from RPC
+
+    Create the vault client and read policies from the Smart Account program.
+    Select the live yield-routing policy for Earn vault index `1`. Confirm its
+    decoded constraints allow the current Kamino USDC route. Do not confuse it
+    with an Autodeposit policy, which constrains the subscriptions program.
+
+    Use Loyal's pure RPC
+    [`fetchEarnRpcHoldingsSnapshot`](https://github.com/loyal-labs/loyal-app/blob/main/frontend/src/lib/yield-optimization/earn-rpc-holdings.client.ts)
+    helper to scan the Earn vault's idle USDC and every approved Kamino market.
+    It reads no Loyal database. Convert each positive Kamino holding into a
+    `fullWithdrawalTargets` entry. Use the snapshot total as `amountRaw`.
+
+    ```ts
+    import {
+      LoyalCluster,
+      RiskBasket,
+      Stablecoin,
+      SUBSCRIPTIONS_PROGRAM_ID,
+      SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN,
+      SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET,
+      SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET,
+      SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+      SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET,
+      getRiskBasketMarketsForCluster,
+      getStablecoinMintForCluster,
+    } from "@loyal-labs/actions";
+    import {
+      createSmartAccountVaultsClient,
+    } from "@loyal-labs/smart-account-vaults";
+    import {
+      fetchEarnRpcHoldingsSnapshot,
+    } from "./earn-rpc-holdings.client";
+
+    const cluster = LoyalCluster.MainnetBeta;
+    const client = createSmartAccountVaultsClient({
+      connection,
+      programId: PROGRAM_ID,
+    });
+    const { Policy, policyDiscriminator } = generated;
+    const policyAccounts = await connection.getProgramAccounts(PROGRAM_ID, {
+      commitment: "confirmed",
+      filters: [
+        {
+          memcmp: {
+            offset: 0,
+            bytes: bs58.encode(Buffer.from(policyDiscriminator)),
+          },
+        },
+        { memcmp: { offset: 8, bytes: settingsPda.toBase58() } },
+      ],
+    });
+    const earnPolicies = policyAccounts.flatMap(({ account, pubkey }) => {
+      const policy = Policy.fromAccountInfo(account)[0];
+      const state = policy.policyState;
+      if (
+        state.__kind !== "ProgramInteraction" ||
+        state.fields[0].accountIndex !== 1
+      ) return [];
+
+      return [{
+        address: pubkey.toBase58(),
+        constraints: state.fields[0].instructionsConstraints,
+        seed: BigInt(policy.seed.toString()).toString(),
+        signers: policy.signers,
+      }];
+    });
+
+    console.table(earnPolicies.map((policy) => ({
+      address: policy.address,
+      programs: policy.constraints
+        .map(({ programId }) => programId.toBase58())
+        .join(", "),
+      seed: policy.seed,
+      signers: policy.signers
+        .map(({ key }) => key.toBase58())
+        .join(", "),
+    })));
+
+    // Set this only after reviewing the decoded instruction constraints.
+    const routePolicy = earnPolicies.find(
+      ({ address }) => address === REVIEWED_ROUTE_POLICY_ADDRESS
+    );
+    const routeSigner = routePolicy?.signers[0];
+    if (!routePolicy || !routeSigner) {
+      throw new Error("Review and select the live Kamino route policy.");
+    }
+    const policySigner = routeSigner.key;
+
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const reviewedPolicyUniverse = {
+      account: routePolicy.address,
+      delegatedSigners: routePolicy.signers.map(({ key }) => key.toBase58()),
+      kaminoLiquidityMints: [usdcMint.toBase58()],
+      kaminoMarkets: getRiskBasketMarketsForCluster(
+        cluster,
+        RiskBasket.Safe
+      ).map((market) => market.toBase58()),
+      seed: routePolicy.seed,
+      stableMints: [usdcMint.toBase58()],
+      vaultIndex: 1,
+      vaultPubkey: earnVault.toBase58(),
+    };
+
+    const snapshot = await fetchEarnRpcHoldingsSnapshot({
+      cluster,
+      connection,
+      policy: reviewedPolicyUniverse,
+      programId: PROGRAM_ID,
+      requireCompleteReserveReads: true,
+      settingsPda,
+    });
+
+    if (BigInt(snapshot.currentTotalAmountRaw) === 0n) {
+      throw new Error("The Earn vault has no USDC to withdraw.");
+    }
+    ```
+
+    <Note>
+      `REVIEWED_ROUTE_POLICY_ADDRESS` is an operator selection from RPC results,
+      not a Loyal database input. Compare the selected policy's market and mint
+      with the current Safe universe. Review its program constraint. Then check
+      the allowed accounts and instruction shape. Stop if they differ.
+    </Note>
+
+    <Accordion title="If Autodeposit is active">
+      Find recurring delegations where the customer wallet is the delegator
+      and Earn vault is the delegatee. The filters below are the same
+      chain-first scan used by Loyal's recovery code.
+
+      ```ts
+      const delegations = await connection.getProgramAccounts(
+        SUBSCRIPTIONS_PROGRAM_ID,
+        {
+          commitment: "confirmed",
+          filters: [
+            { dataSize: SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN },
+            {
+              memcmp: {
+                offset:
+                  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET,
+                bytes: bs58.encode(Uint8Array.from([
+                  SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
+                ])),
+              },
+            },
+            {
+              memcmp: {
+                offset: SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET,
+                bytes: walletAddress.toBase58(),
+              },
+            },
+            {
+              memcmp: {
+                offset: SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET,
+                bytes: earnVault.toBase58(),
+              },
+            },
+          ],
+        }
+      );
+
+      if (delegations.length > 1) {
+        throw new Error("Review the matching recurring delegations.");
+      }
+      const autodepositClose = delegations.length === 1
+        ? {
+            policy: new PublicKey(REVIEWED_AUTODEPOSIT_POLICY_ADDRESS),
+            recurringDelegation: delegations[0].pubkey,
+          }
+        : null;
+      ```
+
+      Review each delegation and pair it with the policy whose decoded
+      constraint targets the subscriptions program. Pass that policy and
+      delegation as `autodepositClose` in the withdrawal input below. Stop if
+      the pair is ambiguous.
+    </Accordion>
+  </Tab>
+
+  <Tab title="Exit" icon="arrow-right-from-bracket">
+    ### Prepare and submit every withdrawal
+
+    Build the full withdrawal in the browser or another local client. The
+    builder may return several `withdrawSteps` because one approval currently
+    handles at most two reserves. Confirm each step before building or sending
+    the next one.
+
+    ```ts
+    import {
+      sendPreparedWithWallet,
+    } from "@loyal-labs/smart-account-vaults";
+
+    const reserveSources = snapshot.holdings.flatMap((holding) => {
+      if (
+        holding.kind !== "kamino" ||
+        BigInt(holding.amountRaw) <= 0n ||
+        !holding.market ||
+        !holding.reserve
+      ) return [];
+      return [{
+        type: "reserve" as const,
+        id: holding.reserve,
+        amountRaw: BigInt(holding.amountRaw),
+        liquidityMint: new PublicKey(holding.liquidityMint),
+        market: new PublicKey(holding.market),
+        reserve: new PublicKey(holding.reserve),
+        reserveCollateralMint: holding.provenance.reserveCollateralMint,
+      }];
+    });
+    const fullWithdrawalTargets = reserveSources.map((source) => ({
+      amountRaw: source.amountRaw,
+      liquidityMint: source.liquidityMint,
+      market: source.market,
+      reserve: source.reserve,
+      ...(source.reserveCollateralMint
+        ? {
+            reserveCollateralMint: new PublicKey(
+              source.reserveCollateralMint
+            ),
+          }
+        : {}),
+    }));
+    const idleHolding = snapshot.holdings.find(
+      ({ amountRaw, kind }) => kind === "idle" && BigInt(amountRaw) > 0n
+    );
+    const idleSource = idleHolding?.provenance.tokenAccount
+      ? {
+          type: "idle" as const,
+          id: idleHolding.provenance.tokenAccount,
+          amountRaw: BigInt(idleHolding.amountRaw),
+          mint: new PublicKey(idleHolding.liquidityMint),
+          tokenAccount: new PublicKey(idleHolding.provenance.tokenAccount),
+        }
+      : null;
+    const source = reserveSources[0] ?? idleSource;
+    if (!source) throw new Error("No positive Earn source was found.");
+
+    const prepared = await client.prepareEarnUsdcWithdraw({
+      amountRaw: BigInt(snapshot.currentTotalAmountRaw),
+      ...(autodepositClose ? { autodepositClose } : {}),
+      cluster,
+      closePoliciesOnFullWithdrawal: false,
+      feePayer: walletAddress,
+      ...(fullWithdrawalTargets.length > 0 ? { fullWithdrawalTargets } : {}),
+      mode: "full",
+      policySigner,
+      settingsPda,
+      source,
+      walletAddress,
+      yieldRoutingPolicy: {
+        account: new PublicKey(routePolicy.address),
+        seed: BigInt(routePolicy.seed),
+      },
+    });
+
+    const signatures: string[] = [];
+    if (prepared.autodepositClosePrepared) {
+      signatures.push(await sendPreparedWithWallet({
+        connection,
+        wallet,
+        prepared: prepared.autodepositClosePrepared.prepared,
+        confirm: true,
+      }));
+    }
+    for (const step of prepared.withdrawSteps) {
+      signatures.push(await sendPreparedWithWallet({
+        connection,
+        wallet,
+        prepared: step.prepared,
+        confirm: true,
+      }));
+    }
+    console.table(signatures.map((signature) => ({ signature })));
+    ```
+
+    The wallet signs each prepared transaction client-side. `sendPreparedWithWallet`
+    compiles it with a fresh blockhash, submits it to the configured RPC, and
+    waits for confirmation. A wallet that exposes only `signTransaction` is
+    sufficient.
+  </Tab>
+
+  <Tab title="Close" icon="lock">
+    ### Prove zero, then close access
+
+    Read every submitted signature with `getSignatureStatuses`. Record the
+    confirmed slot, rescan holdings at or after that slot, and require a zero
+    total before closing anything. Then close the remaining Smart Account
+    policies with the root wallet. If Autodeposit is active, scan the
+    subscriptions program for the wallet-to-Earn-vault recurring delegation
+    and pass it to `prepareEarnUsdcAutodepositClose` before the policy close.
+
+    ```ts
+    const statusResponse = await connection.getSignatureStatuses(signatures, {
+      searchTransactionHistory: true,
+    });
+    const confirmedSlots = statusResponse.value.map((status) => {
+      if (
+        !status ||
+        status.err ||
+        !["confirmed", "finalized"].includes(status.confirmationStatus ?? "")
+      ) {
+        throw new Error("A withdrawal is not confirmed successfully.");
+      }
+      return status.slot;
+    });
+
+    const zeroProof = await fetchEarnRpcHoldingsSnapshot({
+      cluster,
+      connection,
+      minContextSlot: Math.max(...confirmedSlots),
+      policy: reviewedPolicyUniverse,
+      programId: PROGRAM_ID,
+      requireCompleteReserveReads: true,
+      settingsPda,
+    });
+    if (BigInt(zeroProof.currentTotalAmountRaw) !== 0n) {
+      throw new Error("Earn still holds USDC. Do not close policies yet.");
+    }
+
+    const livePolicies = (await client.fetchPolicyOverview({ settingsPda }))
+      .policies.map(({ address }) => new PublicKey(address));
+    let closeSignature: string | null = null;
+    if (livePolicies.length > 0) {
+      const closePrepared = await client.prepareClosePoliciesSync({
+        feePayer: walletAddress,
+        policies: livePolicies,
+        settingsPda,
+        signers: [walletAddress],
+      });
+      closeSignature = await sendPreparedWithWallet({
+        connection,
+        wallet,
+        prepared: closePrepared,
+        confirm: true,
+      });
+    }
+
+    const refund = await client.fetchEarnVaultRefundSnapshot({
+      cluster,
+      minContextSlot: Math.max(...confirmedSlots),
+      settingsPda,
+    });
+    let refundSignature: string | null = null;
+    if (refund.lamports > 0n || refund.tokenAccounts.length > 0) {
+      const refundPrepared = await client.prepareEarnVaultAccountsRefund({
+        cluster,
+        feePayer: walletAddress,
+        settingsPda,
+        walletAddress,
+      });
+      refundSignature = await sendPreparedWithWallet({
+        connection,
+        wallet,
+        prepared: refundPrepared.prepared,
+        confirm: true,
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## What proves the exit
+
+Keep the Settings address, Earn vault address, withdrawal signatures, close signature, refund signature, and confirmed slots. A final RPC read should show zero Earn holdings and no policy accounts selected for closure. The USDC should appear in the customer's wallet token account.
+
+Closing every live policy is an emergency shutdown for that Settings account. It also closes policies created by other integrations. Show the complete list and let the customer narrow it before signing when the Smart Account is shared.
+
+Kamino liquidity and Solana availability still apply. Loyal cannot make an illiquid market liquid, and this recovery path still needs a working RPC.

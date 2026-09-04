@@ -1,7 +1,6 @@
 {
   "name": "@loyal-labs/shared",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -21,6 +20,11 @@
       "import": "./dist/analytics-server.js",
       "default": "./dist/analytics-server.js",
       "types": "./dist/analytics-server.d.ts"
+    },
+    "./expo-push": {
+      "import": "./dist/expo-push.js",
+      "default": "./dist/expo-push.js",
+      "types": "./dist/expo-push.d.ts"
     }
   },
   "files": [
@@ -38,5 +42,14 @@
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/loyal-labs/loyal-app.git",
+    "directory": "packages/shared"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,0 +1,27 @@
+---
+title: "Runtime state and evidence"
+description: "The evidence that proves what an automation planned, submitted, confirmed, or reconciled."
+---
+
+Use the strongest source available for the question being asked.
+
+| State | Required evidence | What it does not prove |
+| --- | --- | --- |
+| Planned | Durable decision with inputs and intended action | That a wallet signed or a transaction reached Solana. |
+| Submitted | Transaction signature accepted by the submitter | That the transaction confirmed or changed state. |
+| Confirmed | Successful signature status and confirmed account effects | That Loyal persisted or exposed the result. |
+| Reconciled | Durable record linked to confirmed chain evidence | That a later onchain change has not occurred. |
+| Current | Fresh Solana account and token state | Why Loyal made an earlier decision. |
+| Failed | Error classification plus the strongest available signature or account evidence | That a retry is safe without a refetch. |
+
+## Inspection order after a stall
+
+1. Read the durable decision and its skip or submission result.
+2. If a signature exists, check confirmation and error status.
+3. Refetch the affected onchain accounts.
+4. Compare the confirmed result with the reconciled record.
+5. Retry only when the current state still permits the intended transition.
+
+Realtime events wake the client. They do not replace canonical REST, control-plane, or RPC reads.
+
+See [Automation lifecycle](/build/automation-lifecycle) for allowed transitions. Product-specific remediation stays on the relevant error page.

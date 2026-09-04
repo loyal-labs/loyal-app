@@ -1,0 +1,55 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@loyal-labs/solana-rpc": [
+        "../../packages/solana-rpc/src/index.ts"
+      ],
+      "@loyal-labs/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@loyal-labs/wallet-core/lib": [
+        "../../packages/wallet-core/src/lib/index.ts"
+      ],
+      "@loyal-labs/smart-account-vaults": [
+        "../../packages/smart-account-vaults/src/index.ts"
+      ],
+      "@loyal-labs/actions": [
+        "../../packages/loyal-actions/src/index.ts"
+      ],
+      "@loyal-labs/loyal-smart-accounts": [
+        "../../packages/loyal-smart-accounts/src/index.ts"
+      ],
+      "@loyal-labs/loyal-smart-accounts-core": [
+        "../../packages/loyal-smart-accounts-core/src/index.ts"
+      ],
+      "@loyal-labs/loyal-smart-accounts-core/internal": [
+        "../../packages/loyal-smart-accounts-core/src/internal/index.ts"
+      ],
+      "@loyal-labs/solana-wallet": [
+        "../../packages/solana-wallet/src/index.ts"
+      ],
+      "@loyal-labs/solana-instruction-decoder": [
+        "../../packages/solana-instruction-decoder/src/index.ts"
+      ],
+      "expo-seed-vault": [
+        "./modules/expo-seed-vault/src/index.ts"
+      ],
+      "expo-synced-keychain": [
+        "./modules/expo-synced-keychain/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts",
+    "nativewind-env.d.ts"
+  ]
+}

@@ -1,0 +1,71 @@
+---
+title: "Autodeposit subscription"
+description: "How to create and observe the recurring sweep subscription, plus its update boundary."
+---
+
+Autodeposit is for users who want Earn to collect eligible USDC automatically while using a chosen Main Account amount as the operating target.
+
+Loyal treats the floor as a scheduling target. It calculates surplus above that target and checks separate onchain limits before execution.
+
+## Key Facts
+
+| Question                     | Short answer                                                  |
+| ---------------------------- | ------------------------------------------------------------- |
+| What does the user choose?   | A wallet floor plus the recurring period and amount           |
+| What does Loyal watch?       | The wallet's USDC token account                               |
+| What can Loyal schedule?     | Calculated surplus, further limited by the approved delegation |
+| Where does it go first?      | The Earn vault                                                |
+| What happens after the pull? | The executor can top up the active Kamino Earn route          |
+
+## Setup
+
+Autodeposit setup creates the onchain pieces needed for a constrained pull:
+
+- A subscription authority for your wallet and USDC mint
+- A recurring delegation with its schedule and amount for each period
+- An Autodeposit policy fixed to the expected USDC path and Earn vault
+- A saved floor that Loyal uses when calculating eligible surplus
+
+You approve this setup from your Main Account. Loyal does not become a root Smart Account signer or receive an unrestricted destination.
+
+<Info>
+  The saved floor is an automation setting used by Loyal's scheduler. The
+  recurring delegation defines the period and allowed amount. The Smart
+  Account policy separately constrains the USDC mint, source and destination
+  accounts, subscription program, instruction shape, and maximum amount per
+  period.
+</Info>
+
+## How Wallet Watching Works
+
+Loyal uses Solana account subscriptions to notice changes to watched USDC token accounts. When your wallet balance rises above the floor, the system can schedule the eligible surplus for a sweep, usually with a delay before execution.
+
+That schedule gives the executor time to verify the current wallet balance, the policy/delegation state, and the Earn route before moving funds.
+
+## Execution
+
+<Steps>
+  <Step title="Detect surplus">
+    The balance watcher sees that the wallet has USDC above the saved floor.
+  </Step>
+  <Step title="Schedule a sweep">
+    Loyal records the eligible amount and waits until it is ready to execute.
+  </Step>
+  <Step title="Pull to Earn">
+    The executor uses the Autodeposit policy to move the scheduled USDC through
+    the fixed path from the wallet token account into the Earn vault.
+  </Step>
+  <Step title="Top up Earn">
+    After the pull, the executor can deposit the new vault USDC into the current
+    Kamino Earn route.
+  </Step>
+</Steps>
+
+## Update boundary
+
+Updating the floor changes Loyal's eligibility calculation. It does not rewrite the subscription period or Smart Account policy. Pausing and closing change different state; use [Pause and close](/build/pause-and-close) for their transaction and confirmation requirements.
+
+<Warning>
+  Autodeposit is worker-driven. Execution can take time because the worker
+  verifies state before moving funds.
+</Warning>

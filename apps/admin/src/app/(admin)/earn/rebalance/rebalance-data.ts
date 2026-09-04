@@ -1,0 +1,2688 @@
+import "server-only";
+
+import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.server";
+
+type SqlScalar = string | number | bigint | null;
+
+export type RebalanceRouteMode = "same_mint" | "cross_mint";
+
+export type RebalanceAuditRange = "24h" | "7d" | "30d" | "all";
+export type RebalanceAuditView =
+  | "completed_rebalances"
+  | "completed_deposits"
+  | "errors";
+export type RebalanceAuditErrorFilter =
+  | "all"
+  | "rebalance"
+  | "deposit"
+  | "needs_review";
+export type RebalanceAuditLane = "rebalance" | "deposit" | "needs_review";
+export type RebalanceAuditSource =
+  | "autodeposit"
+  | "idle_vault_deposit"
+  | "manual_deposit"
+  | "needs_review"
+  | "rebalance";
+
+export type RebalanceAuditCursor = {
+  createdAt: string;
+  id: string;
+  sourceRank: number;
+};
+
+export type EarnActiveReserveRouteRow = {
+  activeAumRaw: bigint;
+  currentReserve: string;
+  latestObservedAt: string | null;
+  liquidityMint: string;
+  positionCount: number;
+};
+
+export type EarnRebalanceDecisionRow = {
+  abandonReason: string | null;
+  amountRaw: bigint | null;
+  confirmedSlot: bigint | null;
+  createdAt: string;
+  decisionReason: string | null;
+  decisionType: "rebalance" | null;
+  estimatedEdgeBps: number | null;
+  id: string;
+  liquidityMint: string | null;
+  routeMode: RebalanceRouteMode;
+  signature: string | null;
+  sourceLiquidityMint: string | null;
+  sourceApyBps: number | null;
+  sourceReserve: string | null;
+  status: string;
+  targetApyBps: number | null;
+  targetLiquidityMint: string | null;
+  targetReserve: string | null;
+  updatedAt: string;
+};
+
+export type RebalanceActivityPoint = {
+  bucketStartedAt: string;
+  confirmed: number;
+  finalizedSwapLegs: number;
+  expiredSubmissions: number;
+  failedDecisions: number;
+  failedOpportunities: number;
+  fleetClaims: number;
+  maxSwapFeeLamports: bigint;
+  routeMode: RebalanceRouteMode;
+  swapFeeLamports: bigint;
+  terminalAttempts: number;
+};
+
+export type AutodepositTimeSeriesRangeKey = "2d" | "7d" | "30d";
+
+export type AutodepositTimeSeriesPoint = {
+  accountNotFound: number;
+  bucketStartedAt: string;
+  confirmationOrTimeout: number;
+  depositedAmountRaw: bigint;
+  insufficientRent: number;
+  missingTokenDelegate: number;
+  noLinkedError: number;
+  otherPrePull: number;
+  postPullKaminoTopUp: number;
+  successful: number;
+};
+
+export type AutodepositTimeSeriesRange = {
+  bucketHours: number;
+  key: AutodepositTimeSeriesRangeKey;
+  points: AutodepositTimeSeriesPoint[];
+};
+
+export type OptimizationVolumePoint = {
+  confirmedCount: number;
+  cumulativeAmountRaw: bigint;
+  dailyAmountRaw: bigint;
+  date: string;
+};
+
+export type Last30DaysRebalancePoint = {
+  confirmed: number;
+  date: string;
+  failed: number;
+  routeMode: RebalanceRouteMode;
+  terminalAttempts: number;
+};
+
+export type ExecutedEarnRebalanceRow = {
+  amountRaw: bigint;
+  authority: string;
+  confirmedSlot: bigint;
+  currentDepositRaw: bigint;
+  executedAt: string;
+  id: string;
+  liquidityMint: string | null;
+  routeMode: RebalanceRouteMode;
+  sourceReserve: string;
+  sourceLiquidityMint: string | null;
+  swapFeeLamports: bigint;
+  targetReserve: string;
+  targetLiquidityMint: string | null;
+  userRank: number;
+};
+
+export type ExecutedEarnRebalanceHistory = {
+  chartPoints: ExecutedEarnRebalanceRow[];
+  details: ExecutedEarnRebalanceRow[];
+  generatedAt: string;
+  summaries: ExecutedEarnRebalanceSummary[];
+};
+
+export type ExecutedEarnRebalanceSummary = {
+  executionCount: number;
+  executionCount30d: number;
+  executionCount7d: number;
+  fullyWithdrawnCount: number;
+  fullyWithdrawnCount30d: number;
+  fullyWithdrawnCount7d: number;
+  liquidityMint: string | null;
+  routeMode: RebalanceRouteMode;
+  swapFeeLamports: bigint;
+  userCount: number;
+};
+
+export type EarnVaultRebalanceFrequencyRow = {
+  allCount: number;
+  currentDepositRaw: bigint;
+  currentReserve: string | null;
+  depositRank: number;
+  last12hCount: number;
+  last2hCount: number;
+  last7dCount: number;
+  liquidityMint: string | null;
+  positionCount: number;
+  routeMode: RebalanceRouteMode;
+  vaultId: string;
+  vaultPubkey: string;
+};
+
+export type EarnVaultRebalanceFrequency = {
+  chartPoints: EarnVaultRebalanceFrequencyRow[];
+  details: EarnVaultRebalanceFrequencyRow[];
+  generatedAt: string;
+  summaries: EarnVaultRebalanceFrequencySummary[];
+  vaultCount: number;
+};
+
+export type EarnVaultRebalanceFrequencySummary = {
+  eligibleCount: number;
+  eligibleCount12h: number;
+  eligibleCount2h: number;
+  eligibleCount7d: number;
+  liquidityMint: string | null;
+  positionCount: number;
+  rebalance12hCount: number;
+  rebalance2hCount: number;
+  rebalance7dCount: number;
+  rebalanceAllCount: number;
+  rebalancedVaultCount: number;
+  routeMode: RebalanceRouteMode;
+  vaultCount: number;
+};
+
+export type EarnVaultOpportunityCounts = {
+  allCount: number;
+  last12hCount: number;
+  last2hCount: number;
+  last7dCount: number;
+  routeMode: RebalanceRouteMode;
+  vaultId: string;
+};
+
+export type RebalanceAuditRow = {
+  abandonReason: string | null;
+  amountRaw: bigint | null;
+  confirmedSlot: bigint | null;
+  createdAt: string;
+  decisionReason: string | null;
+  estimatedEdgeBps: number | null;
+  id: string;
+  lane: RebalanceAuditLane;
+  liquidityMint: string | null;
+  movementKind: string | null;
+  source: RebalanceAuditSource;
+  sourceLiquidityMint: string | null;
+  signature: string | null;
+  secondarySignature: string | null;
+  sourceApyBps: number | null;
+  sourceReserve: string | null;
+  status: string;
+  submittedSlot: bigint | null;
+  targetApyBps: number | null;
+  targetLiquidityMint: string | null;
+  targetReserve: string | null;
+  updatedAt: string;
+  vaultId: string | null;
+  vaultIndex: number | null;
+  vaultPubkey: string | null;
+};
+
+export type RebalanceAuditSummary = {
+  active: number;
+  completedDeposits: number;
+  completedRebalances: number;
+  depositErrors: number;
+  errors: number;
+  needsReview: number;
+  rebalanceErrors: number;
+  staleActive: number;
+};
+
+export type RebalanceAuditPage = {
+  nextCursor: string | null;
+  rows: RebalanceAuditRow[];
+};
+
+export type RebalanceAuditQuery = {
+  cursor?: RebalanceAuditCursor | null;
+  errorFilter?: RebalanceAuditErrorFilter;
+  limit?: number;
+  range: RebalanceAuditRange;
+  routeMode: RebalanceRouteMode;
+  view: RebalanceAuditView;
+};
+
+export type RebalanceAuditActiveQuery = {
+  cursor?: RebalanceAuditCursor | null;
+  limit?: number;
+  range: RebalanceAuditRange;
+  routeMode: RebalanceRouteMode;
+};
+
+type ActiveReserveRouteSqlRow = {
+  active_aum_raw: SqlScalar;
+  current_reserve: string;
+  latest_observed_at: Date | string | null;
+  liquidity_mint: string;
+  position_count: SqlScalar;
+};
+
+type RebalanceDecisionSqlRow = {
+  abandon_reason: string | null;
+  amount_raw: SqlScalar;
+  confirmed_slot: SqlScalar;
+  created_at: Date | string;
+  decision_reason: string | null;
+  estimated_edge_bps: SqlScalar;
+  execution_kind: string | null;
+  id: string | number | bigint;
+  liquidity_mint: string | null;
+  route_mode: string;
+  signature: string | null;
+  source_liquidity_mint: string | null;
+  source_apy_bps: SqlScalar;
+  source_reserve: string | null;
+  status: string;
+  target_apy_bps: SqlScalar;
+  target_liquidity_mint: string | null;
+  target_reserve: string | null;
+  updated_at: Date | string;
+};
+
+type RebalanceActivitySqlRow = {
+  bucket_started_at: Date | string;
+  confirmed: SqlScalar;
+  finalized_swap_legs: SqlScalar;
+  expired_submissions: SqlScalar;
+  failed_decisions: SqlScalar;
+  failed_opportunities: SqlScalar;
+  fleet_claims: SqlScalar;
+  max_swap_fee_lamports: SqlScalar;
+  route_mode: string;
+  swap_fee_lamports: SqlScalar;
+  terminal_attempts: SqlScalar;
+};
+
+type AutodepositTimeSeriesSqlRow = {
+  account_not_found: SqlScalar;
+  bucket_hours: SqlScalar;
+  bucket_started_at: Date | string;
+  confirmation_or_timeout: SqlScalar;
+  deposited_amount_raw: SqlScalar;
+  insufficient_rent: SqlScalar;
+  missing_token_delegate: SqlScalar;
+  no_linked_error: SqlScalar;
+  other_pre_pull: SqlScalar;
+  post_pull_kamino_top_up: SqlScalar;
+  range_key: AutodepositTimeSeriesRangeKey;
+  successful: SqlScalar;
+};
+
+type OptimizationVolumeSqlRow = {
+  confirmed_count: SqlScalar;
+  cumulative_amount_raw: SqlScalar;
+  daily_amount_raw: SqlScalar;
+  date: string;
+};
+
+type Last30DaysRebalanceSqlRow = {
+  confirmed: SqlScalar;
+  date: string;
+  failed: SqlScalar;
+  route_mode: string;
+  terminal_attempts: SqlScalar;
+};
+
+type ExecutedEarnRebalanceSummarySqlRow = {
+  execution_count: SqlScalar;
+  execution_count_30d: SqlScalar;
+  execution_count_7d: SqlScalar;
+  fully_withdrawn_count: SqlScalar;
+  fully_withdrawn_count_30d: SqlScalar;
+  fully_withdrawn_count_7d: SqlScalar;
+  liquidity_mint: string | null;
+  route_mode: string;
+  swap_fee_lamports: SqlScalar;
+  user_count: SqlScalar;
+};
+
+type ExecutedEarnRebalancePayloadSqlRow = {
+  chart_points: ExecutedEarnRebalanceSqlTuple[];
+  details: ExecutedEarnRebalanceSqlTuple[];
+  summaries: ExecutedEarnRebalanceSummarySqlRow[];
+};
+
+type ExecutedEarnRebalanceSqlTuple = [
+  amountRaw: SqlScalar,
+  authority: string,
+  confirmedSlot: SqlScalar,
+  currentDepositRaw: SqlScalar,
+  executedAt: Date | string,
+  id: string,
+  liquidityMint: string | null,
+  routeMode: string,
+  sourceReserve: string,
+  sourceLiquidityMint: string | null,
+  swapFeeLamports: SqlScalar,
+  targetReserve: string,
+  targetLiquidityMint: string | null,
+  userRank: SqlScalar
+];
+
+type EarnVaultRebalanceFrequencySummarySqlRow = {
+  eligible_count: SqlScalar;
+  eligible_count_12h: SqlScalar;
+  eligible_count_2h: SqlScalar;
+  eligible_count_7d: SqlScalar;
+  liquidity_mint: string | null;
+  position_count: SqlScalar;
+  rebalance_last_12h_count: SqlScalar;
+  rebalance_last_2h_count: SqlScalar;
+  rebalance_last_7d_count: SqlScalar;
+  rebalance_all_count: SqlScalar;
+  rebalanced_vault_count: SqlScalar;
+  route_mode: string;
+  vault_count: SqlScalar;
+};
+
+type EarnVaultRebalanceFrequencyPayloadSqlRow = {
+  chart_points: EarnVaultRebalanceFrequencySqlTuple[];
+  details: EarnVaultRebalanceFrequencySqlTuple[];
+  summaries: EarnVaultRebalanceFrequencySummarySqlRow[];
+};
+
+type EarnVaultRebalanceFrequencySqlTuple = [
+  allCount: SqlScalar,
+  currentDepositRaw: SqlScalar,
+  currentReserve: string | null,
+  depositRank: SqlScalar,
+  last12hCount: SqlScalar,
+  last2hCount: SqlScalar,
+  last7dCount: SqlScalar,
+  liquidityMint: string | null,
+  positionCount: SqlScalar,
+  routeMode: string,
+  vaultId: string,
+  vaultPubkey: string
+];
+
+type EarnVaultOpportunityCountsSqlRow = {
+  all_count: SqlScalar;
+  last_12h_count: SqlScalar;
+  last_2h_count: SqlScalar;
+  last_7d_count: SqlScalar;
+  route_mode: string;
+  vault_id: SqlScalar;
+};
+
+type RebalanceAuditSqlRow = {
+  abandon_reason: string | null;
+  amount_raw: SqlScalar;
+  confirmed_slot: SqlScalar;
+  created_at: Date | string;
+  decision_reason: string | null;
+  event_at: Date | string;
+  estimated_edge_bps: SqlScalar;
+  execution_kind: string | null;
+  id: string | number | bigint;
+  lane: RebalanceAuditLane;
+  liquidity_mint: string | null;
+  movement_source: RebalanceAuditSource;
+  record_type: string;
+  signature: string | null;
+  secondary_signature: string | null;
+  sort_id: string | number | bigint;
+  sort_source: SqlScalar;
+  source_apy_bps: SqlScalar;
+  source_liquidity_mint: string | null;
+  source_reserve: string | null;
+  status: string;
+  submitted_slot: SqlScalar;
+  target_apy_bps: SqlScalar;
+  target_liquidity_mint: string | null;
+  target_reserve: string | null;
+  updated_at: Date | string;
+  vault_id: string | number | bigint | null;
+  vault_index: SqlScalar;
+  vault_pubkey: string | null;
+};
+
+type RebalanceAuditSummarySqlRow = {
+  active: SqlScalar;
+  completed_deposits: SqlScalar;
+  completed_rebalances: SqlScalar;
+  deposit_errors: SqlScalar;
+  errors: SqlScalar;
+  needs_review: SqlScalar;
+  rebalance_errors: SqlScalar;
+  stale_active: SqlScalar;
+};
+
+function toBigInt(value: SqlScalar | undefined): bigint {
+  if (typeof value === "bigint") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return BigInt(Math.trunc(value));
+  }
+
+  if (typeof value === "string" && value.length > 0) {
+    return BigInt(value);
+  }
+
+  return BigInt(0);
+}
+
+function toNullableBigInt(value: SqlScalar | undefined): bigint | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  return toBigInt(value);
+}
+
+function toNumber(value: SqlScalar | undefined): number {
+  return Number(toBigInt(value));
+}
+
+function toNullableNumber(value: SqlScalar | undefined): number | null {
+  const bigintValue = toNullableBigInt(value);
+  return bigintValue === null ? null : Number(bigintValue);
+}
+
+function toIsoString(value: Date | string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
+}
+
+function queryRows<T>(query: string): Promise<T[]> {
+  return getYieldNeonSql().query(query) as unknown as Promise<T[]>;
+}
+
+function getDecisionType(
+  row: Pick<RebalanceDecisionSqlRow, "execution_kind">
+): EarnRebalanceDecisionRow["decisionType"] {
+  if (
+    row.execution_kind === "same_mint" ||
+    row.execution_kind === "cross_mint_jupiter"
+  ) {
+    return "rebalance";
+  }
+
+  return null;
+}
+
+function mapRouteMode(value: string | null): RebalanceRouteMode {
+  return value === "cross_mint_jupiter" ? "cross_mint" : "same_mint";
+}
+
+function mapAuditLane(value: string | null): RebalanceAuditLane {
+  if (value === "rebalance" || value === "deposit") {
+    return value;
+  }
+
+  return "needs_review";
+}
+
+function mapAuditSource(value: string | null): RebalanceAuditSource {
+  if (
+    value === "autodeposit" ||
+    value === "idle_vault_deposit" ||
+    value === "manual_deposit" ||
+    value === "rebalance"
+  ) {
+    return value;
+  }
+
+  return "needs_review";
+}
+
+function rangePredicate(range: RebalanceAuditRange): string {
+  switch (range) {
+    case "24h":
+      return "audit.event_at >= now() - interval '24 hours'";
+    case "7d":
+      return "audit.event_at >= now() - interval '7 days'";
+    case "30d":
+      return "audit.event_at >= now() - interval '30 days'";
+    case "all":
+      return "TRUE";
+  }
+}
+
+function routeModePredicate(routeMode: RebalanceRouteMode): string {
+  const executionKind =
+    routeMode === "cross_mint" ? "cross_mint_jupiter" : "same_mint";
+
+  return `(
+    audit.record_type <> 'decision'
+    OR audit.movement_source <> 'rebalance'
+    OR audit.execution_kind = '${executionKind}'
+  )`;
+}
+
+function viewPredicate(
+  view: RebalanceAuditView,
+  errorFilter: RebalanceAuditErrorFilter
+): string {
+  const completedRebalances = `
+    audit.record_type = 'decision'
+    AND audit.movement_source = 'rebalance'
+    AND audit.status = 'confirmed'
+  `;
+  const completedDeposits = `
+    (
+      audit.record_type = 'yield_deposit'
+      AND audit.status = 'confirmed'
+    )
+    OR (
+      audit.record_type = 'decision'
+      AND audit.movement_source = 'idle_vault_deposit'
+      AND audit.is_idle_fallback
+      AND audit.status = 'confirmed'
+    )
+  `;
+  const rebalanceErrors = `
+    audit.record_type = 'decision'
+    AND audit.movement_source = 'rebalance'
+    AND audit.status IN ('failed', 'abandoned')
+  `;
+  const depositErrors = `
+    (
+      audit.record_type = 'decision'
+      AND audit.movement_source = 'idle_vault_deposit'
+      AND audit.status IN ('failed', 'abandoned')
+    )
+    OR (
+      audit.record_type = 'execution'
+      AND audit.movement_source = 'autodeposit'
+      AND audit.status = 'failed'
+    )
+  `;
+  const unknownStatus = `audit.record_type = 'decision' AND audit.status NOT IN (
+    'planned', 'simulating', 'ready', 'submitted', 'confirming',
+    'confirmed', 'failed', 'abandoned', 'skipped'
+  )`;
+  const needsReview = `
+    audit.record_type = 'decision'
+    AND (audit.movement_source = 'needs_review' OR ${unknownStatus})
+  `;
+
+  switch (view) {
+    case "completed_rebalances":
+      return completedRebalances;
+    case "completed_deposits":
+      return completedDeposits;
+    case "errors":
+      if (errorFilter === "rebalance") {
+        return rebalanceErrors;
+      }
+
+      if (errorFilter === "deposit") {
+        return depositErrors;
+      }
+
+      if (errorFilter === "needs_review") {
+        return needsReview;
+      }
+
+      return `(${rebalanceErrors} OR ${depositErrors} OR ${needsReview})`;
+  }
+}
+
+function escapeSqlLiteral(value: string): string {
+  return value.replaceAll("'", "''");
+}
+
+function cursorPredicate(cursor: RebalanceAuditCursor | null | undefined) {
+  if (!cursor) {
+    return "";
+  }
+
+  return `AND (audit.event_at, audit.sort_source, audit.sort_id) < ('${escapeSqlLiteral(
+    cursor.createdAt
+  )}'::timestamptz, ${cursor.sourceRank}, ${cursor.id}::bigint)`;
+}
+
+export function decodeRebalanceAuditCursor(
+  value: string | null | undefined
+): RebalanceAuditCursor | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8")
+    ) as { createdAt?: unknown; id?: unknown; sourceRank?: unknown };
+
+    const sourceRank = decoded.sourceRank ?? 1;
+
+    if (
+      typeof decoded.createdAt !== "string" ||
+      Number.isNaN(Date.parse(decoded.createdAt)) ||
+      typeof decoded.id !== "string" ||
+      !/^\d+$/.test(decoded.id) ||
+      typeof sourceRank !== "number" ||
+      !Number.isInteger(sourceRank) ||
+      sourceRank < 1 ||
+      sourceRank > 3
+    ) {
+      return null;
+    }
+
+    return {
+      createdAt: new Date(decoded.createdAt).toISOString(),
+      id: decoded.id,
+      sourceRank,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function encodeRebalanceAuditCursor(cursor: RebalanceAuditCursor): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+const activeStatusPredicate = `audit.record_type = 'decision' AND audit.status IN (
+  'planned', 'simulating', 'ready', 'submitted', 'confirming'
+)`;
+
+function mapRebalanceAuditRow(row: RebalanceAuditSqlRow): RebalanceAuditRow {
+  return {
+    abandonReason: row.abandon_reason,
+    amountRaw: toNullableBigInt(row.amount_raw),
+    confirmedSlot: toNullableBigInt(row.confirmed_slot),
+    createdAt: toIsoString(row.created_at) ?? "",
+    decisionReason: row.decision_reason,
+    estimatedEdgeBps: toNullableNumber(row.estimated_edge_bps),
+    id: String(row.id),
+    lane: mapAuditLane(row.lane),
+    liquidityMint: row.liquidity_mint,
+    movementKind: row.execution_kind,
+    source: mapAuditSource(row.movement_source),
+    sourceLiquidityMint: row.source_liquidity_mint,
+    signature: row.signature,
+    secondarySignature: row.secondary_signature,
+    sourceApyBps: toNullableNumber(row.source_apy_bps),
+    sourceReserve: row.source_reserve,
+    status: row.status,
+    submittedSlot: toNullableBigInt(row.submitted_slot),
+    targetApyBps: toNullableNumber(row.target_apy_bps),
+    targetLiquidityMint: row.target_liquidity_mint,
+    targetReserve: row.target_reserve,
+    updatedAt: toIsoString(row.updated_at) ?? "",
+    vaultId: row.vault_id === null ? null : String(row.vault_id),
+    vaultIndex: toNullableNumber(row.vault_index),
+    vaultPubkey: row.vault_pubkey,
+  };
+}
+
+const AUDIT_ROWS_CTE = `
+  WITH audit_rows AS (
+    SELECT
+      'decision'::text AS record_type,
+      ('decision:' || decision.id::text) AS id,
+      decision.id::bigint AS sort_id,
+      1::integer AS sort_source,
+      decision.created_at AS event_at,
+      decision.created_at,
+      decision.updated_at,
+      CASE
+        WHEN decision.execution_plan->>'kind' IN (
+          'same_mint',
+          'cross_mint_jupiter'
+        ) THEN 'rebalance'
+        WHEN decision.execution_plan->>'kind' = 'idle_vault_deposit' THEN 'deposit'
+        ELSE 'needs_review'
+      END::text AS lane,
+      CASE
+        WHEN decision.execution_plan->>'kind' IN (
+          'same_mint',
+          'cross_mint_jupiter'
+        ) THEN 'rebalance'
+        WHEN decision.execution_plan->>'kind' = 'idle_vault_deposit' THEN 'idle_vault_deposit'
+        ELSE 'needs_review'
+      END::text AS movement_source,
+      decision.execution_plan->>'kind' AS execution_kind,
+      decision.liquidity_mint,
+      decision.source_liquidity_mint,
+      decision.target_liquidity_mint,
+      decision.status::text AS status,
+      decision.abandon_reason,
+      decision.amount_raw,
+      decision.confirmed_slot,
+      decision.submitted_slot,
+      decision.decision_reason::text,
+      decision.estimated_edge_bps,
+      decision.source_apy_bps,
+      decision.source_reserve,
+      decision.target_apy_bps,
+      decision.target_reserve,
+      decision.signature,
+      NULL::text AS secondary_signature,
+      decision.vault_id::text AS vault_id,
+      vault.vault_index::text AS vault_index,
+      vault.vault_pubkey,
+      (
+        decision.execution_plan->>'kind' = 'idle_vault_deposit'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM loyal_yield.user_yield_position_deposits AS linked_deposit
+          WHERE linked_deposit.deposit_signature = decision.signature
+        )
+      ) AS is_idle_fallback
+    FROM loyal_yield.rebalance_decisions AS decision
+    LEFT JOIN loyal_yield.managed_vaults AS vault
+      ON vault.id = decision.vault_id
+
+    UNION ALL
+
+    SELECT
+      'yield_deposit'::text AS record_type,
+      ('deposit:' || deposit.id::text) AS id,
+      deposit.id::bigint AS sort_id,
+      2::integer AS sort_source,
+      deposit.confirmed_at AS event_at,
+      deposit.created_at,
+      deposit.confirmed_at AS updated_at,
+      'deposit'::text AS lane,
+      CASE
+        WHEN execution.id IS NOT NULL THEN 'autodeposit'
+        WHEN idle_decision.id IS NOT NULL THEN 'idle_vault_deposit'
+        ELSE 'manual_deposit'
+      END::text AS movement_source,
+      CASE
+        WHEN execution.id IS NOT NULL THEN 'autodeposit'
+        WHEN idle_decision.id IS NOT NULL THEN 'idle_vault_deposit'
+        ELSE 'manual_deposit'
+      END::text AS execution_kind,
+      deposit.liquidity_mint,
+      NULL::text AS source_liquidity_mint,
+      NULL::text AS target_liquidity_mint,
+      'confirmed'::text AS status,
+      NULL::text AS abandon_reason,
+      deposit.principal_amount_raw AS amount_raw,
+      deposit.confirmed_slot,
+      NULL::bigint AS submitted_slot,
+      CASE
+        WHEN execution.id IS NOT NULL THEN 'autodeposit_completed'
+        WHEN idle_decision.id IS NOT NULL THEN 'idle_vault_deposit_completed'
+        ELSE 'user_deposit_confirmed'
+      END::text AS decision_reason,
+      NULL::bigint AS estimated_edge_bps,
+      NULL::bigint AS source_apy_bps,
+      NULL::text AS source_reserve,
+      deposit.target_supply_apy_bps AS target_apy_bps,
+      deposit.target_reserve,
+      COALESCE(execution.kamino_deposit_signature, deposit.deposit_signature) AS signature,
+      execution.signature AS secondary_signature,
+      vault.id::text AS vault_id,
+      deposit.vault_index::text AS vault_index,
+      deposit.vault_pubkey,
+      false AS is_idle_fallback
+    FROM loyal_yield.user_yield_position_deposits AS deposit
+    LEFT JOIN loyal_yield.balance_sweep_executions AS execution
+      ON execution.id = deposit.balance_sweep_execution_id
+    LEFT JOIN LATERAL (
+      SELECT idle.id
+      FROM loyal_yield.rebalance_decisions AS idle
+      WHERE idle.signature = deposit.deposit_signature
+        AND idle.execution_plan->>'kind' = 'idle_vault_deposit'
+      ORDER BY idle.id DESC
+      LIMIT 1
+    ) AS idle_decision ON true
+    LEFT JOIN loyal_yield.managed_vaults AS vault
+      ON vault.settings = deposit.settings
+      AND vault.vault_index = deposit.vault_index
+      AND vault.vault_pubkey = deposit.vault_pubkey
+
+    UNION ALL
+
+    SELECT
+      'execution'::text AS record_type,
+      ('execution:' || execution.id::text) AS id,
+      execution.id::bigint AS sort_id,
+      3::integer AS sort_source,
+      COALESCE(execution.completed_at, execution.received_at, execution.inserted_at) AS event_at,
+      execution.inserted_at AS created_at,
+      COALESCE(execution.completed_at, execution.received_at, execution.inserted_at) AS updated_at,
+      'deposit'::text AS lane,
+      'autodeposit'::text AS movement_source,
+      'autodeposit'::text AS execution_kind,
+      execution.token_mint AS liquidity_mint,
+      NULL::text AS source_liquidity_mint,
+      NULL::text AS target_liquidity_mint,
+      'failed'::text AS status,
+      execution.completion_failure_code AS abandon_reason,
+      execution.amount_raw,
+      execution.slot AS confirmed_slot,
+      NULL::bigint AS submitted_slot,
+      NULL::text AS decision_reason,
+      NULL::bigint AS estimated_edge_bps,
+      NULL::bigint AS source_apy_bps,
+      NULL::text AS source_reserve,
+      NULL::bigint AS target_apy_bps,
+      NULL::text AS target_reserve,
+      COALESCE(execution.kamino_deposit_signature, execution.signature) AS signature,
+      CASE
+        WHEN execution.kamino_deposit_signature IS NOT NULL THEN execution.signature
+        ELSE NULL::text
+      END AS secondary_signature,
+      vault.id::text AS vault_id,
+      target.vault_index::text AS vault_index,
+      target.vault_pubkey,
+      false AS is_idle_fallback
+    FROM loyal_yield.balance_sweep_executions AS execution
+    INNER JOIN loyal_yield.balance_sweep_targets AS target
+      ON target.id = execution.target_id
+    LEFT JOIN loyal_yield.managed_vaults AS vault
+      ON vault.settings = target.settings
+      AND vault.vault_index = target.vault_index
+      AND vault.vault_pubkey = target.vault_pubkey
+    WHERE execution.completion_failure_code IS NOT NULL
+  )
+`;
+
+async function getRebalanceAuditPageByPredicate({
+  cursor,
+  limit: requestedLimit,
+  predicate,
+  range,
+  routeMode,
+}: {
+  cursor?: RebalanceAuditCursor | null;
+  limit?: number;
+  predicate: string;
+  range: RebalanceAuditRange;
+  routeMode: RebalanceRouteMode;
+}): Promise<RebalanceAuditPage> {
+  const limit = Math.min(Math.max(requestedLimit ?? 25, 1), 50);
+  const rows = await queryRows<RebalanceAuditSqlRow>(
+    `
+      ${AUDIT_ROWS_CTE}
+      SELECT
+        audit.*
+      FROM audit_rows AS audit
+      WHERE ${rangePredicate(range)}
+        AND ${routeModePredicate(routeMode)}
+        AND ${predicate}
+        ${cursorPredicate(cursor)}
+      ORDER BY audit.event_at DESC, audit.sort_source DESC, audit.sort_id DESC
+      LIMIT ${limit + 1}
+    `
+  );
+
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const lastRow = pageRows.at(-1);
+
+  return {
+    nextCursor:
+      hasMore && lastRow
+        ? encodeRebalanceAuditCursor({
+            createdAt: toIsoString(lastRow.event_at) ?? "",
+            id: String(lastRow.sort_id),
+            sourceRank: toNumber(lastRow.sort_source),
+          })
+        : null,
+    rows: pageRows.map(mapRebalanceAuditRow),
+  };
+}
+
+export async function getActiveReserveRoutes(): Promise<
+  EarnActiveReserveRouteRow[]
+> {
+  const rows = await queryRows<ActiveReserveRouteSqlRow>(
+    `
+      WITH reserve_rows AS (
+        SELECT
+          reserve.reserve AS current_reserve,
+          reserve.liquidity_mint,
+          reserve.observed_at,
+          vault.id AS vault_id,
+          reserve.amount_raw,
+          COALESCE(
+            reserve.planning_metadata->>'amountSemantics',
+            reserve.planning_metadata->>'amount_semantics'
+          ) AS amount_semantics,
+          COALESCE(
+            reserve.planning_metadata->>'redeemable_liquidity_amount_raw',
+            reserve.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+          ) AS redeemable_amount_raw_text
+        FROM loyal_yield.managed_vaults AS vault
+        INNER JOIN loyal_yield.vault_reserve_positions_current AS reserve
+          ON reserve.vault_id = vault.id
+        WHERE vault.active = true
+          AND vault.vault_index = 1
+          AND reserve.has_value = true
+          AND reserve.amount_raw > 0
+      ),
+      normalized_reserve_rows AS (
+        SELECT
+          current_reserve,
+          liquidity_mint,
+          observed_at,
+          vault_id,
+          CASE
+            WHEN amount_semantics IN (
+              'kamino_redeemable_liquidity',
+              'redeemable_liquidity_amount'
+            )
+              THEN amount_raw
+            WHEN amount_semantics = 'kamino_obligation_collateral_deposited_amount'
+              AND redeemable_amount_raw_text ~ '^[0-9]+$'
+              THEN redeemable_amount_raw_text::bigint
+            ELSE 0::bigint
+          END AS normalized_amount_raw
+        FROM reserve_rows
+      )
+      SELECT
+        current_reserve,
+        liquidity_mint,
+        COUNT(DISTINCT vault_id)::text AS position_count,
+        COALESCE(SUM(normalized_amount_raw), 0)::text AS active_aum_raw,
+        MAX(observed_at) AS latest_observed_at
+      FROM normalized_reserve_rows
+      WHERE normalized_amount_raw > 0
+      GROUP BY current_reserve, liquidity_mint
+      ORDER BY COALESCE(SUM(normalized_amount_raw), 0) DESC
+    `
+  );
+
+  return rows.map((row) => ({
+    activeAumRaw: toBigInt(row.active_aum_raw),
+    currentReserve: row.current_reserve,
+    latestObservedAt: toIsoString(row.latest_observed_at),
+    liquidityMint: row.liquidity_mint,
+    positionCount: toNumber(row.position_count),
+  }));
+}
+
+export async function getRecentRebalanceDecisions(): Promise<
+  EarnRebalanceDecisionRow[]
+> {
+  const rows = await queryRows<RebalanceDecisionSqlRow>(
+    `
+      WITH ranked_decisions AS MATERIALIZED (
+        SELECT
+          decision.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY decision.execution_plan->>'kind'
+            ORDER BY decision.created_at DESC, decision.id DESC
+          ) AS route_mode_rank
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.execution_plan->>'kind' IN (
+          'same_mint',
+          'cross_mint_jupiter'
+        )
+      )
+      SELECT
+        id::text,
+        status::text,
+        source_reserve,
+        target_reserve,
+        liquidity_mint,
+        source_liquidity_mint,
+        target_liquidity_mint,
+        amount_raw::text,
+        source_apy_bps::text,
+        target_apy_bps::text,
+        estimated_edge_bps::text,
+        decision_reason::text,
+        abandon_reason,
+        signature,
+        confirmed_slot::text,
+        created_at,
+        updated_at,
+        execution_plan->>'kind' AS execution_kind,
+        execution_plan->>'kind' AS route_mode
+      FROM ranked_decisions
+      WHERE route_mode_rank <= 25
+      ORDER BY created_at DESC, id DESC
+    `
+  );
+
+  return rows.map((row) => ({
+    abandonReason: row.abandon_reason,
+    amountRaw: toNullableBigInt(row.amount_raw),
+    confirmedSlot: toNullableBigInt(row.confirmed_slot),
+    createdAt: toIsoString(row.created_at) ?? "",
+    decisionReason: row.decision_reason,
+    decisionType: getDecisionType(row),
+    estimatedEdgeBps: toNullableNumber(row.estimated_edge_bps),
+    id: String(row.id),
+    liquidityMint: row.liquidity_mint,
+    routeMode: mapRouteMode(row.route_mode),
+    signature: row.signature,
+    sourceLiquidityMint: row.source_liquidity_mint,
+    sourceApyBps: toNullableNumber(row.source_apy_bps),
+    sourceReserve: row.source_reserve,
+    status: row.status,
+    targetApyBps: toNullableNumber(row.target_apy_bps),
+    targetLiquidityMint: row.target_liquidity_mint,
+    targetReserve: row.target_reserve,
+    updatedAt: toIsoString(row.updated_at) ?? "",
+  }));
+}
+
+export async function getRebalanceActivity(): Promise<
+  RebalanceActivityPoint[]
+> {
+  const rows = await queryRows<RebalanceActivitySqlRow>(
+    `
+      WITH bounds AS (
+        SELECT
+          now() - interval '72 hours' AS window_started_at,
+          date_bin(
+            interval '2 hours',
+            now() - interval '72 hours',
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS started_at,
+          date_bin(
+            interval '2 hours',
+            now(),
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS ended_at
+      ),
+      route_modes AS (
+        SELECT *
+        FROM (VALUES ('same_mint'), ('cross_mint_jupiter')) AS modes(route_mode)
+      ),
+      buckets AS (
+        SELECT
+          route_mode.route_mode,
+          generate_series(
+            (SELECT started_at FROM bounds),
+            (SELECT ended_at FROM bounds),
+            interval '2 hours'
+          ) AS bucket_started_at
+        FROM route_modes AS route_mode
+      ),
+      decision_activity AS (
+        SELECT
+          decision.execution_plan->>'kind' AS route_mode,
+          date_bin(
+            interval '2 hours',
+            decision.updated_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'confirmed'
+          )::bigint AS confirmed,
+          COUNT(*) FILTER (
+            WHERE decision.status IN ('confirmed', 'failed')
+          )::bigint AS terminal_attempts,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'failed'
+          )::bigint AS failed_decisions
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+          AND decision.updated_at >= (SELECT window_started_at FROM bounds)
+        GROUP BY 1, 2
+      ),
+      recent_failed_opportunities AS MATERIALIZED (
+        SELECT
+          opportunity.execution_plan->>'kind' AS route_mode,
+          opportunity.state_entered_at
+        FROM loyal_yield.rebalance_opportunities AS opportunity
+        WHERE opportunity.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+          AND opportunity.opportunity_state = 'failed'
+          AND opportunity.state_entered_at >= (
+            SELECT window_started_at FROM bounds
+          )
+      ),
+      opportunity_activity AS (
+        SELECT
+          opportunity.route_mode,
+          date_bin(
+            interval '2 hours',
+            opportunity.state_entered_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*)::bigint AS failed_opportunities
+        FROM recent_failed_opportunities AS opportunity
+        GROUP BY 1, 2
+      ),
+      recent_claim_opportunities AS MATERIALIZED (
+        SELECT
+          opportunity.execution_plan->>'kind' AS route_mode,
+          opportunity.created_at,
+          opportunity.attempt_count
+        FROM loyal_yield.rebalance_opportunities AS opportunity
+        WHERE opportunity.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+          AND opportunity.created_at >= (SELECT window_started_at FROM bounds)
+      ),
+      recent_submissions AS MATERIALIZED (
+        SELECT
+          decision.execution_plan->>'kind' AS route_mode,
+          submission.submission_state,
+          submission.submission_state_entered_at,
+          submission.movement_leg,
+          submission.finalized_at,
+          submission.compiled_fee_lamports
+        FROM loyal_yield.signed_route_submissions AS submission
+        INNER JOIN loyal_yield.rebalance_decisions AS decision
+          ON decision.id = submission.decision_id
+        WHERE decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+          AND (
+            submission.submission_state_entered_at >= (
+              SELECT window_started_at FROM bounds
+            )
+            OR submission.finalized_at >= (SELECT window_started_at FROM bounds)
+          )
+          AND (
+            submission.submission_state = 'expired'
+            OR (
+              submission.movement_leg = 'swap'
+              AND submission.finalized_at IS NOT NULL
+              AND decision.execution_plan->>'kind' = 'cross_mint_jupiter'
+            )
+          )
+      ),
+      submission_activity AS (
+        SELECT
+          submission.route_mode,
+          date_bin(
+            interval '2 hours',
+            submission.submission_state_entered_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*)::bigint AS expired_submissions
+        FROM recent_submissions AS submission
+        WHERE submission.submission_state = 'expired'
+          AND submission.submission_state_entered_at >= (
+            SELECT window_started_at FROM bounds
+          )
+        GROUP BY 1, 2
+      ),
+      opportunity_claims AS (
+        SELECT
+          opportunity.route_mode,
+          date_bin(
+            interval '2 hours',
+            opportunity.created_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COALESCE(SUM(opportunity.attempt_count), 0)::bigint AS fleet_claims
+        FROM recent_claim_opportunities AS opportunity
+        WHERE opportunity.created_at >= (SELECT window_started_at FROM bounds)
+        GROUP BY 1, 2
+      ),
+      swap_fee_activity AS (
+        SELECT
+          'cross_mint_jupiter'::text AS route_mode,
+          date_bin(
+            interval '2 hours',
+            submission.finalized_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*)::bigint AS finalized_swap_legs,
+          COALESCE(SUM(submission.compiled_fee_lamports), 0)::bigint
+            AS swap_fee_lamports,
+          COALESCE(MAX(submission.compiled_fee_lamports), 0)::bigint
+            AS max_swap_fee_lamports
+        FROM recent_submissions AS submission
+        WHERE submission.route_mode = 'cross_mint_jupiter'
+          AND submission.movement_leg = 'swap'
+          AND submission.finalized_at IS NOT NULL
+          AND submission.finalized_at >= (
+            SELECT window_started_at FROM bounds
+          )
+        GROUP BY 1, 2
+      )
+      SELECT
+        bucket.route_mode,
+        bucket.bucket_started_at,
+        COALESCE(decision.confirmed, 0)::text AS confirmed,
+        COALESCE(decision.terminal_attempts, 0)::text AS terminal_attempts,
+        COALESCE(decision.failed_decisions, 0)::text AS failed_decisions,
+        COALESCE(opportunity.failed_opportunities, 0)::text
+          AS failed_opportunities,
+        COALESCE(submission.expired_submissions, 0)::text
+          AS expired_submissions,
+        COALESCE(claim.fleet_claims, 0)::text AS fleet_claims,
+        COALESCE(swap_fee.finalized_swap_legs, 0)::text
+          AS finalized_swap_legs,
+        COALESCE(swap_fee.swap_fee_lamports, 0)::text
+          AS swap_fee_lamports,
+        COALESCE(swap_fee.max_swap_fee_lamports, 0)::text
+          AS max_swap_fee_lamports
+      FROM buckets AS bucket
+      LEFT JOIN decision_activity AS decision
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN opportunity_activity AS opportunity
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN submission_activity AS submission
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN opportunity_claims AS claim
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN swap_fee_activity AS swap_fee
+        USING (route_mode, bucket_started_at)
+      ORDER BY bucket.route_mode ASC, bucket.bucket_started_at ASC
+    `
+  );
+
+  return rows.map((row) => ({
+    bucketStartedAt: toIsoString(row.bucket_started_at) ?? "",
+    confirmed: toNumber(row.confirmed),
+    finalizedSwapLegs: toNumber(row.finalized_swap_legs),
+    expiredSubmissions: toNumber(row.expired_submissions),
+    failedDecisions: toNumber(row.failed_decisions),
+    failedOpportunities: toNumber(row.failed_opportunities),
+    fleetClaims: toNumber(row.fleet_claims),
+    maxSwapFeeLamports: toBigInt(row.max_swap_fee_lamports),
+    routeMode: mapRouteMode(row.route_mode),
+    swapFeeLamports: toBigInt(row.swap_fee_lamports),
+    terminalAttempts: toNumber(row.terminal_attempts),
+  }));
+}
+
+export async function getAutodepositTimeSeries(): Promise<
+  AutodepositTimeSeriesRange[]
+> {
+  const rows = await queryRows<AutodepositTimeSeriesSqlRow>(
+    `
+      WITH params AS (
+        SELECT now() AT TIME ZONE 'UTC' AS utc_now
+      ),
+      ranges AS (
+        SELECT
+          '2d'::text AS range_key,
+          2::integer AS bucket_hours,
+          interval '2 hours' AS bucket_size,
+          date_trunc('day', utc_now) - interval '1 day' AS started_at,
+          date_bin(
+            interval '2 hours',
+            utc_now,
+            timestamp '1970-01-01 00:00:00'
+          ) AS ended_at
+        FROM params
+
+        UNION ALL
+
+        SELECT
+          '7d'::text AS range_key,
+          6::integer AS bucket_hours,
+          interval '6 hours' AS bucket_size,
+          date_trunc('day', utc_now) - interval '6 days' AS started_at,
+          date_bin(
+            interval '6 hours',
+            utc_now,
+            timestamp '1970-01-01 00:00:00'
+          ) AS ended_at
+        FROM params
+
+        UNION ALL
+
+        SELECT
+          '30d'::text AS range_key,
+          24::integer AS bucket_hours,
+          interval '1 day' AS bucket_size,
+          date_trunc('day', utc_now) - interval '29 days' AS started_at,
+          date_trunc('day', utc_now) AS ended_at
+        FROM params
+      ),
+      buckets AS (
+        SELECT
+          range.range_key,
+          range.bucket_hours,
+          range.bucket_size,
+          generate_series(
+            range.started_at,
+            range.ended_at,
+            range.bucket_size
+          ) AS bucket_started_at
+        FROM ranges AS range
+      ),
+      window_bounds AS (
+        SELECT MIN(started_at) AS started_at FROM ranges
+      ),
+      execution_events AS (
+        SELECT
+          execution.inserted_at AS event_at,
+          CASE
+            WHEN execution.decoded_evidence->>'status' = 'executed'
+              AND execution.completion_failure_code IS NULL
+              THEN 1
+            ELSE 0
+          END::bigint AS successful,
+          CASE
+            WHEN execution.decoded_evidence->>'status' = 'executed'
+              AND execution.completion_failure_code IS NULL
+              THEN execution.amount_raw
+            ELSE 0
+          END::bigint AS deposited_amount_raw,
+          0::bigint AS post_pull_kamino_top_up
+        FROM loyal_yield.balance_sweep_executions AS execution
+        WHERE execution.inserted_at >= (
+          SELECT started_at AT TIME ZONE 'UTC'
+          FROM window_bounds
+        )
+          AND execution.inserted_at <= now()
+          AND execution.decoded_evidence->>'status' = 'executed'
+          AND execution.completion_failure_code IS NULL
+
+        UNION ALL
+
+        SELECT
+          COALESCE(execution.completed_at, execution.inserted_at) AS event_at,
+          0::bigint AS successful,
+          0::bigint AS deposited_amount_raw,
+          1::bigint AS post_pull_kamino_top_up
+        FROM loyal_yield.balance_sweep_executions AS execution
+        WHERE COALESCE(execution.completed_at, execution.inserted_at) >= (
+          SELECT started_at AT TIME ZONE 'UTC'
+          FROM window_bounds
+        )
+          AND COALESCE(execution.completed_at, execution.inserted_at) <= now()
+          AND (
+            execution.completion_failure_code IS NOT NULL
+            OR (
+              execution.decoded_evidence->>'status' LIKE 'partial_executed%'
+              AND execution.decoded_evidence->>'status'
+                <> 'partial_executed_idle_vault_deposited'
+            )
+          )
+      ),
+      -- Events are collapsed into 2-hour base buckets exactly once, then rolled
+      -- up per range, instead of being cross-joined against every range while
+      -- still at full row granularity. Every range boundary is midnight- or
+      -- bucket-aligned and every bucket size (2h / 6h / 1 day) is a whole
+      -- multiple of 2 hours sharing the same 1970-01-01 origin, so
+      -- date_bin(size, date_bin(2h, t)) = date_bin(size, t) and the range
+      -- predicate is equivalent on the base bucket. Both sides stay in UTC
+      -- wall-clock timestamps to match "ranges".
+      execution_base AS (
+        SELECT
+          date_bin(
+            interval '2 hours',
+            event.event_at AT TIME ZONE 'UTC',
+            timestamp '1970-01-01 00:00:00'
+          ) AS base_bucket,
+          SUM(event.successful)::bigint AS successful,
+          SUM(event.deposited_amount_raw)::bigint AS deposited_amount_raw,
+          SUM(event.post_pull_kamino_top_up)::bigint
+            AS post_pull_kamino_top_up
+        FROM execution_events AS event
+        GROUP BY 1
+      ),
+      execution_activity AS (
+        SELECT
+          range.range_key,
+          date_bin(
+            range.bucket_size,
+            base.base_bucket,
+            timestamp '1970-01-01 00:00:00'
+          ) AS bucket_started_at,
+          SUM(base.successful)::bigint AS successful,
+          SUM(base.deposited_amount_raw)::bigint AS deposited_amount_raw,
+          SUM(base.post_pull_kamino_top_up)::bigint
+            AS post_pull_kamino_top_up
+        FROM execution_base AS base
+        CROSS JOIN ranges AS range
+        WHERE base.base_bucket >= range.started_at
+          AND base.base_bucket < range.ended_at + range.bucket_size
+        GROUP BY 1, 2
+      ),
+      pre_pull_claims AS (
+        SELECT
+          claim.updated_at AS event_at,
+          CASE
+            WHEN claim.claim_token ~ '^autodeposit-trigger:[0-9]+:[0-9]+:'
+              THEN split_part(claim.claim_token, ':', 3)::bigint
+          END AS scheduled_slot_id
+        FROM loyal_yield.balance_sweep_lot_claims AS claim
+        WHERE claim.updated_at >= (
+          SELECT started_at AT TIME ZONE 'UTC'
+          FROM window_bounds
+        )
+          AND claim.updated_at <= now()
+          AND claim.status::text IN ('released', 'failed')
+          AND claim.execution_id IS NULL
+      ),
+      scheduled_slots AS MATERIALIZED (
+        SELECT
+          slot.id,
+          CASE
+            WHEN strpos(lower(slot.last_error), 'accountnotfound') > 0 THEN 1
+            WHEN strpos(lower(slot.last_error), 'insufficientfundsforrent') > 0
+              THEN 2
+            WHEN strpos(lower(slot.last_error), 'owner does not match') > 0
+              OR strpos(lower(slot.last_error), 'missing token delegate') > 0
+              THEN 3
+            WHEN strpos(lower(slot.last_error), 'unable to confirm transaction') > 0
+              OR strpos(lower(slot.last_error), 'timed out') > 0
+              OR strpos(lower(slot.last_error), 'blockhashnotfound') > 0
+              THEN 4
+            WHEN slot.last_error IS NULL OR slot.last_error = '' THEN 5
+            ELSE 6
+          END::smallint AS cause
+        FROM loyal_yield.balance_sweep_scheduled_slots AS slot
+      ),
+      pre_pull_claim_buckets AS MATERIALIZED (
+        SELECT
+          date_bin(
+            interval '2 hours',
+            claim.event_at AT TIME ZONE 'UTC',
+            timestamp '1970-01-01 00:00:00'
+          ) AS base_bucket,
+          claim.scheduled_slot_id,
+          COUNT(*)::bigint AS event_count
+        FROM pre_pull_claims AS claim
+        GROUP BY 1, 2
+      ),
+      pre_pull_base AS (
+        SELECT
+          claim.base_bucket,
+          COALESCE(SUM(claim.event_count) FILTER (
+            WHERE slot.cause = 1
+          ), 0)::bigint AS account_not_found,
+          COALESCE(SUM(claim.event_count) FILTER (
+            WHERE slot.cause = 2
+          ), 0)::bigint AS insufficient_rent,
+          COALESCE(SUM(claim.event_count) FILTER (
+            WHERE slot.cause = 3
+          ), 0)::bigint AS missing_token_delegate,
+          COALESCE(SUM(claim.event_count) FILTER (
+            WHERE slot.cause = 4
+          ), 0)::bigint AS confirmation_or_timeout,
+          COALESCE(SUM(claim.event_count) FILTER (
+            WHERE slot.cause = 5 OR slot.id IS NULL
+          ), 0)::bigint AS no_linked_error,
+          COALESCE(SUM(claim.event_count) FILTER (
+            WHERE slot.cause = 6
+          ), 0)::bigint AS other_pre_pull
+        FROM pre_pull_claim_buckets AS claim
+        LEFT JOIN scheduled_slots AS slot
+          ON slot.id = claim.scheduled_slot_id
+        GROUP BY claim.base_bucket
+      ),
+      pre_pull_failure_activity AS (
+        SELECT
+          range.range_key,
+          date_bin(
+            range.bucket_size,
+            base.base_bucket,
+            timestamp '1970-01-01 00:00:00'
+          ) AS bucket_started_at,
+          SUM(base.account_not_found)::bigint AS account_not_found,
+          SUM(base.insufficient_rent)::bigint AS insufficient_rent,
+          SUM(base.missing_token_delegate)::bigint AS missing_token_delegate,
+          SUM(base.confirmation_or_timeout)::bigint AS confirmation_or_timeout,
+          SUM(base.no_linked_error)::bigint AS no_linked_error,
+          SUM(base.other_pre_pull)::bigint AS other_pre_pull
+        FROM pre_pull_base AS base
+        CROSS JOIN ranges AS range
+        WHERE base.base_bucket >= range.started_at
+          AND base.base_bucket < range.ended_at + range.bucket_size
+        GROUP BY 1, 2
+      )
+      SELECT
+        bucket.range_key,
+        bucket.bucket_hours::text AS bucket_hours,
+        bucket.bucket_started_at AT TIME ZONE 'UTC' AS bucket_started_at,
+        COALESCE(execution.successful, 0)::text AS successful,
+        COALESCE(execution.deposited_amount_raw, 0)::text
+          AS deposited_amount_raw,
+        COALESCE(failure.account_not_found, 0)::text
+          AS account_not_found,
+        COALESCE(failure.insufficient_rent, 0)::text
+          AS insufficient_rent,
+        COALESCE(failure.missing_token_delegate, 0)::text
+          AS missing_token_delegate,
+        COALESCE(failure.confirmation_or_timeout, 0)::text
+          AS confirmation_or_timeout,
+        COALESCE(failure.no_linked_error, 0)::text
+          AS no_linked_error,
+        COALESCE(failure.other_pre_pull, 0)::text AS other_pre_pull,
+        COALESCE(execution.post_pull_kamino_top_up, 0)::text
+          AS post_pull_kamino_top_up
+      FROM buckets AS bucket
+      LEFT JOIN execution_activity AS execution
+        USING (range_key, bucket_started_at)
+      LEFT JOIN pre_pull_failure_activity AS failure
+        USING (range_key, bucket_started_at)
+      ORDER BY
+        CASE bucket.range_key
+          WHEN '2d' THEN 1
+          WHEN '7d' THEN 2
+          ELSE 3
+        END,
+        bucket.bucket_started_at ASC
+    `
+  );
+
+  const ranges: AutodepositTimeSeriesRange[] = [
+    { bucketHours: 2, key: "2d", points: [] },
+    { bucketHours: 6, key: "7d", points: [] },
+    { bucketHours: 24, key: "30d", points: [] },
+  ];
+  const rangeByKey = new Map(ranges.map((range) => [range.key, range]));
+
+  for (const row of rows) {
+    rangeByKey.get(row.range_key)?.points.push({
+      accountNotFound: toNumber(row.account_not_found),
+      bucketStartedAt: toIsoString(row.bucket_started_at) ?? "",
+      confirmationOrTimeout: toNumber(row.confirmation_or_timeout),
+      depositedAmountRaw: toBigInt(row.deposited_amount_raw),
+      insufficientRent: toNumber(row.insufficient_rent),
+      missingTokenDelegate: toNumber(row.missing_token_delegate),
+      noLinkedError: toNumber(row.no_linked_error),
+      otherPrePull: toNumber(row.other_pre_pull),
+      postPullKaminoTopUp: toNumber(row.post_pull_kamino_top_up),
+      successful: toNumber(row.successful),
+    });
+  }
+
+  return ranges;
+}
+
+export async function getOptimizationVolumeSeries(): Promise<
+  OptimizationVolumePoint[]
+> {
+  const rows = await queryRows<OptimizationVolumeSqlRow>(
+    `
+      WITH confirmed_daily AS (
+        SELECT
+          (decision.updated_at AT TIME ZONE 'UTC')::date AS date,
+          COUNT(*)::bigint AS confirmed_count,
+          COALESCE(SUM(decision.amount_raw), 0)::bigint AS daily_amount_raw
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.status = 'confirmed'
+          AND decision.signature IS NOT NULL
+          AND decision.amount_raw IS NOT NULL
+        GROUP BY 1
+      ),
+      bounds AS (
+        SELECT
+          COALESCE(
+            MIN(date),
+            (now() AT TIME ZONE 'UTC')::date
+          ) AS started_on,
+          (now() AT TIME ZONE 'UTC')::date AS ended_on
+        FROM confirmed_daily
+      ),
+      days AS (
+        SELECT generate_series(
+          (SELECT started_on FROM bounds),
+          (SELECT ended_on FROM bounds),
+          interval '1 day'
+        )::date AS date
+      ),
+      daily AS (
+        SELECT
+          day.date,
+          COALESCE(confirmed.confirmed_count, 0)::bigint AS confirmed_count,
+          COALESCE(confirmed.daily_amount_raw, 0)::bigint AS daily_amount_raw
+        FROM days AS day
+        LEFT JOIN confirmed_daily AS confirmed USING (date)
+      )
+      SELECT
+        to_char(date, 'YYYY-MM-DD') AS date,
+        confirmed_count::text AS confirmed_count,
+        daily_amount_raw::text AS daily_amount_raw,
+        SUM(daily_amount_raw) OVER (ORDER BY date ASC)::text
+          AS cumulative_amount_raw
+      FROM daily
+      ORDER BY date ASC
+    `
+  );
+
+  return rows.map((row) => ({
+    confirmedCount: toNumber(row.confirmed_count),
+    cumulativeAmountRaw: toBigInt(row.cumulative_amount_raw),
+    dailyAmountRaw: toBigInt(row.daily_amount_raw),
+    date: row.date,
+  }));
+}
+
+export async function getLast30DaysRebalanceSeries(): Promise<
+  Last30DaysRebalancePoint[]
+> {
+  const rows = await queryRows<Last30DaysRebalanceSqlRow>(
+    `
+      WITH bounds AS (
+        SELECT
+          date_trunc('day', now() AT TIME ZONE 'UTC') - interval '29 days'
+            AS started_at,
+          now() AT TIME ZONE 'UTC' AS ended_at
+      ),
+      days AS (
+        SELECT
+          route_mode.route_mode,
+          generate_series(
+            (SELECT started_at::date FROM bounds),
+            (SELECT ended_at::date FROM bounds),
+            interval '1 day'
+          )::date AS date
+        FROM (
+          VALUES ('same_mint'), ('cross_mint_jupiter')
+        ) AS route_mode(route_mode)
+      ),
+      daily AS (
+        SELECT
+          decision.execution_plan->>'kind' AS route_mode,
+          (decision.updated_at AT TIME ZONE 'UTC')::date AS date,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'confirmed'
+          )::bigint AS confirmed,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'failed'
+          )::bigint AS failed
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+          AND decision.status IN ('confirmed', 'failed')
+          AND decision.updated_at >= (
+            SELECT started_at AT TIME ZONE 'UTC' FROM bounds
+          )
+          AND decision.updated_at < (
+            SELECT ended_at AT TIME ZONE 'UTC' FROM bounds
+          )
+        GROUP BY 1, 2
+      )
+      SELECT
+        day.route_mode,
+        to_char(day.date, 'YYYY-MM-DD') AS date,
+        COALESCE(daily.confirmed, 0)::text AS confirmed,
+        COALESCE(daily.failed, 0)::text AS failed,
+        (
+          COALESCE(daily.confirmed, 0) + COALESCE(daily.failed, 0)
+        )::text AS terminal_attempts
+      FROM days AS day
+      LEFT JOIN daily USING (route_mode, date)
+      ORDER BY day.route_mode ASC, day.date ASC
+    `
+  );
+
+  return rows.map((row) => ({
+    confirmed: toNumber(row.confirmed),
+    date: row.date,
+    failed: toNumber(row.failed),
+    routeMode: mapRouteMode(row.route_mode),
+    terminalAttempts: toNumber(row.terminal_attempts),
+  }));
+}
+
+export async function getExecutedEarnRebalanceHistory({
+  includeDetails = true,
+}: { includeDetails?: boolean } = {}): Promise<ExecutedEarnRebalanceHistory> {
+  const rows = await queryRows<ExecutedEarnRebalancePayloadSqlRow>(
+    `
+      WITH executed AS MATERIALIZED (
+        SELECT
+          decision.id,
+          decision.updated_at AS executed_at,
+          decision.amount_raw,
+          decision.source_reserve,
+          decision.target_reserve,
+          decision.liquidity_mint,
+          decision.source_liquidity_mint,
+          decision.target_liquidity_mint,
+          decision.execution_plan->>'kind' AS route_mode,
+          decision.confirmed_slot,
+          policy.authority
+        FROM loyal_yield.rebalance_decisions AS decision
+        INNER JOIN loyal_yield.managed_vaults AS vault
+          ON vault.id = decision.vault_id
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        WHERE decision.status = 'confirmed'
+          AND decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+          AND decision.source_reserve IS NOT NULL
+          AND decision.target_reserve IS NOT NULL
+          AND decision.amount_raw IS NOT NULL
+          AND decision.confirmed_slot IS NOT NULL
+      ),
+      swap_fees AS MATERIALIZED (
+        SELECT
+          submission.decision_id,
+          COALESCE(SUM(submission.compiled_fee_lamports), 0)::bigint
+            AS swap_fee_lamports
+        FROM loyal_yield.signed_route_submissions AS submission
+        INNER JOIN executed
+          ON executed.id = submission.decision_id
+        WHERE submission.movement_leg = 'swap'
+          AND submission.finalized_at IS NOT NULL
+        GROUP BY submission.decision_id
+      ),
+      executed_users AS MATERIALIZED (
+        SELECT DISTINCT authority, route_mode FROM executed
+      ),
+      relevant_vaults AS MATERIALIZED (
+        SELECT vault.id AS vault_id, policy.authority, executed_user.route_mode
+        FROM loyal_yield.managed_vaults AS vault
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        INNER JOIN executed_users AS executed_user
+          ON executed_user.authority = policy.authority
+      ),
+      relevant_vault_ids AS MATERIALIZED (
+        SELECT DISTINCT vault_id FROM relevant_vaults
+      ),
+      current_reserve_by_vault AS MATERIALIZED (
+        SELECT
+          position.vault_id,
+          SUM(
+            CASE
+              WHEN COALESCE(
+                position.planning_metadata->>'amountSemantics',
+                position.planning_metadata->>'amount_semantics'
+              ) IN (
+                'kamino_redeemable_liquidity',
+                'redeemable_liquidity_amount'
+              )
+                THEN position.amount_raw
+              WHEN COALESCE(
+                position.planning_metadata->>'amountSemantics',
+                position.planning_metadata->>'amount_semantics'
+              ) = 'kamino_obligation_collateral_deposited_amount'
+                AND COALESCE(
+                  position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                  position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+                ) ~ '^[0-9]+$'
+                THEN COALESCE(
+                  position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                  position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+                )::bigint
+              ELSE 0::bigint
+            END
+          )::bigint AS amount_raw
+        FROM relevant_vault_ids AS relevant
+        CROSS JOIN LATERAL (
+          SELECT position.*
+          FROM loyal_yield.vault_reserve_positions_current AS position
+          WHERE position.vault_id = relevant.vault_id
+            AND position.has_value = true
+            AND position.amount_raw > 0
+          OFFSET 0
+        ) AS position
+        GROUP BY position.vault_id
+      ),
+      current_idle_by_vault AS MATERIALIZED (
+        SELECT idle.vault_id, SUM(idle.amount_raw)::bigint AS amount_raw
+        FROM relevant_vault_ids AS relevant
+        CROSS JOIN LATERAL (
+          SELECT idle.*
+          FROM loyal_yield.vault_idle_token_balances_current AS idle
+          WHERE idle.vault_id = relevant.vault_id
+            AND idle.amount_raw > 0
+          OFFSET 0
+        ) AS idle
+        GROUP BY idle.vault_id
+      ),
+      current_user_deposits AS MATERIALIZED (
+        SELECT
+          relevant.authority,
+          relevant.route_mode,
+          SUM(
+            COALESCE(reserve.amount_raw, 0::bigint)
+            + COALESCE(idle.amount_raw, 0::bigint)
+          )::bigint AS current_deposit_raw
+        FROM relevant_vaults AS relevant
+        LEFT JOIN current_reserve_by_vault AS reserve
+          ON reserve.vault_id = relevant.vault_id
+        LEFT JOIN current_idle_by_vault AS idle
+          ON idle.vault_id = relevant.vault_id
+        GROUP BY relevant.authority, relevant.route_mode
+      ),
+      ranked_users AS MATERIALIZED (
+        SELECT
+          executed_user.authority,
+          executed_user.route_mode,
+          COALESCE(deposit_total.current_deposit_raw, 0::bigint)
+            AS current_deposit_raw,
+          ROW_NUMBER() OVER (
+            PARTITION BY executed_user.route_mode
+            ORDER BY
+              COALESCE(deposit_total.current_deposit_raw, 0::bigint) ASC,
+              executed_user.authority ASC
+          )::integer AS user_rank
+        FROM executed_users AS executed_user
+        LEFT JOIN current_user_deposits AS deposit_total
+          ON deposit_total.authority = executed_user.authority
+          AND deposit_total.route_mode = executed_user.route_mode
+      ),
+      execution_rows AS MATERIALIZED (
+        SELECT
+          executed.id::text,
+          executed.executed_at,
+          executed.amount_raw::text,
+          executed.source_reserve,
+          executed.target_reserve,
+          executed.liquidity_mint,
+          executed.source_liquidity_mint,
+          executed.target_liquidity_mint,
+          executed.route_mode,
+          COALESCE(swap_fee.swap_fee_lamports, 0)::text AS swap_fee_lamports,
+          executed.confirmed_slot::text,
+          executed.authority,
+          ranked_users.current_deposit_raw::text,
+          ranked_users.user_rank::text,
+          ROW_NUMBER() OVER (
+            PARTITION BY executed.route_mode, executed.liquidity_mint
+            ORDER BY executed.executed_at DESC, executed.id DESC
+          )::integer AS detail_rank
+        FROM executed
+        INNER JOIN ranked_users
+          ON ranked_users.authority = executed.authority
+          AND ranked_users.route_mode = executed.route_mode
+        LEFT JOIN swap_fees AS swap_fee
+          ON swap_fee.decision_id = executed.id
+      ),
+      chart_rows AS (
+        SELECT
+          id,
+          executed_at,
+          amount_raw,
+          source_reserve,
+          target_reserve,
+          liquidity_mint,
+          source_liquidity_mint,
+          target_liquidity_mint,
+          route_mode,
+          swap_fee_lamports,
+          confirmed_slot,
+          authority,
+          current_deposit_raw::text AS current_deposit_raw,
+          user_rank
+        FROM execution_rows
+      ),
+      detail_rows AS (
+        SELECT
+          id,
+          executed_at,
+          amount_raw,
+          source_reserve,
+          target_reserve,
+          liquidity_mint,
+          source_liquidity_mint,
+          target_liquidity_mint,
+          route_mode,
+          swap_fee_lamports,
+          confirmed_slot,
+          authority,
+          current_deposit_raw::text AS current_deposit_raw,
+          user_rank
+        FROM execution_rows
+        WHERE detail_rank <= ${includeDetails ? 50 : 0}
+      ),
+      summary_rows AS (
+        SELECT
+          route_mode,
+          liquidity_mint,
+          COUNT(*)::integer AS execution_count,
+          COUNT(*) FILTER (
+            WHERE executed_at >= now() - interval '30 days'
+          )::integer AS execution_count_30d,
+          COUNT(*) FILTER (
+            WHERE executed_at >= now() - interval '7 days'
+          )::integer AS execution_count_7d,
+          COUNT(*) FILTER (
+            WHERE current_deposit_raw::bigint = 0
+          )::integer AS fully_withdrawn_count,
+          COUNT(*) FILTER (
+            WHERE current_deposit_raw::bigint = 0
+              AND executed_at >= now() - interval '30 days'
+          )::integer AS fully_withdrawn_count_30d,
+          COUNT(*) FILTER (
+            WHERE current_deposit_raw::bigint = 0
+              AND executed_at >= now() - interval '7 days'
+          )::integer AS fully_withdrawn_count_7d,
+          COUNT(DISTINCT authority)::integer AS user_count,
+          COALESCE(SUM(swap_fee_lamports::bigint), 0)::text AS swap_fee_lamports
+        FROM execution_rows
+        GROUP BY route_mode, liquidity_mint
+      )
+      SELECT
+        COALESCE(
+          (
+            SELECT json_agg(summary_row ORDER BY route_mode, liquidity_mint)
+            FROM (
+              SELECT
+                route_mode,
+                liquidity_mint,
+                execution_count,
+                execution_count_30d,
+                execution_count_7d,
+                fully_withdrawn_count,
+                fully_withdrawn_count_30d,
+                fully_withdrawn_count_7d,
+                user_count,
+                swap_fee_lamports
+              FROM summary_rows
+            ) AS summary_row
+          ),
+          '[]'::json
+        ) AS summaries,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_array(
+                chart_row.amount_raw,
+                chart_row.authority,
+                chart_row.confirmed_slot,
+                chart_row.current_deposit_raw,
+                chart_row.executed_at,
+                chart_row.id,
+                chart_row.liquidity_mint,
+                chart_row.route_mode,
+                chart_row.source_reserve,
+                chart_row.source_liquidity_mint,
+                chart_row.swap_fee_lamports,
+                chart_row.target_reserve,
+                chart_row.target_liquidity_mint,
+                chart_row.user_rank
+              )
+              ORDER BY chart_row.executed_at ASC, chart_row.id ASC
+            )
+            FROM chart_rows AS chart_row
+          ),
+          '[]'::json
+        ) AS chart_points,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_array(
+                detail_row.amount_raw,
+                detail_row.authority,
+                detail_row.confirmed_slot,
+                detail_row.current_deposit_raw,
+                detail_row.executed_at,
+                detail_row.id,
+                detail_row.liquidity_mint,
+                detail_row.route_mode,
+                detail_row.source_reserve,
+                detail_row.source_liquidity_mint,
+                detail_row.swap_fee_lamports,
+                detail_row.target_reserve,
+                detail_row.target_liquidity_mint,
+                detail_row.user_rank
+              )
+              ORDER BY detail_row.executed_at DESC, detail_row.id DESC
+            )
+            FROM detail_rows AS detail_row
+          ),
+          '[]'::json
+        ) AS details
+    `
+  );
+
+  const payload = rows[0];
+  const mapRow = (row: ExecutedEarnRebalanceSqlTuple) => ({
+    amountRaw: toBigInt(row[0]),
+    authority: row[1],
+    confirmedSlot: toBigInt(row[2]),
+    currentDepositRaw: toBigInt(row[3]),
+    executedAt: toIsoString(row[4]) ?? "",
+    id: row[5],
+    liquidityMint: row[6],
+    routeMode: mapRouteMode(row[7]),
+    sourceReserve: row[8],
+    sourceLiquidityMint: row[9],
+    swapFeeLamports: toBigInt(row[10]),
+    targetReserve: row[11],
+    targetLiquidityMint: row[12],
+    userRank: toNumber(row[13]),
+  });
+
+  return {
+    chartPoints: payload?.chart_points?.map(mapRow) ?? [],
+    details: payload?.details?.map(mapRow) ?? [],
+    generatedAt: new Date().toISOString(),
+    summaries:
+      payload?.summaries?.map((row) => ({
+        executionCount: toNumber(row.execution_count),
+        executionCount30d: toNumber(row.execution_count_30d),
+        executionCount7d: toNumber(row.execution_count_7d),
+        fullyWithdrawnCount: toNumber(row.fully_withdrawn_count),
+        fullyWithdrawnCount30d: toNumber(row.fully_withdrawn_count_30d),
+        fullyWithdrawnCount7d: toNumber(row.fully_withdrawn_count_7d),
+        liquidityMint: row.liquidity_mint,
+        routeMode: mapRouteMode(row.route_mode),
+        swapFeeLamports: toBigInt(row.swap_fee_lamports),
+        userCount: toNumber(row.user_count),
+      })) ?? [],
+  };
+}
+
+export async function getEarnVaultRebalanceFrequency({
+  eligibilityFloorRaw = null,
+  includeDetails = true,
+}: {
+  eligibilityFloorRaw?: bigint | null;
+  includeDetails?: boolean;
+} = {}): Promise<EarnVaultRebalanceFrequency> {
+  const eligibleWhen = (countColumn: string, includeOpportunity = false) =>
+    eligibilityFloorRaw === null
+      ? "TRUE"
+      : `(current_deposit_raw >= ${eligibilityFloorRaw.toString()}::bigint OR ${countColumn} > 0${
+          includeOpportunity ? " OR has_opportunity" : ""
+        })`;
+  const rows = await queryRows<EarnVaultRebalanceFrequencyPayloadSqlRow>(
+    `
+      WITH active_vaults AS MATERIALIZED (
+        SELECT
+          vault.id,
+          policy.cluster,
+          vault.settings,
+          vault.vault_index,
+          vault.vault_pubkey
+        FROM loyal_yield.managed_vaults AS vault
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        WHERE vault.active = true
+          AND vault.vault_index = 1
+      ),
+      route_modes AS MATERIALIZED (
+        SELECT *
+        FROM (VALUES ('same_mint'), ('cross_mint_jupiter')) AS modes(route_mode)
+      ),
+      monitored_vault_modes AS MATERIALIZED (
+        SELECT vault.*, route_mode.route_mode
+        FROM active_vaults AS vault
+        CROSS JOIN route_modes AS route_mode
+        WHERE route_mode.route_mode = 'same_mint'
+          OR EXISTS (
+            SELECT 1
+            FROM loyal_yield.cross_mint_vault_opt_ins AS opt_in
+            WHERE opt_in.cluster = vault.cluster
+              AND opt_in.settings = vault.settings
+              AND opt_in.vault_index = vault.vault_index
+              AND opt_in.vault_pubkey = vault.vault_pubkey
+              AND opt_in.enabled = true
+          )
+      ),
+      normalized_positions AS MATERIALIZED (
+        SELECT
+          position.vault_id,
+          position.reserve,
+          position.liquidity_mint,
+          position.observed_at,
+          CASE
+            WHEN COALESCE(
+              position.planning_metadata->>'amountSemantics',
+              position.planning_metadata->>'amount_semantics'
+            ) IN (
+              'kamino_redeemable_liquidity',
+              'redeemable_liquidity_amount'
+            )
+              THEN position.amount_raw
+            WHEN COALESCE(
+              position.planning_metadata->>'amountSemantics',
+              position.planning_metadata->>'amount_semantics'
+            ) = 'kamino_obligation_collateral_deposited_amount'
+              AND COALESCE(
+                position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+              ) ~ '^[0-9]+$'
+              THEN COALESCE(
+                position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+              )::bigint
+            ELSE 0::bigint
+          END AS normalized_amount_raw
+        FROM active_vaults AS vault
+        CROSS JOIN LATERAL (
+          SELECT position.*
+          FROM loyal_yield.vault_reserve_positions_current AS position
+          WHERE position.vault_id = vault.id
+            AND position.has_value = true
+            AND position.amount_raw > 0
+          OFFSET 0
+        ) AS position
+      ),
+      positive_positions AS MATERIALIZED (
+        SELECT *
+        FROM normalized_positions
+        WHERE normalized_amount_raw > 0
+      ),
+      position_totals AS MATERIALIZED (
+        SELECT
+          vault_id,
+          SUM(normalized_amount_raw)::bigint AS amount_raw,
+          COUNT(*)::integer AS position_count
+        FROM positive_positions
+        GROUP BY vault_id
+      ),
+      primary_positions AS MATERIALIZED (
+        SELECT vault_id, reserve, liquidity_mint
+        FROM (
+          SELECT
+            position.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY position.vault_id
+              ORDER BY
+                position.normalized_amount_raw DESC,
+                position.observed_at DESC NULLS LAST,
+                position.reserve ASC
+            ) AS priority
+          FROM positive_positions AS position
+        ) AS ranked
+        WHERE priority = 1
+      ),
+      positive_idle AS MATERIALIZED (
+        SELECT idle.*
+        FROM active_vaults AS vault
+        CROSS JOIN LATERAL (
+          SELECT idle.*
+          FROM loyal_yield.vault_idle_token_balances_current AS idle
+          WHERE idle.vault_id = vault.id
+            AND idle.amount_raw > 0
+          OFFSET 0
+        ) AS idle
+      ),
+      idle_totals AS MATERIALIZED (
+        SELECT vault_id, SUM(amount_raw)::bigint AS amount_raw
+        FROM positive_idle
+        GROUP BY vault_id
+      ),
+      primary_idle AS MATERIALIZED (
+        SELECT vault_id, mint
+        FROM (
+          SELECT
+            idle.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY idle.vault_id
+              ORDER BY
+                idle.amount_raw DESC,
+                idle.observed_at DESC NULLS LAST,
+                idle.mint ASC
+            ) AS priority
+          FROM positive_idle AS idle
+        ) AS ranked
+        WHERE priority = 1
+      ),
+      rebalance_counts AS MATERIALIZED (
+        SELECT
+          decision.vault_id,
+          decision.execution_plan->>'kind' AS route_mode,
+          COUNT(*)::integer AS all_count,
+          COUNT(*) FILTER (
+            WHERE decision.updated_at >= NOW() - INTERVAL '7 days'
+          )::integer AS last_7d_count,
+          COUNT(*) FILTER (
+            WHERE decision.updated_at >= NOW() - INTERVAL '12 hours'
+          )::integer AS last_12h_count,
+          COUNT(*) FILTER (
+            WHERE decision.updated_at >= NOW() - INTERVAL '2 hours'
+          )::integer AS last_2h_count
+        FROM loyal_yield.rebalance_decisions AS decision
+        INNER JOIN active_vaults AS active_vault
+          ON active_vault.id = decision.vault_id
+        WHERE decision.status = 'confirmed'
+          AND decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+          AND decision.source_reserve IS NOT NULL
+          AND decision.target_reserve IS NOT NULL
+        GROUP BY decision.vault_id, decision.execution_plan->>'kind'
+      ),
+      current_vaults_base AS MATERIALIZED (
+        SELECT
+          vault.id,
+          vault.cluster,
+          vault.vault_pubkey,
+          vault.route_mode,
+          primary_position.reserve AS current_reserve,
+          COALESCE(primary_position.liquidity_mint, primary_idle.mint)
+            AS liquidity_mint,
+          COALESCE(position_total.amount_raw, 0::bigint)
+            + COALESCE(idle_total.amount_raw, 0::bigint)
+            AS current_deposit_raw,
+          COALESCE(position_total.position_count, 0) AS position_count,
+          COALESCE(rebalance.all_count, 0) AS all_count,
+          COALESCE(rebalance.last_7d_count, 0) AS last_7d_count,
+          COALESCE(rebalance.last_12h_count, 0) AS last_12h_count,
+          COALESCE(rebalance.last_2h_count, 0) AS last_2h_count
+        FROM monitored_vault_modes AS vault
+        LEFT JOIN position_totals AS position_total
+          ON position_total.vault_id = vault.id
+        LEFT JOIN primary_positions AS primary_position
+          ON primary_position.vault_id = vault.id
+        LEFT JOIN idle_totals AS idle_total
+          ON idle_total.vault_id = vault.id
+        LEFT JOIN primary_idle
+          ON primary_idle.vault_id = vault.id
+        LEFT JOIN rebalance_counts AS rebalance
+          ON rebalance.vault_id = vault.id
+          AND rebalance.route_mode = vault.route_mode
+        WHERE COALESCE(position_total.amount_raw, 0::bigint)
+          + COALESCE(idle_total.amount_raw, 0::bigint) > 0
+      ),
+      current_vaults AS MATERIALIZED (
+        SELECT
+          base.*,
+          CASE
+            WHEN ${
+              eligibilityFloorRaw === null
+                ? "FALSE"
+                : `base.current_deposit_raw < ${eligibilityFloorRaw.toString()}::bigint AND base.all_count = 0`
+            }
+              THEN CASE
+                WHEN base.route_mode = 'same_mint' THEN EXISTS (
+                  SELECT 1
+                  FROM loyal_yield.rebalance_opportunities AS opportunity
+                  WHERE opportunity.cluster = base.cluster
+                    AND opportunity.vault_id = base.id
+                    AND opportunity.source_reserve IS NOT NULL
+                    AND opportunity.target_reserve IS NOT NULL
+                    AND opportunity.execution_plan->>'kind' = 'same_mint'
+                  LIMIT 1
+                )
+                WHEN base.route_mode = 'cross_mint_jupiter' THEN EXISTS (
+                  SELECT 1
+                  FROM loyal_yield.rebalance_opportunities AS opportunity
+                  WHERE opportunity.cluster = base.cluster
+                    AND opportunity.vault_id = base.id
+                    AND opportunity.source_reserve IS NOT NULL
+                    AND opportunity.target_reserve IS NOT NULL
+                    AND opportunity.execution_plan->>'kind' = 'cross_mint_jupiter'
+                  LIMIT 1
+                )
+                ELSE FALSE
+              END
+            ELSE FALSE
+          END AS has_opportunity
+        FROM current_vaults_base AS base
+      ),
+      ranked_vaults AS MATERIALIZED (
+        SELECT
+          current_vault.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY current_vault.route_mode
+            ORDER BY
+              current_vault.current_deposit_raw ASC,
+              current_vault.vault_pubkey ASC
+          )::integer AS deposit_rank
+        FROM current_vaults AS current_vault
+      ),
+      frequency_rows AS MATERIALIZED (
+        SELECT
+          ranked_vault.*,
+          MAX(ranked_vault.deposit_rank) OVER (
+            PARTITION BY ranked_vault.route_mode
+          )::integer AS vault_count,
+          ROW_NUMBER() OVER (
+            PARTITION BY
+              ranked_vault.route_mode,
+              ranked_vault.liquidity_mint,
+              ranked_vault.current_reserve
+            ORDER BY ranked_vault.current_deposit_raw DESC, ranked_vault.vault_pubkey DESC
+          )::integer AS detail_rank
+        FROM ranked_vaults AS ranked_vault
+      ),
+      chart_rows AS (
+        SELECT
+          id::text AS vault_id,
+          vault_pubkey,
+          current_reserve,
+          liquidity_mint,
+          route_mode,
+          current_deposit_raw::text AS current_deposit_raw,
+          position_count,
+          all_count,
+          last_7d_count,
+          last_12h_count,
+          last_2h_count,
+          deposit_rank
+          ,vault_count
+        FROM frequency_rows
+      ),
+      detail_rows AS (
+        SELECT
+          id::text AS vault_id,
+          vault_pubkey,
+          current_reserve,
+          liquidity_mint,
+          route_mode,
+          current_deposit_raw::text AS current_deposit_raw,
+          position_count,
+          all_count,
+          last_7d_count,
+          last_12h_count,
+          last_2h_count,
+          deposit_rank
+          ,vault_count
+        FROM frequency_rows
+        WHERE detail_rank <= ${includeDetails ? 100 : 0}
+      ),
+      summary_rows AS (
+        SELECT
+          route_mode,
+          liquidity_mint,
+          COUNT(*)::integer AS vault_count,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("all_count", true)}
+          )::integer AS eligible_count,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("last_7d_count")}
+          )::integer AS eligible_count_7d,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("last_12h_count")}
+          )::integer AS eligible_count_12h,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("last_2h_count")}
+          )::integer AS eligible_count_2h,
+          COUNT(*) FILTER (WHERE all_count > 0)::integer AS rebalanced_vault_count,
+          COALESCE(SUM(position_count), 0)::integer AS position_count,
+          COALESCE(SUM(all_count), 0)::integer AS rebalance_all_count,
+          COALESCE(SUM(last_7d_count), 0)::integer AS rebalance_last_7d_count,
+          COALESCE(SUM(last_12h_count), 0)::integer AS rebalance_last_12h_count,
+          COALESCE(SUM(last_2h_count), 0)::integer AS rebalance_last_2h_count
+        FROM current_vaults
+        GROUP BY route_mode, liquidity_mint
+      )
+      SELECT
+        COALESCE(
+          (
+            SELECT json_agg(summary_row ORDER BY route_mode, liquidity_mint)
+            FROM summary_rows AS summary_row
+          ),
+          '[]'::json
+        ) AS summaries,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_array(
+                chart_row.all_count,
+                chart_row.current_deposit_raw,
+                chart_row.current_reserve,
+                chart_row.deposit_rank,
+                chart_row.last_12h_count,
+                chart_row.last_2h_count,
+                chart_row.last_7d_count,
+                chart_row.liquidity_mint,
+                chart_row.position_count,
+                chart_row.route_mode,
+                chart_row.vault_id,
+                chart_row.vault_pubkey
+              )
+              ORDER BY chart_row.route_mode, chart_row.deposit_rank
+            )
+            FROM chart_rows AS chart_row
+          ),
+          '[]'::json
+        ) AS chart_points,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_array(
+                detail_row.all_count,
+                detail_row.current_deposit_raw,
+                detail_row.current_reserve,
+                detail_row.deposit_rank,
+                detail_row.last_12h_count,
+                detail_row.last_2h_count,
+                detail_row.last_7d_count,
+                detail_row.liquidity_mint,
+                detail_row.position_count,
+                detail_row.route_mode,
+                detail_row.vault_id,
+                detail_row.vault_pubkey
+              )
+              ORDER BY detail_row.route_mode, detail_row.deposit_rank
+            )
+            FROM detail_rows AS detail_row
+          ),
+          '[]'::json
+        ) AS details
+    `
+  );
+
+  const payload = rows[0];
+  const mapRow = (row: EarnVaultRebalanceFrequencySqlTuple) => ({
+    allCount: toNumber(row[0]),
+    currentDepositRaw: toBigInt(row[1]),
+    currentReserve: row[2],
+    depositRank: toNumber(row[3]),
+    last12hCount: toNumber(row[4]),
+    last2hCount: toNumber(row[5]),
+    last7dCount: toNumber(row[6]),
+    liquidityMint: row[7],
+    positionCount: toNumber(row[8]),
+    routeMode: mapRouteMode(row[9]),
+    vaultId: row[10],
+    vaultPubkey: row[11],
+  });
+
+  return {
+    chartPoints: payload?.chart_points?.map(mapRow) ?? [],
+    details: payload?.details?.map(mapRow) ?? [],
+    generatedAt: new Date().toISOString(),
+    summaries:
+      payload?.summaries?.map((row) => ({
+        eligibleCount: toNumber(row.eligible_count),
+        eligibleCount12h: toNumber(row.eligible_count_12h),
+        eligibleCount2h: toNumber(row.eligible_count_2h),
+        eligibleCount7d: toNumber(row.eligible_count_7d),
+        liquidityMint: row.liquidity_mint,
+        positionCount: toNumber(row.position_count),
+        rebalance12hCount: toNumber(row.rebalance_last_12h_count),
+        rebalance2hCount: toNumber(row.rebalance_last_2h_count),
+        rebalance7dCount: toNumber(row.rebalance_last_7d_count),
+        rebalanceAllCount: toNumber(row.rebalance_all_count),
+        rebalancedVaultCount: toNumber(row.rebalanced_vault_count),
+        routeMode: mapRouteMode(row.route_mode),
+        vaultCount: toNumber(row.vault_count),
+      })) ?? [],
+    vaultCount:
+      payload?.summaries?.reduce(
+        (total, row) => total + toNumber(row.vault_count),
+        0
+      ) ?? 0,
+  };
+}
+
+export async function getEarnVaultOpportunityCounts(
+  vaultId: string,
+  routeMode: RebalanceRouteMode
+): Promise<EarnVaultOpportunityCounts | null> {
+  if (!/^\d+$/.test(vaultId)) {
+    return null;
+  }
+
+  const databaseRouteMode =
+    routeMode === "cross_mint" ? "cross_mint_jupiter" : "same_mint";
+  const rows = await queryRows<EarnVaultOpportunityCountsSqlRow>(
+    `
+      WITH target_vault AS MATERIALIZED (
+        SELECT vault.id, policy.cluster
+        FROM loyal_yield.managed_vaults AS vault
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        WHERE vault.id = ${vaultId}::bigint
+          AND vault.active = true
+          AND vault.vault_index = 1
+      )
+      SELECT
+        target.id::text AS vault_id,
+        '${databaseRouteMode}'::text AS route_mode,
+        COUNT(opportunity.id)::integer AS all_count,
+        COUNT(opportunity.id) FILTER (
+          WHERE opportunity.created_at >= NOW() - INTERVAL '7 days'
+        )::integer AS last_7d_count,
+        COUNT(opportunity.id) FILTER (
+          WHERE opportunity.created_at >= NOW() - INTERVAL '12 hours'
+        )::integer AS last_12h_count,
+        COUNT(opportunity.id) FILTER (
+          WHERE opportunity.created_at >= NOW() - INTERVAL '2 hours'
+        )::integer AS last_2h_count
+      FROM target_vault AS target
+      LEFT JOIN loyal_yield.rebalance_opportunities AS opportunity
+        ON opportunity.cluster = target.cluster
+        AND opportunity.vault_id = target.id
+        AND opportunity.source_reserve IS NOT NULL
+        AND opportunity.target_reserve IS NOT NULL
+        AND opportunity.execution_plan->>'kind' = '${databaseRouteMode}'
+      GROUP BY target.id
+    `
+  );
+  const row = rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    allCount: toNumber(row.all_count),
+    last12hCount: toNumber(row.last_12h_count),
+    last2hCount: toNumber(row.last_2h_count),
+    last7dCount: toNumber(row.last_7d_count),
+    routeMode: mapRouteMode(row.route_mode),
+    vaultId: String(row.vault_id),
+  };
+}
+
+export async function getRebalanceAuditSummary(
+  range: RebalanceAuditRange,
+  routeMode: RebalanceRouteMode
+): Promise<RebalanceAuditSummary> {
+  const rows = await queryRows<RebalanceAuditSummarySqlRow>(
+    `
+      ${AUDIT_ROWS_CTE}
+      SELECT
+        COUNT(*) FILTER (
+          WHERE audit.record_type = 'decision'
+            AND audit.movement_source = 'rebalance'
+            AND audit.status = 'confirmed'
+        )::text AS completed_rebalances,
+        COUNT(*) FILTER (
+          WHERE (
+            audit.record_type = 'yield_deposit'
+            AND audit.status = 'confirmed'
+          ) OR (
+            audit.record_type = 'decision'
+            AND audit.movement_source = 'idle_vault_deposit'
+            AND audit.is_idle_fallback
+            AND audit.status = 'confirmed'
+          )
+        )::text AS completed_deposits,
+        COUNT(*) FILTER (
+          WHERE audit.record_type = 'decision'
+            AND audit.movement_source = 'rebalance'
+            AND audit.status IN ('failed', 'abandoned')
+        )::text AS rebalance_errors,
+        COUNT(*) FILTER (
+          WHERE (
+            audit.record_type = 'decision'
+            AND audit.movement_source = 'idle_vault_deposit'
+            AND audit.status IN ('failed', 'abandoned')
+          ) OR (
+            audit.record_type = 'execution'
+            AND audit.movement_source = 'autodeposit'
+            AND audit.status = 'failed'
+          )
+        )::text AS deposit_errors,
+        COUNT(*) FILTER (
+          WHERE (
+            audit.record_type = 'decision'
+            AND audit.movement_source = 'rebalance'
+            AND audit.status IN ('failed', 'abandoned')
+          ) OR (
+            audit.record_type = 'decision'
+            AND audit.movement_source = 'idle_vault_deposit'
+            AND audit.status IN ('failed', 'abandoned')
+          ) OR (
+            audit.record_type = 'execution'
+            AND audit.movement_source = 'autodeposit'
+            AND audit.status = 'failed'
+          ) OR (
+            audit.record_type = 'decision'
+            AND (
+              audit.movement_source = 'needs_review'
+              OR audit.status NOT IN (
+                'planned', 'simulating', 'ready', 'submitted', 'confirming',
+                'confirmed', 'failed', 'abandoned', 'skipped'
+              )
+            )
+          )
+        )::text AS errors,
+        COUNT(*) FILTER (
+          WHERE audit.record_type = 'decision'
+            AND (
+              audit.movement_source = 'needs_review'
+              OR audit.status NOT IN (
+                'planned', 'simulating', 'ready', 'submitted', 'confirming',
+                'confirmed', 'failed', 'abandoned', 'skipped'
+              )
+            )
+        )::text AS needs_review,
+        COUNT(*) FILTER (
+          WHERE audit.record_type = 'decision'
+            AND audit.status IN (
+            'planned', 'simulating', 'ready', 'submitted', 'confirming'
+          )
+        )::text AS active,
+        COUNT(*) FILTER (
+          WHERE audit.record_type = 'decision'
+            AND audit.status IN (
+            'planned', 'simulating', 'ready', 'submitted', 'confirming'
+          )
+          AND audit.event_at < now() - interval '2 minutes'
+        )::text AS stale_active
+      FROM audit_rows AS audit
+      WHERE ${rangePredicate(range)}
+        AND ${routeModePredicate(routeMode)}
+    `
+  );
+
+  const row = rows[0];
+  return {
+    active: toNumber(row?.active),
+    completedDeposits: toNumber(row?.completed_deposits),
+    completedRebalances: toNumber(row?.completed_rebalances),
+    depositErrors: toNumber(row?.deposit_errors),
+    errors: toNumber(row?.errors),
+    needsReview: toNumber(row?.needs_review),
+    rebalanceErrors: toNumber(row?.rebalance_errors),
+    staleActive: toNumber(row?.stale_active),
+  };
+}
+
+export async function getRebalanceAuditPage(
+  query: RebalanceAuditQuery
+): Promise<RebalanceAuditPage> {
+  const errorFilter = query.errorFilter ?? "all";
+  return getRebalanceAuditPageByPredicate({
+    cursor: query.cursor,
+    limit: query.limit,
+    predicate: viewPredicate(query.view, errorFilter),
+    range: query.range,
+    routeMode: query.routeMode,
+  });
+}
+
+export async function getRebalanceAuditActivePage(
+  query: RebalanceAuditActiveQuery
+): Promise<RebalanceAuditPage> {
+  return getRebalanceAuditPageByPredicate({
+    cursor: query.cursor,
+    limit: query.limit,
+    predicate: activeStatusPredicate,
+    range: query.range,
+    routeMode: query.routeMode,
+  });
+}

@@ -1,22 +1,49 @@
 ---
-title: "Frequently Asked Questions"
-description: "Find quick answers about Loyal’s launch, architecture, and participation requirements."
+title: "Frequently asked questions"
+description: "Short answers about Loyal automation, Earn, account control, and risk."
 ---
 
+These answers summarize the product. Follow the linked page when you need the full explanation.
+
 <AccordionGroup>
-<Accordion title="Why use TEEs instead of purely cryptographic approaches?">
-  You get near-native latency while keeping data encrypted in memory and that's the only way to guarantee that any node and compute provider won't have access to the data.
-</Accordion>
-<Accordion title="When will I be able to run production workloads?">
-  Post-launch targets follow the SDK beta and security audit sign-off. Expect staged access beginning after the MetaDAO token event.
-</Accordion>
-<Accordion title="How do pricing and micropayments translate to end users?">
-  You configure budgets per agent. Payments stream in sub-dollar increments so your customers only pay for the inference they consume.
-</Accordion>
-<Accordion title="What data does Loyal store?">
-  Agents keep short-lived context for processing, distill insights into encrypted knowledge graphs, and purge raw data after each session.
-</Accordion>
-<Accordion title="How can I contribute before launch?">
-  Join working groups, review the lightpaper, and help stress-test threat models in community calls.
-</Accordion>
+  <Accordion title="What can Loyal automate today?">
+    The live workflow is USDC Balance Sweep and Earn. It keeps a chosen balance
+    available, moves eligible surplus into Earn, and uses approved USDC lending
+    actions. [See the workflow](/automations/how-it-works).
+  </Accordion>
+  <Accordion title="Who controls the account?">
+    For a default Earn account created by Loyal, the customer holds root Smart
+    Account authority. Loyal uses a separate signer limited by the approved
+    rule. [Review safety and control](/trust/ownership-and-control).
+  </Accordion>
+  <Accordion title="Is Loyal noncustodial?">
+    The default Earn architecture does not require Loyal to hold or act as the
+    customer's private key or root signer. Legal classification still depends on
+    the integration and jurisdiction.
+  </Accordion>
+  <Accordion title="Where does Earn yield come from?">
+    Earn supplies USDC to approved Kamino lending markets. Borrower demand and
+    market conditions produce a variable rate.
+  </Accordion>
+  <Accordion title="Is the APY fixed or guaranteed?">
+    No. Rates can rise or fall, principal can be lost, and liquidity can delay a
+    withdrawal.
+  </Accordion>
+  <Accordion title="How do I stop an automation?">
+    Pause stops new Loyal-scheduled work but does not revoke access. Withdrawal
+    returns funds through the customer-approved path. A confirmed,
+    customer-signed close removes Autodeposit authority.
+  </Accordion>
+  <Accordion title="Has Loyal been audited?">
+    Squads Smart Accounts, Kamino Lending, and Solana Foundation Subscriptions
+    publish security reviews. Those reports are version or commit scoped.
+    Loyal's complete application and integration have not received a standalone
+    external audit. [See the reports and remaining
+    risk](/trust/ownership-and-control).
+  </Accordion>
+  <Accordion title="What could Loyal automate next?">
+    The model can support more workflows when their trigger, action, limits,
+    proof, and exit are bounded. Subscriptions, settlement routing, and treasury
+    allocation are illustrative, not available products or roadmap commitments.
+  </Accordion>
 </AccordionGroup>

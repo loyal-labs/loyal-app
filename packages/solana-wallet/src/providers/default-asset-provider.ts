@@ -130,7 +130,9 @@ function resolveAssetDescriptor(asset: HeliusAsset): AssetDescriptor {
   const tokenSymbol = getSafeString(asset.token_info?.symbol);
   const metadataSymbol = getSafeString(asset.content?.metadata?.symbol);
   const symbol =
-    tokenSymbol || metadataSymbol || (asset.id === NATIVE_SOL_MINT ? "SOL" : "TOKEN");
+    tokenSymbol ||
+    metadataSymbol ||
+    (asset.id === NATIVE_SOL_MINT ? "SOL" : "TOKEN");
 
   return {
     mint: asset.id,
@@ -241,7 +243,10 @@ export function createHeliusAssetProvider(args: {
       getConnection().getBalance(owner, args.commitment),
     getAssetSnapshot: async (owner): Promise<AssetSnapshot> => {
       if (args.env === "localnet") {
-        const lamports = await getConnection().getBalance(owner, args.commitment);
+        const lamports = await getConnection().getBalance(
+          owner,
+          args.commitment
+        );
         return {
           owner: owner.toBase58(),
           nativeBalanceLamports: lamports,
@@ -264,24 +269,28 @@ export function createHeliusAssetProvider(args: {
         };
       }
 
-      const response = await fetchJson<HeliusResponse>(args.fetchImpl, args.rpcEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "wallet-portfolio",
-          method: "getAssetsByOwner",
-          params: {
-            ownerAddress: owner.toBase58(),
-            page: 1,
-            limit: 1000,
-            displayOptions: {
-              showFungible: true,
-              showNativeBalance: true,
+      const response = await fetchJson<HeliusResponse>(
+        args.fetchImpl,
+        args.rpcEndpoint,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "wallet-portfolio",
+            method: "getAssetsByOwner",
+            params: {
+              ownerAddress: owner.toBase58(),
+              page: 1,
+              limit: 1000,
+              displayOptions: {
+                showFungible: true,
+                showNativeBalance: true,
+              },
             },
-          },
-        }),
-      });
+          }),
+        }
+      );
 
       const assets: AssetBalance[] = [];
       const nativeAsset = mapNativeAssetBalance(response.result.nativeBalance);
@@ -300,7 +309,10 @@ export function createHeliusAssetProvider(args: {
         }
       }
 
-      const enrichedAssets = await enrichAssetsWithJupiterPrices(args.fetchImpl, assets);
+      const enrichedAssets = await enrichAssetsWithJupiterPrices(
+        args.fetchImpl,
+        assets
+      );
 
       return {
         owner: owner.toBase58(),

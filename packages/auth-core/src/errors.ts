@@ -79,28 +79,3 @@ export function parseApiErrorDetails(payload: unknown): string[] {
 
   return [];
 }
-
-export function extractSessionUrl(payload: unknown): string | null {
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    "url" in payload &&
-    typeof payload.url === "string"
-  ) {
-    return payload.url;
-  }
-
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    "data" in payload &&
-    typeof payload.data === "object" &&
-    payload.data !== null &&
-    "url" in payload.data &&
-    typeof payload.data.url === "string"
-  ) {
-    return payload.data.url;
-  }
-
-  return null;
-}

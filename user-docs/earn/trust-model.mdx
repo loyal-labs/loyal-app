@@ -1,0 +1,23 @@
+---
+title: "Technical security model"
+description: "The enforcement layers and residual risks in Loyal Earn automation."
+---
+
+Earn uses several independent controls. No single control proves the complete workflow is safe.
+
+| Layer | Enforces | Does not prove |
+| --- | --- | --- |
+| Customer authority | Setup, root configuration, manual approval, and exit | That an allowed lending action is risk-free. |
+| Subscription delegation | Recurring period, per-period amount, and delegated transfer authority | That every submitted transaction matches the Smart Account policy. |
+| Earn route and setup policies | The approved program interaction | That the scheduler chose the correct reserve or amount. |
+| Autodeposit policy | The approved sweep path and an independent maximum per period | That the saved operating floor is enforced onchain. |
+| Loyal scheduler | Operating floor and pause state; eligibility and timing | Onchain authority or transaction confirmation. |
+| Market and RPC inputs | Current position and liquidity; rates and confirmation evidence | Future rates, liquidity, or protocol solvency. |
+
+The operated Earn workflow is same-mint USDC through configured Kamino markets. The generic policy system can express other routes, so integration code must verify the active policy instead of assuming a product label is an onchain restriction.
+
+Realtime delivery can wake a worker or client. Current authority and balances still come from Solana and the underlying protocol.
+
+Policy limits reduce automation authority. They do not remove Smart Account, Subscriptions, Kamino, USDC, Solana, liquidity, operational, or upgrade risk.
+
+Use [Policy fields and construction](/earn/policies) for exact constraints, [Runtime state and evidence](/build/state-events-and-receipts) for verification, and [Risk and liquidity](/trust/risk-and-liquidity) for customer outcomes.

@@ -1,0 +1,123 @@
+import "server-only";
+
+import { createHash } from "node:crypto";
+
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REPORTS_PER_WINDOW = 20;
+const MAX_LIFECYCLE_REPORTS_PER_WINDOW = 120;
+const MAX_METRICS_REPORTS_PER_WINDOW = 240;
+const MAX_TRACKED_SOURCES = 1024;
+
+type RateLimitEntry = {
+  count: number;
+  resetAt: number;
+};
+
+const reportRates = new Map<string, RateLimitEntry>();
+const lifecycleRates = new Map<string, RateLimitEntry>();
+const metricRates = new Map<string, RateLimitEntry>();
+
+function getRequestSource(request: Request): string {
+  const forwardedFor = request.headers
+    .get("x-forwarded-for")
+    ?.split(",")[0]
+    ?.trim();
+  const source =
+    forwardedFor ||
+    request.headers.get("x-vercel-forwarded-for")?.trim() ||
+    request.headers.get("cf-connecting-ip")?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    "unknown";
+
+  return createHash("sha256").update(source.slice(0, 128)).digest("hex");
+}
+
+export function consumeBrowserErrorRateLimit(
+  request: Request,
+  now = Date.now()
+): boolean {
+  for (const [source, entry] of reportRates) {
+    if (entry.resetAt <= now) {
+      reportRates.delete(source);
+    }
+  }
+
+  const source = getRequestSource(request);
+  const current = reportRates.get(source);
+  if (current && current.resetAt > now) {
+    if (current.count >= MAX_REPORTS_PER_WINDOW) {
+      return false;
+    }
+    current.count += 1;
+    return true;
+  }
+
+  if (reportRates.size >= MAX_TRACKED_SOURCES) {
+    const oldestSource = reportRates.keys().next().value;
+    if (typeof oldestSource === "string") {
+      reportRates.delete(oldestSource);
+    }
+  }
+
+  reportRates.set(source, {
+    count: 1,
+    resetAt: now + RATE_LIMIT_WINDOW_MS,
+  });
+  return true;
+}
+
+export function consumeBrowserLifecycleRateLimit(
+  request: Request,
+  now = Date.now()
+): boolean {
+  for (const [source, entry] of lifecycleRates) {
+    if (entry.resetAt <= now) lifecycleRates.delete(source);
+  }
+
+  const source = getRequestSource(request);
+  const current = lifecycleRates.get(source);
+  if (current && current.resetAt > now) {
+    if (current.count >= MAX_LIFECYCLE_REPORTS_PER_WINDOW) return false;
+    current.count += 1;
+    return true;
+  }
+
+  if (lifecycleRates.size >= MAX_TRACKED_SOURCES) {
+    const oldestSource = lifecycleRates.keys().next().value;
+    if (typeof oldestSource === "string") lifecycleRates.delete(oldestSource);
+  }
+
+  lifecycleRates.set(source, {
+    count: 1,
+    resetAt: now + RATE_LIMIT_WINDOW_MS,
+  });
+  return true;
+}
+
+export function consumeBrowserMetricsRateLimit(
+  request: Request,
+  now = Date.now()
+): boolean {
+  for (const [source, entry] of metricRates) {
+    if (entry.resetAt <= now) metricRates.delete(source);
+  }
+
+  const source = getRequestSource(request);
+  const current = metricRates.get(source);
+  if (current && current.resetAt > now) {
+    if (current.count >= MAX_METRICS_REPORTS_PER_WINDOW) return false;
+    current.count += 1;
+    return true;
+  }
+
+  if (metricRates.size >= MAX_TRACKED_SOURCES) {
+    const oldestSource = metricRates.keys().next().value;
+    if (typeof oldestSource === "string") metricRates.delete(oldestSource);
+  }
+
+  metricRates.set(source, {
+    count: 1,
+    resetAt: now + RATE_LIMIT_WINDOW_MS,
+  });
+  return true;
+}

@@ -35,7 +35,8 @@ export async function runWithRetryPolicy<T>(
   const failureReasons: string[] = [];
 
   const maxAttempts = Math.max(1, policy.maxAttempts);
-  const backoffMultiplier = policy.backoffMultiplier ?? DEFAULT_BACKOFF_MULTIPLIER;
+  const backoffMultiplier =
+    policy.backoffMultiplier ?? DEFAULT_BACKOFF_MULTIPLIER;
   const initialDelayMs = policy.initialDelayMs ?? DEFAULT_INITIAL_DELAY_MS;
   const jitterRatio = policy.jitterRatio ?? DEFAULT_JITTER_RATIO;
   const maxDelayMs = policy.maxDelayMs ?? DEFAULT_MAX_DELAY_MS;
@@ -76,7 +77,10 @@ export async function runWithRetryPolicy<T>(
       );
 
       await sleep(jitteredDelay);
-      nextDelayMs = Math.min(maxDelayMs, Math.round(nextDelayMs * backoffMultiplier));
+      nextDelayMs = Math.min(
+        maxDelayMs,
+        Math.round(nextDelayMs * backoffMultiplier)
+      );
     }
   }
 

@@ -1,0 +1,30 @@
+---
+title: "Neobank and payment use cases"
+description: "How the same balance-sweep model appears in two financial products."
+icon: "people-group"
+---
+
+Both examples use the same automation. The customer chooses an operating reserve, eligible surplus moves into Earn, and the customer controls pause or exit. The business meaning changes below.
+
+<Tabs>
+  <Tab id="neobank" title="Neobank">
+    ### Neobank
+
+    | Decision | Answer |
+    | --- | --- |
+    | Reserve meaning | USDC needed for everyday spending. |
+    | Business duty | Show available funds separately from the Earn position. |
+    | Current limit | Loyal does not withdraw from Earn automatically before a future card payment. |
+  </Tab>
+  <Tab id="payment-processor" title="Payment processor">
+    ### Payment processor
+
+    | Decision | Answer |
+    | --- | --- |
+    | Reserve meaning | USDC needed for refunds and payouts. |
+    | Business duty | Own payout forecasting, customer disclosures, and operational support. |
+    | Current limit | Loyal does not withdraw from Earn automatically before a future payout. |
+  </Tab>
+</Tabs>
+
+See [How Loyal works](/automations/how-it-works) for the common mechanism. Review [Product fit](/business/product-fit) before treating either example as an integration recommendation.

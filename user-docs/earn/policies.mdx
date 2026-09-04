@@ -1,0 +1,47 @@
+---
+title: "Policy fields and construction"
+description: "The exact transaction properties enforced for Loyal Earn automation."
+---
+
+A policy defines the transaction a Smart Account may execute.
+
+## What a policy checks
+
+Earn route and setup policies restrict the program, required accounts, instruction data, and approved signer. They do not set a spending limit. Autodeposit uses a separate policy with a maximum amount per period.
+
+For Earn, the policy checks these properties:
+
+| Property | Required value |
+| --- | --- |
+| Destination | The customer Earn vault |
+| Asset | USDC for the operated workflow |
+| Market | An approved Kamino lending market |
+| Instruction | The allowed Kamino action or supported setup shape |
+| Signer | An approved policy signer |
+| Amount | An Autodeposit-only maximum for the active period |
+
+<Info>
+  The operated product routes USDC. On mainnet, the generic route policy can
+  allow registered stablecoin mints. It is not an immutable USDC-only envelope
+  or a perfect per-reserve whitelist.
+</Info>
+
+## The Policies Earn Uses
+
+| Policy             | What it allows                                                             | What it does not allow                                                 |
+| ------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Earn route policy  | Same-mint Kamino withdraw and deposit actions for registered stablecoins   | Arbitrary token transfers, arbitrary programs, or cross-mint swaps     |
+| Earn setup policy  | Account setup needed for approved Kamino markets                           | Moving user funds outside the approved Earn path                       |
+| Autodeposit policy | Moving USDC through the fixed wallet-to-Earn path within the recurring cap | Changing the mint, destination, program, or approved instruction shape |
+
+The subscription delegation defines the period and its own per-period amount. The Autodeposit policy binds that delegation account and independently limits the maximum amount per period. Earn route and setup policies have no amount limit. The saved Main Account floor exists only in scheduler configuration. The policy does not contain that floor.
+
+## Updating older policies
+
+If an existing Earn route policy predates Token-2022 support, depositing a
+Token-2022 stablecoin such as CASH, USDG, or PYUSD can require a policy update
+first. Loyal creates a new owner-neutral route and setup policy pair, leaves the
+legacy policies untouched, and then retries the deposit. The update may appear
+as an additional wallet-approval step in the deposit flow.
+
+See [Rule enforcement](/trust/rule-enforcement) for the customer-facing allowed and rejected outcomes. Use [Build your first automation](/build/first-automation) to prove the policy with a negative test.

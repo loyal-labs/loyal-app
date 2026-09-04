@@ -1,0 +1,56 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_1439_15028)">
+<rect width="48" height="48" fill="#FFACB3"/>
+<circle cx="4" cy="4" r="4" fill="#FFEBC5"/>
+<circle cx="4" cy="20" r="4" fill="#FFEBC5"/>
+<circle cx="4" cy="36" r="4" fill="#FFEBC5"/>
+<circle cx="20" cy="4" r="4" fill="#FFEBC5"/>
+<circle cx="20" cy="20" r="4" fill="#FFEBC5"/>
+<circle cx="20" cy="36" r="4" fill="#FFEBC5"/>
+<circle cx="36" cy="4" r="4" fill="#FFEBC5"/>
+<circle cx="36" cy="20" r="4" fill="#FFEBC5"/>
+<circle cx="36" cy="36" r="4" fill="#FFEBC5"/>
+<circle cx="12" cy="4" r="4" fill="#FFEBC5"/>
+<circle cx="12" cy="20" r="4" fill="#FFEBC5"/>
+<circle cx="12" cy="36" r="4" fill="#FFEBC5"/>
+<circle cx="28" cy="4" r="4" fill="#FFEBC5"/>
+<circle cx="28" cy="20" r="4" fill="#FFEBC5"/>
+<circle cx="28" cy="36" r="4" fill="#FFEBC5"/>
+<circle cx="44" cy="4" r="4" fill="#FFEBC5"/>
+<circle cx="44" cy="20" r="4" fill="#FFEBC5"/>
+<circle cx="44" cy="36" r="4" fill="#FFEBC5"/>
+<circle cx="12" cy="12" r="4" fill="#FFEBC5"/>
+<circle cx="12" cy="28" r="4" fill="#FFEBC5"/>
+<circle cx="12" cy="44" r="4" fill="#FFEBC5"/>
+<circle cx="28" cy="12" r="4" fill="#FFEBC5"/>
+<circle cx="28" cy="28" r="4" fill="#FFEBC5"/>
+<circle cx="28" cy="44" r="4" fill="#FFEBC5"/>
+<circle cx="44" cy="12" r="4" fill="#FFEBC5"/>
+<circle cx="44" cy="28" r="4" fill="#FFEBC5"/>
+<circle cx="44" cy="44" r="4" fill="#FFEBC5"/>
+<circle cx="4" cy="12" r="4" fill="#FFEBC5"/>
+<circle cx="4" cy="28" r="4" fill="#FFEBC5"/>
+<circle cx="4" cy="44" r="4" fill="#FFEBC5"/>
+<circle cx="20" cy="12" r="4" fill="#FFEBC5"/>
+<circle cx="20" cy="28" r="4" fill="#FFEBC5"/>
+<circle cx="20" cy="44" r="4" fill="#FFEBC5"/>
+<circle cx="36" cy="12" r="4" fill="#FFEBC5"/>
+<circle cx="36" cy="28" r="4" fill="#FFEBC5"/>
+<circle cx="36" cy="44" r="4" fill="#FFEBC5"/>
+<circle cx="39" cy="39" r="5" fill="#DDFF88"/>
+<path d="M13.5293 46.0023L6 28.434H28.5878V10.8657L38.6268 28.434L41.1366 10.8657L56.1951 51.0218L13.5293 46.0023Z" fill="#2384A8"/>
+<path d="M33.4342 40.3638C29.2816 40.1461 26.0681 37.0522 26.2567 33.4533L41.2946 34.2414C41.106 37.8403 37.5868 40.5814 33.4342 40.3638Z" fill="white"/>
+<mask id="mask0_1439_15028" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="26" y="33" width="16" height="8">
+<path d="M33.4342 40.3638C29.2816 40.1461 26.0681 37.0522 26.2567 33.4533L41.2946 34.2414C41.106 37.8403 37.5868 40.5814 33.4342 40.3638Z" fill="white"/>
+</mask>
+<g mask="url(#mask0_1439_15028)">
+<circle cx="33.5829" cy="35.6838" r="3.38817" transform="rotate(-177 33.5829 35.6838)" fill="black"/>
+</g>
+<path d="M35.1394 42.0783L26.8259 38.1909L40.8344 37.6849L35.1394 42.0783Z" fill="#2384A8"/>
+</g>
+<defs>
+<clipPath id="clip0_1439_15028">
+<rect width="48" height="48" fill="white"/>
+</clipPath>
+</defs>
+</svg>

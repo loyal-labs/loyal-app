@@ -1,0 +1,19 @@
+---
+title: "Pause and close"
+description: "The implementation boundary between pausing work, withdrawing funds, closing recurring access, and leaving Earn."
+---
+
+Each action needs its own instruction. Confirm the chain effect before persisting the transition.
+
+| Action | Required authority | Confirm before recording | Result |
+| --- | --- | --- | --- |
+| Pause scheduling | Authenticated customer intent through the supported product flow | Durable pause state | Loyal schedules no new sweeps; onchain delegation can remain. |
+| Withdraw | Customer-approved Earn withdrawal path | Confirmed signature and current position | Funds leave the lending position subject to liquidity. |
+| Close recurring access | Customer signer | Confirmed subscription revoke and Smart Account cleanup required by the prepared flow | Loyal can no longer run recurring sweeps. |
+| Full Earn exit | Customer signer | Confirmed withdrawal and zero-position proof; completed cleanup with reconciled state | The supported Earn position and remaining automation access are removed. |
+
+## Failure rule
+
+Persist only the transition proved by the confirmed chain result. If confirmation is unknown, refetch the signature and current accounts before preparing a retry. Do not interpret a locally prepared or wallet-approved transaction as completion.
+
+The customer-facing meaning belongs in [Exit and lifecycle](/automations/exit-and-lifecycle). The complete state machine belongs in [Automation lifecycle](/build/automation-lifecycle).

@@ -1,369 +1,438 @@
 import type { Connection, ParsedAccountData } from "@solana/web3.js";
 import { PublicKey, VersionedTransaction } from "@solana/web3.js";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
-import { TOKEN_MINTS } from "../constants/token-mints";
+import { TOKEN_DECIMALS, TOKEN_MINTS } from "../constants/token-mints";
 import type { WalletSigner } from "../types/signer";
 
 // Debug logger that only emits in development
 const logger = {
-	debug: (...args: unknown[]) => {
-		if (
-			typeof process !== "undefined" &&
-			process.env?.NODE_ENV === "development"
-		) {
-			console.log(...args);
-		}
-	},
+  debug: (...args: unknown[]) => {
+    if (
+      typeof process !== "undefined" &&
+      process.env?.NODE_ENV === "development"
+    ) {
+      console.log(...args);
+    }
+  },
 };
 
 const PERCENTAGE_MULTIPLIER = 100;
 
 export type SwapQuote = {
-	inputAmount: string;
-	outputAmount: string;
-	inputToken: string;
-	outputToken: string;
-	priceImpact?: string;
-	fee?: string;
+  inputAmount: string;
+  outputAmount: string;
+  inputToken: string;
+  outputToken: string;
+  priceImpact?: string;
+  fee?: string;
 };
 
 export type SwapResult = {
-	signature?: string;
-	success: boolean;
-	error?: string;
+  signature?: string;
+  success: boolean;
+  error?: string;
 };
 
 export type SwapConfig =
-	| { mode: "enabled"; apiKey: string }
-	| { mode: "disabled"; reason: string };
+  | { mode: "enabled"; apiKey: string }
+  | { mode: "disabled"; reason: string };
 
-const JUPITER_QUOTE_API_URL = "https://api.jup.ag/swap/v1/quote";
-const JUPITER_SWAP_API_URL = "https://api.jup.ag/swap/v1/swap";
+const JUPITER_QUOTE_API_URL = "https://lite-api.jup.ag/swap/v1/quote";
+const JUPITER_SWAP_API_URL = "https://lite-api.jup.ag/swap/v1/swap";
+const JUPITER_QUOTE_TIMEOUT_MS = 10_000;
+const JUPITER_QUOTE_TIMEOUT_ERROR =
+  "Quote request timed out. Please try again.";
+
+const buildJupiterHeaders = (
+  apiKey: string,
+  extra?: Record<string, string>
+): Record<string, string> => ({
+  ...(extra ?? {}),
+  ...(apiKey ? { "x-api-key": apiKey } : {}),
+});
 
 type JupiterQuoteResponse = {
-	inputMint: string;
-	inAmount: string;
-	outputMint: string;
-	outAmount: string;
-	otherAmountThreshold: string;
-	swapMode: string;
-	slippageBps: number;
-	platformFee: null | { amount: string; feeBps: number };
-	priceImpactPct: string;
-	routePlan: Array<{
-		swapInfo: {
-			ammKey: string;
-			label: string;
-			inputMint: string;
-			outputMint: string;
-			inAmount: string;
-			outAmount: string;
-			feeAmount: string;
-			feeMint: string;
-		};
-		percent: number;
-	}>;
-	contextSlot?: number;
-	timeTaken?: number;
+  inputMint: string;
+  inAmount: string;
+  outputMint: string;
+  outAmount: string;
+  otherAmountThreshold: string;
+  swapMode: string;
+  slippageBps: number;
+  platformFee: null | { amount: string; feeBps: number };
+  priceImpactPct: string;
+  routePlan: Array<{
+    swapInfo: {
+      ammKey: string;
+      label: string;
+      inputMint: string;
+      outputMint: string;
+      inAmount: string;
+      outAmount: string;
+      feeAmount: string;
+      feeMint: string;
+    };
+    percent: number;
+  }>;
+  contextSlot?: number;
+  timeTaken?: number;
 };
 
 type JupiterSwapResponse = {
-	swapTransaction: string;
-	lastValidBlockHeight: number;
-	prioritizationFeeLamports: number;
+  swapTransaction: string;
+  lastValidBlockHeight: number;
+  prioritizationFeeLamports: number;
 };
 
 const getTokenMint = (symbol: string): string | undefined => {
-	return TOKEN_MINTS[symbol.toUpperCase()];
+  return TOKEN_MINTS[symbol.toUpperCase()];
 };
 
+const getKnownTokenDecimals = (symbol: string): number | undefined => {
+  return TOKEN_DECIMALS[symbol.toUpperCase()];
+};
+
+function withTimeout<T>(
+  operation: (signal: AbortSignal | undefined) => Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  const controller =
+    typeof AbortController === "undefined" ? undefined : new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+  return new Promise<T>((resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      controller?.abort();
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    operation(controller?.signal).then(resolve, reject);
+  }).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  });
+}
+
 async function sendTransactionViaSigner(
-	signer: WalletSigner,
-	connection: Connection,
-	transaction: VersionedTransaction,
+  signer: WalletSigner,
+  connection: Connection,
+  transaction: VersionedTransaction
 ): Promise<string> {
-	if (signer.sendTransaction) {
-		return signer.sendTransaction(transaction);
-	}
-	const signed = await signer.signTransaction(transaction);
-	return connection.sendRawTransaction(signed.serialize());
+  if (signer.sendTransaction) {
+    return signer.sendTransaction(transaction);
+  }
+  const signed = await signer.signTransaction(transaction);
+  return connection.sendRawTransaction(signed.serialize());
 }
 
 export function useSwap(
-	signer: WalletSigner | null,
-	connection: Connection,
-	swapConfig: SwapConfig,
+  signer: WalletSigner | null,
+  connection: Connection,
+  swapConfig: SwapConfig
 ) {
-	const [loading, setLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [quote, setQuote] = useState<SwapQuote | null>(null);
-	const [quoteResponse, setQuoteResponse] =
-		useState<JupiterQuoteResponse | null>(null);
+  const swapMode = swapConfig.mode;
+  const swapApiKey = swapConfig.mode === "enabled" ? swapConfig.apiKey : "";
+  const swapUnavailableReason =
+    swapConfig.mode === "disabled" ? swapConfig.reason : null;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [quote, setQuote] = useState<SwapQuote | null>(null);
+  const [quoteResponse, setQuoteResponse] =
+    useState<JupiterQuoteResponse | null>(null);
+  const quoteRequestIdRef = useRef(0);
 
-	const getTokenDecimals = useCallback(
-		async (mintAddress: string): Promise<number> => {
-			const mintPublicKey = new PublicKey(mintAddress);
-			const accountInfo =
-				await connection.getParsedAccountInfo(mintPublicKey);
-			const data = accountInfo.value?.data;
+  const getTokenDecimals = useCallback(
+    async (mintAddress: string): Promise<number> => {
+      const mintPublicKey = new PublicKey(mintAddress);
+      const accountInfo = await connection.getParsedAccountInfo(mintPublicKey);
+      const data = accountInfo.value?.data;
 
-			if (data && typeof data === "object" && "parsed" in data) {
-				const parsedData = data as ParsedAccountData;
-				const decimals = parsedData.parsed?.info?.decimals;
-				if (typeof decimals === "number") {
-					return decimals;
-				}
-			}
+      if (data && typeof data === "object" && "parsed" in data) {
+        const parsedData = data as ParsedAccountData;
+        const decimals = parsedData.parsed?.info?.decimals;
+        if (typeof decimals === "number") {
+          return decimals;
+        }
+      }
 
-			throw new Error(
-				`Unable to determine token decimals for mint ${mintAddress}`,
-			);
-		},
-		[connection],
-	);
+      throw new Error(
+        `Unable to determine token decimals for mint ${mintAddress}`
+      );
+    },
+    [connection]
+  );
 
-	const getQuote = useCallback(
-		async (
-			fromToken: string,
-			toToken: string,
-			amount: string,
-			fromTokenMint?: string,
-			fromTokenDecimals?: number,
-			toTokenDecimals?: number,
-		): Promise<SwapQuote | null> => {
-			try {
-				setError(null);
+  const getQuote = useCallback(
+    async (
+      fromToken: string,
+      toToken: string,
+      amount: string,
+      fromTokenMint?: string,
+      fromTokenDecimals?: number,
+      toTokenDecimals?: number,
+      toTokenMint?: string
+    ): Promise<SwapQuote | null> => {
+      const quoteRequestId = quoteRequestIdRef.current + 1;
+      quoteRequestIdRef.current = quoteRequestId;
+      const isCurrentQuoteRequest = () =>
+        quoteRequestIdRef.current === quoteRequestId;
 
-				if (swapConfig.mode === "disabled") {
-					throw new Error(swapConfig.reason);
-				}
+      try {
+        setQuote(null);
+        setQuoteResponse(null);
+        setError(null);
 
-				const inputMint = fromTokenMint || getTokenMint(fromToken);
-				const outputMint = getTokenMint(toToken);
+        if (swapMode === "disabled") {
+          throw new Error(swapUnavailableReason ?? "Swap unavailable");
+        }
 
-				if (!inputMint) {
-					throw new Error(
-						`Unknown token: ${fromToken}. Please provide token mint address.`,
-					);
-				}
-				if (!outputMint) {
-					throw new Error(`Unknown token: ${toToken}`);
-				}
+        const inputMint = fromTokenMint || getTokenMint(fromToken);
+        const outputMint = toTokenMint || getTokenMint(toToken);
 
-				const inputDecimalsPromise = fromTokenDecimals
-					? Promise.resolve(fromTokenDecimals)
-					: getTokenDecimals(inputMint);
-				const outputDecimalsPromise = toTokenDecimals
-					? Promise.resolve(toTokenDecimals)
-					: getTokenDecimals(outputMint);
-				const inputDecimals = await inputDecimalsPromise;
-				const amountInSmallestUnit = Math.floor(
-					Number.parseFloat(amount) * 10 ** inputDecimals,
-				).toString();
+        if (!inputMint) {
+          throw new Error(
+            `Unknown token: ${fromToken}. Please provide token mint address.`
+          );
+        }
+        if (!outputMint) {
+          throw new Error(`Unknown token: ${toToken}`);
+        }
 
-				logger.debug("Token conversion:", {
-					fromToken,
-					inputMint,
-					toToken,
-					outputMint,
-					amount,
-					amountInSmallestUnit,
-					decimals: inputDecimals,
-				});
+        const { data, quoteData } = await withTimeout(
+          async (signal) => {
+            const knownInputDecimals =
+              fromTokenDecimals ?? getKnownTokenDecimals(fromToken);
+            const knownOutputDecimals =
+              toTokenDecimals ?? getKnownTokenDecimals(toToken);
+            const inputDecimalsPromise =
+              typeof knownInputDecimals === "number"
+                ? Promise.resolve(knownInputDecimals)
+                : getTokenDecimals(inputMint);
+            const outputDecimalsPromise =
+              typeof knownOutputDecimals === "number"
+                ? Promise.resolve(knownOutputDecimals)
+                : getTokenDecimals(outputMint);
+            const inputDecimals = await inputDecimalsPromise;
+            const amountInSmallestUnit = Math.floor(
+              Number.parseFloat(amount) * 10 ** inputDecimals
+            ).toString();
 
-				const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=50`;
-				logger.debug("Fetching quote from Jupiter API:", url);
+            logger.debug("Token conversion:", {
+              fromToken,
+              inputMint,
+              toToken,
+              outputMint,
+              amount,
+              amountInSmallestUnit,
+              decimals: inputDecimals,
+            });
 
-				const response = await fetch(url, {
-					headers: { "x-api-key": swapConfig.apiKey },
-				});
+            const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=50`;
+            logger.debug("Fetching quote from Jupiter API:", url);
 
-				if (!response.ok) {
-					const errorText = await response.text();
-					logger.debug("Quote API error:", errorText);
-					throw new Error(
-						`Failed to get quote: ${response.statusText}`,
-					);
-				}
+            const response = await fetch(url, {
+              headers: buildJupiterHeaders(swapApiKey),
+              signal,
+            });
 
-				const data: JupiterQuoteResponse = await response.json();
-				logger.debug("Jupiter Quote response:", data);
+            if (!response.ok) {
+              const errorText = await response.text();
+              logger.debug("Quote API error:", errorText);
+              throw new Error(`Failed to get quote: ${response.statusText}`);
+            }
 
-				setQuoteResponse(data);
+            const data: JupiterQuoteResponse = await response.json();
+            logger.debug("Jupiter Quote response:", data);
 
-				const outputDecimals = await outputDecimalsPromise;
-				const outputAmount = (
-					Number.parseInt(data.outAmount, 10) /
-					10 ** outputDecimals
-				).toFixed(outputDecimals);
+            const outputDecimals = await outputDecimalsPromise;
+            const outputAmount = (
+              Number.parseInt(data.outAmount, 10) /
+              10 ** outputDecimals
+            ).toFixed(outputDecimals);
 
-				const priceImpact = `${(
-					Number.parseFloat(data.priceImpactPct) *
-					PERCENTAGE_MULTIPLIER
-				).toFixed(2)}%`;
+            const priceImpact = `${(
+              Number.parseFloat(data.priceImpactPct) * PERCENTAGE_MULTIPLIER
+            ).toFixed(2)}%`;
 
-				const quoteData: SwapQuote = {
-					inputAmount: amount,
-					outputAmount,
-					inputToken: fromToken,
-					outputToken: toToken,
-					priceImpact,
-					fee: undefined,
-				};
+            const quoteData: SwapQuote = {
+              inputAmount: amount,
+              outputAmount,
+              inputToken: fromToken,
+              outputToken: toToken,
+              priceImpact,
+              fee: undefined,
+            };
 
-				logger.debug("Parsed quote data:", quoteData);
-				setQuote(quoteData);
-				return quoteData;
-			} catch (err) {
-				const errorMessage =
-					err instanceof Error
-						? err.message
-						: "Failed to get quote";
-				setError(errorMessage);
-				logger.debug("Quote error:", err);
-				return null;
-			}
-		},
-		[getTokenDecimals, swapConfig],
-	);
+            return { data, quoteData };
+          },
+          JUPITER_QUOTE_TIMEOUT_MS,
+          JUPITER_QUOTE_TIMEOUT_ERROR
+        );
 
-	const executeSwap = useCallback(async (): Promise<SwapResult> => {
-		if (swapConfig.mode === "disabled") {
-			setError(swapConfig.reason);
-			return { success: false, error: swapConfig.reason };
-		}
+        logger.debug("Parsed quote data:", quoteData);
+        if (isCurrentQuoteRequest()) {
+          setQuoteResponse(data);
+          setQuote(quoteData);
+        }
+        return quoteData;
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error && err.name === "AbortError"
+            ? JUPITER_QUOTE_TIMEOUT_ERROR
+            : err instanceof Error
+            ? err.message
+            : "Failed to get quote";
+        if (isCurrentQuoteRequest()) {
+          setQuote(null);
+          setQuoteResponse(null);
+          setError(errorMessage);
+        }
+        logger.debug("Quote error:", err);
+        return null;
+      }
+    },
+    [getTokenDecimals, swapApiKey, swapMode, swapUnavailableReason]
+  );
 
-		if (!signer) {
-			const errorMsg = "Wallet not connected";
-			setError(errorMsg);
-			return { success: false, error: errorMsg };
-		}
+  const executeSwap = useCallback(async (): Promise<SwapResult> => {
+    if (swapMode === "disabled") {
+      const errorMessage = swapUnavailableReason ?? "Swap unavailable";
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
+    }
 
-		if (!quoteResponse) {
-			const errorMsg =
-				"No quote available. Please get a quote first.";
-			setError(errorMsg);
-			return { success: false, error: errorMsg };
-		}
+    if (!signer) {
+      const errorMsg = "Wallet not connected";
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
 
-		setLoading(true);
-		setError(null);
+    if (!quoteResponse) {
+      const errorMsg = "No quote available. Please get a quote first.";
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    }
 
-		try {
-			logger.debug("Executing swap with quote:", quoteResponse);
+    setLoading(true);
+    setError(null);
 
-			const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"x-api-key": (swapConfig as { apiKey: string }).apiKey,
-				},
-				body: JSON.stringify({
-					userPublicKey: signer.publicKey.toBase58(),
-					quoteResponse,
-					wrapAndUnwrapSol: true,
-					dynamicComputeUnitLimit: true,
-					prioritizationFeeLamports: {
-						priorityLevelWithMaxLamports: {
-							priorityLevel: "veryHigh",
-							maxLamports: 50_000_000,
-							global: true,
-						},
-					},
-				}),
-			});
+    try {
+      logger.debug("Executing swap with quote:", quoteResponse);
 
-			if (!swapResponse.ok) {
-				const errorText = await swapResponse.text();
-				logger.debug("Jupiter Swap API error:", errorText);
-				throw new Error(
-					`Jupiter Swap API failed: ${swapResponse.statusText}`,
-				);
-			}
+      const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
+        method: "POST",
+        headers: buildJupiterHeaders(swapApiKey, {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          userPublicKey: signer.publicKey.toBase58(),
+          quoteResponse,
+          wrapAndUnwrapSol: true,
+          dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: {
+            priorityLevelWithMaxLamports: {
+              priorityLevel: "veryHigh",
+              maxLamports: 50_000_000,
+              global: true,
+            },
+          },
+        }),
+      });
 
-			const swapData: JupiterSwapResponse = await swapResponse.json();
-			logger.debug("Jupiter Swap transaction response:", swapData);
+      if (!swapResponse.ok) {
+        const errorText = await swapResponse.text();
+        logger.debug("Jupiter Swap API error:", errorText);
+        throw new Error(`Jupiter Swap API failed: ${swapResponse.statusText}`);
+      }
 
-			const { swapTransaction: serializedTx } = swapData;
-			if (!serializedTx) {
-				throw new Error(
-					"No transaction returned from Jupiter Swap API",
-				);
-			}
+      const swapData: JupiterSwapResponse = await swapResponse.json();
+      logger.debug("Jupiter Swap transaction response:", swapData);
 
-			const txBuffer = Buffer.from(serializedTx, "base64");
-			const transaction =
-				VersionedTransaction.deserialize(new Uint8Array(txBuffer));
+      const { swapTransaction: serializedTx } = swapData;
+      if (!serializedTx) {
+        throw new Error("No transaction returned from Jupiter Swap API");
+      }
 
-			logger.debug("Signing and sending transaction...");
-			const signature = await sendTransactionViaSigner(
-				signer,
-				connection,
-				transaction,
-			);
+      const txBuffer = Buffer.from(serializedTx, "base64");
+      const transaction = VersionedTransaction.deserialize(
+        new Uint8Array(txBuffer)
+      );
 
-			logger.debug("Transaction sent:", signature);
+      logger.debug("Signing and sending transaction...");
+      const signature = await sendTransactionViaSigner(
+        signer,
+        connection,
+        transaction
+      );
 
-			const latestBlockhash =
-				await connection.getLatestBlockhash("confirmed");
-			const confirmation = await connection.confirmTransaction(
-				{
-					signature,
-					blockhash: latestBlockhash.blockhash,
-					lastValidBlockHeight:
-						latestBlockhash.lastValidBlockHeight,
-				},
-				"confirmed",
-			);
+      logger.debug("Transaction sent:", signature);
 
-			if (confirmation.value.err) {
-				throw new Error(
-					`Transaction failed: ${JSON.stringify(confirmation.value.err)}`,
-				);
-			}
+      const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+      const confirmation = await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: latestBlockhash.blockhash,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        },
+        "confirmed"
+      );
 
-			logger.debug("Transaction confirmed!");
-			setLoading(false);
-			return { signature, success: true };
-		} catch (err) {
-			let errorMessage = "Swap execution failed";
-			if (err instanceof Error) {
-				if (
-					err.message.includes("timeout") ||
-					err.message.includes("Timeout")
-				) {
-					errorMessage =
-						"Transaction signing timed out. Please try again and approve the transaction in your wallet promptly.";
-				} else if (err.message.includes("User rejected")) {
-					errorMessage =
-						"Transaction was rejected in your wallet.";
-				} else {
-					errorMessage = err.message;
-				}
-			}
-			setError(errorMessage);
-			logger.debug("Swap execution error:", err);
-			setLoading(false);
-			return { success: false, error: errorMessage };
-		}
-	}, [connection, signer, quoteResponse, swapConfig]);
+      if (confirmation.value.err) {
+        throw new Error(
+          `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
+        );
+      }
 
-	const resetQuote = useCallback(() => {
-		setQuote(null);
-		setQuoteResponse(null);
-		setError(null);
-	}, []);
+      logger.debug("Transaction confirmed!");
+      setLoading(false);
+      return { signature, success: true };
+    } catch (err) {
+      let errorMessage = "Swap execution failed";
+      if (err instanceof Error) {
+        if (
+          err.message.includes("timeout") ||
+          err.message.includes("Timeout")
+        ) {
+          errorMessage =
+            "Transaction signing timed out. Please try again and approve the transaction in your wallet promptly.";
+        } else if (err.message.includes("User rejected")) {
+          errorMessage = "Transaction was rejected in your wallet.";
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      setError(errorMessage);
+      logger.debug("Swap execution error:", err);
+      setLoading(false);
+      return { success: false, error: errorMessage };
+    }
+  }, [
+    connection,
+    signer,
+    quoteResponse,
+    swapApiKey,
+    swapMode,
+    swapUnavailableReason,
+  ]);
 
-	return {
-		getQuote,
-		executeSwap,
-		resetQuote,
-		quote,
-		loading,
-		error,
-		isAvailable: swapConfig.mode === "enabled",
-		unavailableReason:
-			swapConfig.mode === "disabled" ? swapConfig.reason : null,
-	};
+  const resetQuote = useCallback(() => {
+    quoteRequestIdRef.current += 1;
+    setQuote(null);
+    setQuoteResponse(null);
+    setError(null);
+  }, []);
+
+  return {
+    getQuote,
+    executeSwap,
+    resetQuote,
+    quote,
+    loading,
+    error,
+    isAvailable: swapMode === "enabled",
+    unavailableReason: swapUnavailableReason,
+  };
 }

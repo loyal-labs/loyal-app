@@ -19,13 +19,12 @@ export type PerEndpoints = {
 
 const DEFAULT_SOLANA_ENV: SolanaEnv = "devnet";
 const MAINNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
-  rpcEndpoint: "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com",
-  websocketEndpoint: "wss://guendolen-nvqjc4-fast-mainnet.helius-rpc.com",
+  rpcEndpoint: "https://fredra-z7l52f-fast-mainnet.helius-rpc.com",
+  websocketEndpoint: "wss://fredra-z7l52f-fast-mainnet.helius-rpc.com",
 };
 const DEVNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
-  rpcEndpoint: "https://aurora-o23cd4-fast-devnet.helius-rpc.com",
-  // Keep the public Solana websocket endpoint until Helius devnet WSS is reliable.
-  websocketEndpoint: "wss://api.devnet.solana.com",
+  rpcEndpoint: "https://karlotta-a6micy-fast-devnet.helius-rpc.com",
+  websocketEndpoint: "wss://karlotta-a6micy-fast-devnet.helius-rpc.com",
 };
 const TESTNET_SOLANA_ENDPOINTS: SolanaEndpoints = {
   rpcEndpoint: "https://api.testnet.solana.com",
@@ -39,9 +38,9 @@ const MAINNET_PER_ENDPOINTS: PerEndpoints = {
   perRpcEndpoint: "https://mainnet-tee.magicblock.app",
   perWsEndpoint: "wss://mainnet-tee.magicblock.app",
 };
-const NON_MAINNET_PER_ENDPOINTS: PerEndpoints = {
-  perRpcEndpoint: "https://tee.magicblock.app",
-  perWsEndpoint: "wss://tee.magicblock.app",
+const DEVNET_PER_ENDPOINTS: PerEndpoints = {
+  perRpcEndpoint: "https://devnet-tee.magicblock.app",
+  perWsEndpoint: "wss://devnet-tee.magicblock.app",
 };
 const SOLANA_ENDPOINTS_BY_ENV: Record<SolanaEnv, SolanaEndpoints> = {
   mainnet: MAINNET_SOLANA_ENDPOINTS,
@@ -51,11 +50,11 @@ const SOLANA_ENDPOINTS_BY_ENV: Record<SolanaEnv, SolanaEndpoints> = {
 };
 const PER_ENDPOINTS_BY_ENV: Record<SolanaEnv, PerEndpoints> = {
   mainnet: MAINNET_PER_ENDPOINTS,
-  // Keep non-mainnet environments aligned on the devnet PER cluster until
-  // dedicated testnet/localnet PER endpoints exist.
-  testnet: NON_MAINNET_PER_ENDPOINTS,
-  devnet: NON_MAINNET_PER_ENDPOINTS,
-  localnet: NON_MAINNET_PER_ENDPOINTS,
+  // MagicBlock does not offer testnet/localnet PER; use devnet TEE for
+  // non-mainnet PER traffic.
+  testnet: DEVNET_PER_ENDPOINTS,
+  devnet: DEVNET_PER_ENDPOINTS,
+  localnet: DEVNET_PER_ENDPOINTS,
 };
 
 const isSolanaEnv = (value: string): value is SolanaEnv =>
@@ -68,7 +67,7 @@ const trimOptionalValue = (value: string | undefined): string | undefined => {
 
 export const resolveSolanaEnv = (
   value?: string,
-  defaultEnv: SolanaEnv = DEFAULT_SOLANA_ENV,
+  defaultEnv: SolanaEnv = DEFAULT_SOLANA_ENV
 ): SolanaEnv => {
   const normalizedValue = trimOptionalValue(value);
   if (!normalizedValue) {

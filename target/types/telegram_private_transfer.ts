@@ -95,6 +95,107 @@ export type TelegramPrivateTransfer = {
       ]
     },
     {
+      "name": "closeDeposit",
+      "docs": [
+        "Closes an empty user deposit account and returns its rent to the deposit owner."
+      ],
+      "discriminator": [
+        200,
+        19,
+        254,
+        192,
+        15,
+        110,
+        209,
+        179
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "deposit"
+          ]
+        },
+        {
+          "name": "deposit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "account",
+                "path": "tokenMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenMint",
+          "relations": [
+            "deposit"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "closeUsernameDeposit",
+      "docs": [
+        "Closes an empty username deposit account after verified username ownership."
+      ],
+      "discriminator": [
+        238,
+        181,
+        185,
+        209,
+        149,
+        161,
+        124,
+        79
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "deposit",
+          "writable": true
+        },
+        {
+          "name": "tokenMint",
+          "relations": [
+            "deposit"
+          ]
+        },
+        {
+          "name": "session"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "createPermission",
       "docs": [
         "Creates a permission for a deposit account using the external permission program.",
@@ -806,10 +907,20 @@ export type TelegramPrivateTransfer = {
     {
       "name": "modifyBalance",
       "docs": [
-        "Modifies the balance of a user's deposit account by transferring tokens in or out.",
+        "Modifies a user's deposit balance and the backing vault position for the given mint.",
         "",
-        "If `args.increase` is true, tokens are transferred from the user's token account to the deposit account.",
-        "If false, tokens are transferred from the deposit account back to the user's token account."
+        "For non-USDC mints, this is a direct vault transfer: if `args.increase` is true, `args.amount`",
+        "is transferred from the user's token account to the vault token account and added to",
+        "`deposit.amount`. If false, `args.amount` is transferred from the vault token account back to",
+        "the user's token account and subtracted from `deposit.amount`.",
+        "",
+        "For USDC, liquidity is routed through Kamino Lending instead of being left idle in the vault.",
+        "If `args.increase` is true, `args.amount` USDC is transferred into the vault token account,",
+        "supplied to the configured Kamino reserve, and `deposit.amount` is increased by the Kamino",
+        "reserve collateral shares (kTokens) minted to the vault. If false, `args.amount` is",
+        "interpreted as the Kamino share amount to redeem; the reserve returns the corresponding USDC",
+        "at the current exchange rate, that USDC is transferred from the vault token account to the",
+        "user's token account, and `deposit.amount` is decreased by the burned share amount."
       ],
       "discriminator": [
         148,
@@ -1118,14 +1229,82 @@ export type TelegramPrivateTransfer = {
           "writable": true
         },
         {
-          "name": "buffer"
+          "name": "buffer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  45,
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "baseAccount"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                181,
+                183,
+                0,
+                225,
+                242,
+                87,
+                58,
+                192,
+                204,
+                6,
+                34,
+                1,
+                52,
+                74,
+                207,
+                151,
+                184,
+                53,
+                6,
+                235,
+                140,
+                229,
+                25,
+                152,
+                204,
+                98,
+                126,
+                24,
+                147,
+                128,
+                167,
+                62
+              ]
+            }
+          }
         },
         {
           "name": "payer",
           "writable": true
         },
         {
-          "name": "systemProgram"
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1157,6 +1336,7 @@ export type TelegramPrivateTransfer = {
       "accounts": [
         {
           "name": "user",
+          "signer": true,
           "relations": [
             "sourceDeposit"
           ]
@@ -1165,10 +1345,6 @@ export type TelegramPrivateTransfer = {
           "name": "payer",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "sessionToken",
-          "optional": true
         },
         {
           "name": "sourceDeposit",
@@ -1275,6 +1451,7 @@ export type TelegramPrivateTransfer = {
       "accounts": [
         {
           "name": "user",
+          "signer": true,
           "relations": [
             "sourceDeposit"
           ]
@@ -1283,10 +1460,6 @@ export type TelegramPrivateTransfer = {
           "name": "payer",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "sessionToken",
-          "optional": true
         },
         {
           "name": "sourceDeposit",
@@ -1363,16 +1536,13 @@ export type TelegramPrivateTransfer = {
       ],
       "accounts": [
         {
-          "name": "user"
+          "name": "user",
+          "signer": true
         },
         {
           "name": "payer",
           "writable": true,
           "signer": true
-        },
-        {
-          "name": "sessionToken",
-          "optional": true
         },
         {
           "name": "deposit",
@@ -1524,19 +1694,6 @@ export type TelegramPrivateTransfer = {
       ]
     },
     {
-      "name": "sessionToken",
-      "discriminator": [
-        233,
-        4,
-        115,
-        14,
-        46,
-        21,
-        1,
-        15
-      ]
-    },
-    {
       "name": "telegramSession",
       "discriminator": [
         166,
@@ -1646,6 +1803,11 @@ export type TelegramPrivateTransfer = {
       "code": 6013,
       "name": "invalidAmount",
       "msg": "Invalid amount"
+    },
+    {
+      "code": 6014,
+      "name": "nonZeroDeposit",
+      "msg": "Deposit account must have zero amount before it can be closed"
     }
   ],
   "types": [
@@ -1688,30 +1850,6 @@ export type TelegramPrivateTransfer = {
           {
             "name": "increase",
             "type": "bool"
-          }
-        ]
-      }
-    },
-    {
-      "name": "sessionToken",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "targetProgram",
-            "type": "pubkey"
-          },
-          {
-            "name": "sessionSigner",
-            "type": "pubkey"
-          },
-          {
-            "name": "validUntil",
-            "type": "i64"
           }
         ]
       }
