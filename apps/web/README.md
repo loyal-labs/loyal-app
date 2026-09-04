@@ -71,13 +71,23 @@ session cookie is issued.
 
 `/api/funding/evm-deposit-address` returns a permanent `0x` address per
 embedded Solana wallet (stored on `app_user_wallets.evm_deposit_address`).
-USDC/USDT/ETH sent there on Ethereum, Base, Arbitrum or Polygon is bridged by
-Privy and delivered as USDC to the user's Solana wallet; the app pays bridge
-gas (Privy dashboard: swaps + app-pays sponsorship on those chains). First
-call is two-step: `GET` returns the Privy request to sign, the browser signs it
-with the user's Privy key (`useAuthorizationSignature`), `POST` forwards the
-signature. External wallets get 409. UI: Receive sheet → "Other chains". The HttpOnly wallet session cookie uses a 7 day TTL
-and refreshes locally once it is at least 24 hours old.
+USDC/USDT/ETH sent there on Ethereum, Base, Arbitrum, Polygon or BNB Chain
+(`bsc`) is bridged by Privy and delivered as USDC to the user's Solana wallet;
+the app pays bridge gas (Privy dashboard: swaps + app-pays sponsorship on
+those chains). First call is two-step: `GET` returns the Privy request to
+sign, the browser signs it with the user's Privy key
+(`useAuthorizationSignature`), `POST` forwards the signature. External wallets
+get 409. UI: Receive sheet → "Other chains".
+
+Adding a chain: enable app-pays sponsorship for it in the Privy dashboard,
+add it to `EVM_DEPOSIT_CHAINS` (and `CHAIN_LABELS` in the receive sheet).
+Existing addresses do not pick up new chains by themselves: all deposit
+addresses share one app-level Privy wallet automation
+(`GET /v1/wallet_automations`), so `PATCH` its `config.trigger.assets.values`
+with the new chain/asset pairs once (done for BNB on 2026-09-04).
+
+The HttpOnly wallet session cookie uses a 7 day TTL and refreshes locally once
+it is at least 24 hours old.
 
 ## Development
 
