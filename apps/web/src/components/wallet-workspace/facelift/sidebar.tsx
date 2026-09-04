@@ -22,6 +22,7 @@ import { ReceiveSheet } from "@/components/wallet-workspace/facelift/receive-she
 import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { AddEmailNudge } from "@/components/auth/add-email-nudge";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useAuthSession } from "@/contexts/auth-session-context";
@@ -167,7 +168,7 @@ export function FaceliftSidebar({
   // disconnect must stay clickable in that half-connected limbo to clear it.
   const canDisconnect = isAuthenticated || isWalletConnected;
   const { isBalanceHidden, toggleBalanceHidden } = useBalanceVisibility();
-  const { open: openSignIn } = useSignInModal();
+  const { open: openSignIn, openAccount } = useSignInModal();
   const { isDark, toggleTheme } = useTheme();
   const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
@@ -414,6 +415,10 @@ export function FaceliftSidebar({
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="w-full px-2">
+        <AddEmailNudge />
       </div>
 
       <nav className="flex w-full flex-1 flex-col py-2">
@@ -753,6 +758,22 @@ export function FaceliftSidebar({
             isOpen={cherryRuntime.mode === "standalone" && isWalletMenuOpen}
             origin="bottom-left"
           >
+            {publicEnv.privyAppId && isAuthenticated ? (
+              <button
+                className="t-hover flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-foreground leading-5 hover:bg-accent"
+                onClick={() => {
+                  setIsWalletMenuOpen(false);
+                  openAccount();
+                }}
+                type="button"
+              >
+                <ThemedIcon
+                  className="size-5 text-tertiary"
+                  src={`${ASSET_BASE}/icon-gear.svg`}
+                />
+                Account
+              </button>
+            ) : null}
             <button
               className="t-hover flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-foreground leading-5 enabled:hover:bg-accent disabled:text-tertiary"
               disabled={!canDisconnect}

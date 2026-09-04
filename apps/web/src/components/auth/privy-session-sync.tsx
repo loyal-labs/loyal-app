@@ -31,6 +31,9 @@ type PrivyAuthState = {
   step: Step;
   error: string | null;
   start: () => void;
+  // Signed in through the legacy wallet flow (no Privy user yet): log the
+  // same wallet into Privy, re-issue the session, then prompt for email.
+  addEmail: () => void;
 };
 
 const PrivyAuthContext = createContext<PrivyAuthState | null>(null);
@@ -82,7 +85,8 @@ function Inner({ children }: { children: ReactNode }) {
   const { createWallet } = useCreateWallet();
   const { ready: walletsReady, wallets: privyWallets } = useWallets();
   const adapter = useWallet();
-  const { isHydrated, isAuthenticated, refreshSession } = useAuthSession();
+  const { isHydrated, isAuthenticated, refreshSession, user } =
+    useAuthSession();
   const {
     openAccount: openSignInModal,
     close: closeSignInModal,
@@ -143,6 +147,17 @@ function Inner({ children }: { children: ReactNode }) {
     }
   }, [authenticated, login, setWantsSession]);
 
+  const addEmail = useCallback(() => {
+    if (authenticated) {
+      linkEmail();
+      return;
+    }
+    setError(null);
+    setWantsSession(true);
+    setStep("privy");
+    login({ loginMethods: ["wallet"], walletChainType: "solana-only" });
+  }, [authenticated, linkEmail, login, setWantsSession]);
+
   // "Connect" anywhere on the page goes straight to Privy while signed out;
   // signed in, the modal shows the Account view as before.
   useEffect(() => {
@@ -183,6 +198,20 @@ function Inner({ children }: { children: ReactNode }) {
       (embedded && "address" in embedded ? embedded.address : null);
     loginAddressRef.current = null;
 
+    // Add-email from a legacy session: Privy must have been logged in with
+    // the wallet that session is on, else we'd silently switch accounts.
+    if (user?.walletAddress) {
+      if (!linkedAddresses.has(user.walletAddress)) {
+        await logout();
+        const short = `${user.walletAddress.slice(
+          0,
+          4
+        )}…${user.walletAddress.slice(-4)}`;
+        throw new Error(`Sign in with ${short} to add an email.`);
+      }
+      address = user.walletAddress;
+    }
+
     if (!address) {
       setStep("creating_wallet");
       const { wallet } = await createWallet();
@@ -216,16 +245,18 @@ function Inner({ children }: { children: ReactNode }) {
     closeSignInModal,
     createWallet,
     linkEmail,
+    logout,
     privyUser,
     privyWallets,
     refreshSession,
     refreshUser,
+    user?.walletAddress,
   ]);
 
   // Sign-in: run once everything is ready, whichever order it arrives in.
   useEffect(() => {
     if (!wantsSession || !authenticated || !walletsReady || !privyUser) return;
-    if (isAuthenticated || runningRef.current) return;
+    if (runningRef.current) return;
     runningRef.current = true;
     void completeSignIn()
       .catch((e) => {
@@ -240,7 +271,6 @@ function Inner({ children }: { children: ReactNode }) {
   }, [
     authenticated,
     completeSignIn,
-    isAuthenticated,
     openSignInModal,
     privyUser,
     setWantsSession,
@@ -252,7 +282,6 @@ function Inner({ children }: { children: ReactNode }) {
   // disconnected (or on whatever it auto-connected to). Earn actions require
   // the connected wallet to equal the session wallet, so re-select the one
   // Privy says owns the address — same step completeSignIn does at login.
-  const { user } = useAuthSession();
   useEffect(() => {
     if (!isHydrated || !isAuthenticated || !walletsReady) return;
     const address = user?.walletAddress;
@@ -295,8 +324,8 @@ function Inner({ children }: { children: ReactNode }) {
   }, [authenticated, isAuthenticated, isHydrated, logout, ready, wantsSession]);
 
   const value = useMemo(
-    () => ({ ready, step, error, start }),
-    [ready, step, error, start]
+    () => ({ ready, step, error, start, addEmail }),
+    [ready, step, error, start, addEmail]
   );
   return (
     <PrivyAuthContext.Provider value={value}>
