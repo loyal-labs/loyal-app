@@ -1,3 +1,4 @@
+import { useUnshield } from "@loyal-labs/wallet-core/hooks";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowDown, ArrowUp } from "lucide-react-native";
 import {
@@ -23,6 +24,7 @@ import { BalanceCard } from "@/components/wallet/BalanceCard";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
+import { UnshieldSheet } from "@/components/wallet/UnshieldSheet";
 import { shouldShowWalletTopUp } from "@/components/wallet/wallet-screen-helpers";
 import {
   filterHoldingsByCategory,
@@ -101,6 +103,13 @@ export default function WalletScreen() {
   // screen / APY chart / web, not the position's raw reserve supply APY.
   const forecastSummary = useEarnForecast();
   const { signer, state } = useWallet();
+  // Legacy shielded balances (ASK-2269): the Unshield action only appears while
+  // the wallet still holds one.
+  const {
+    balances: shieldedBalances,
+    executeUnshield,
+    refreshBalances: refreshShieldedBalances,
+  } = useUnshield(signer, getSolanaEnv());
 
   const doFullRefresh = useCallback(
     async (reason: WalletRefreshReason) => {
@@ -255,6 +264,7 @@ export default function WalletScreen() {
   const [sendWithScanner, setSendWithScanner] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [isUnshieldOpen, setIsUnshieldOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
   const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
@@ -499,6 +509,16 @@ export default function WalletScreen() {
         onSwapComplete={handleSwapComplete}
       />
 
+      <UnshieldSheet
+        open={isUnshieldOpen}
+        onClose={() => setIsUnshieldOpen(false)}
+        balances={shieldedBalances}
+        executeUnshield={executeUnshield}
+        tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
+        onUnshieldComplete={() => void requestRefresh("mutation")}
+      />
+
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
@@ -515,6 +535,14 @@ export default function WalletScreen() {
           track(PORTFOLIO_EVENTS.openSwap);
           setIsSwapOpen(true);
         }}
+        onUnshield={
+          shieldedBalances.length > 0
+            ? () => {
+                void refreshShieldedBalances();
+                setIsUnshieldOpen(true);
+              }
+            : undefined
+        }
       />
 
       <BalanceBackgroundPicker

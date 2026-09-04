@@ -1,3 +1,4 @@
+import { useUnshield } from "@loyal-labs/wallet-core/hooks";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowDown, ArrowLeft, ArrowUp, ScanLine } from "lucide-react-native";
@@ -19,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { SwapSheet } from "@/components/wallet/SwapSheet";
+import { UnshieldSheet } from "@/components/wallet/UnshieldSheet";
 import { buildTokenDetailHref } from "@/features/token-details/routes";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
 import { useTokenDetails } from "@/hooks/wallet/useTokenDetails";
@@ -36,6 +38,7 @@ import {
   getDisplayTokenHoldings,
   getPairPositions,
 } from "@/lib/solana/token-holdings/display-holdings";
+import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
 import {
@@ -68,6 +71,13 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const { solPriceUsd } = useSolPrice();
   const { tokenHoldings, isHoldingsLoading, refreshTokenHoldings } =
     useTokenHoldings(walletAddress);
+  const { signer } = useWallet();
+  // Legacy shielded balances (ASK-2269): Unshield shows only while one exists.
+  const {
+    balances: shieldedBalances,
+    executeUnshield,
+    refreshBalances: refreshShieldedBalances,
+  } = useUnshield(signer, getSolanaEnv());
 
   // Source card geometry passed by the wallet grid, so this page can expand out
   // of (and collapse back into) the tapped card. Absent on direct navigation.
@@ -134,6 +144,7 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const [scanOnOpen, setScanOnOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
   const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [isUnshieldOpen, setIsUnshieldOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
   const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
@@ -374,6 +385,16 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         initialFromMint={initialMint}
       />
 
+      <UnshieldSheet
+        open={isUnshieldOpen}
+        onClose={() => setIsUnshieldOpen(false)}
+        balances={shieldedBalances}
+        executeUnshield={executeUnshield}
+        tokenHoldings={tokenHoldings}
+        tokenDetailsByMint={tokenDetailsByMint}
+        onUnshieldComplete={refresh}
+      />
+
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
@@ -384,6 +405,14 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
         }}
         onReceive={() => setIsReceiveOpen(true)}
         onSwap={() => setIsSwapOpen(true)}
+        onUnshield={
+          shieldedBalances.length > 0
+            ? () => {
+                void refreshShieldedBalances();
+                setIsUnshieldOpen(true);
+              }
+            : undefined
+        }
       />
     </>
   );

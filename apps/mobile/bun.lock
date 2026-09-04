@@ -11,6 +11,7 @@
         "@expo/vector-icons": "^15.0.3",
         "@gorhom/bottom-sheet": "^5.2.8",
         "@lottiefiles/dotlottie-react": "^0.18.3",
+        "@loyal-labs/private-transactions": "0.2.11",
         "@loyal-labs/shared": "file:../../packages/shared",
         "@loyal-labs/solana-rpc": "file:../../packages/solana-rpc",
         "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1",
@@ -556,6 +557,8 @@
     "@lottiefiles/dotlottie-react": ["@lottiefiles/dotlottie-react@0.18.3", "", { "dependencies": { "@lottiefiles/dotlottie-web": "0.65.0" }, "peerDependencies": { "react": "^17 || ^18 || ^19" } }, "sha512-/6iVC4y9KCyPKS2gDUFp+omYndo3KPombAsZXB0h5sSyEO/+ydVppd5fIoHg2ogGAPOCPK97Y5Eos65JnyTjww=="],
 
     "@lottiefiles/dotlottie-web": ["@lottiefiles/dotlottie-web@0.65.0", "", {}, "sha512-D5ALEwZerjy+MkOv9mMjY7bxRfe7rQPWMtDl8hlNYLnrDKj4AzTaRztZ2u5hBHHiSfSc7TnA4MJgq+ktNZPpIg=="],
+
+    "@loyal-labs/private-transactions": ["@loyal-labs/private-transactions@0.2.11", "", { "peerDependencies": { "@coral-xyz/anchor": "^0.32.0", "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1", "@solana/spl-token": "^0.4.14", "@solana/web3.js": "^1.95.0" } }, "sha512-bQkNIBix7TZ94ti8mCkTaK8j9DIJVQt/GBe5QVw19nQEDDxyBM31truYJXAweZqZJdG3jlBu9Xq7PySWLbLO6Q=="],
 
     "@loyal-labs/shared": ["@loyal-labs/shared@file:../../packages/shared", {}],
 
