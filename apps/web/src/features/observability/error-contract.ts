@@ -154,6 +154,9 @@ export type NormalizedErrorEvent = {
   release: string;
   runtime: ObservabilityRuntime;
   serviceName: "loyal-frontend" | "loyal-mobile";
+  // Defaults to ERROR. WARN keeps a record out of the error alerts (e.g. CSP
+  // report-only violations, which are informational until enforced).
+  severity?: "ERROR" | "WARN";
   timestamp: string;
 };
 

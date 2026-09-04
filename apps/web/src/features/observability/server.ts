@@ -201,6 +201,7 @@ export async function reportServerError(
     method?: string;
     operation: ServerErrorOperation;
     pathname: string;
+    severity?: NormalizedErrorEvent["severity"];
   }
 ): Promise<boolean> {
   try {
@@ -229,6 +230,7 @@ export async function reportServerError(
       release: getObservabilityRelease(),
       runtime: "node",
       serviceName: "loyal-frontend",
+      ...(options.severity ? { severity: options.severity } : {}),
       timestamp: new Date().toISOString(),
     });
   } catch {
