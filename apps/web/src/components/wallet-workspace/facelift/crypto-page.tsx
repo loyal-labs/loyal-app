@@ -41,7 +41,11 @@ import {
   SwapTokenSelectPane,
 } from "@/components/wallet-workspace/facelift/swap-pane";
 import { TokenDetailPane } from "@/components/wallet-workspace/facelift/token-detail-pane";
-import { UnshieldPane } from "@/components/wallet-workspace/facelift/unshield-pane";
+import {
+  type ShieldedRow,
+  toShieldedRow,
+  UnshieldPane,
+} from "@/components/wallet-workspace/facelift/unshield-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -132,10 +136,23 @@ export function CryptoPage({
     publicEnv.solanaEnv
   );
   const [isUnshieldOpen, setIsUnshieldOpen] = useState(false);
+  const [unshieldMint, setUnshieldMint] = useState<string | undefined>();
 
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
+  );
+  // Shielded balances as display rows, split by the same stablecoin rule as
+  // the public assets so each lands on its own page.
+  const shieldedRows = useMemo<ShieldedRow[]>(
+    () =>
+      shieldedBalances
+        .map((balance) => toShieldedRow(balance, data.positions))
+        .filter(
+          (row) =>
+            isStablecoinMint(row.mint, stablecoinMints) === (page === "stables")
+        ),
+    [data.positions, page, shieldedBalances, stablecoinMints]
   );
   // Same numbers the sidebar rows show: stablecoins summed by mint, crypto =
   // wallet total minus stablecoins.
@@ -373,11 +390,15 @@ export function CryptoPage({
     setSwapSelectSide(null);
   }, []);
 
-  const openUnshield = useCallback(() => {
-    setViewStack([]);
-    closeSwap();
-    setIsUnshieldOpen(true);
-  }, [closeSwap]);
+  const openUnshield = useCallback(
+    (mint?: string) => {
+      setViewStack([]);
+      closeSwap();
+      setUnshieldMint(mint);
+      setIsUnshieldOpen(true);
+    },
+    [closeSwap]
+  );
   const closeUnshield = useCallback(() => setIsUnshieldOpen(false), []);
 
   // Sidebar navigation abandons any in-progress action screen — the same rule
@@ -612,12 +633,14 @@ export function CryptoPage({
               />
             ) : isUnshieldOpen ? (
               <UnshieldPane
-                balances={shieldedBalances}
                 executeUnshield={executeUnshield}
+                initialMint={unshieldMint}
                 onBack={closeUnshield}
                 onDone={closeUnshield}
                 onSuccess={refreshWallet}
-                positions={data.positions}
+                rows={shieldedBalances.map((balance) =>
+                  toShieldedRow(balance, data.positions)
+                )}
               />
             ) : null
           }
@@ -635,6 +658,7 @@ export function CryptoPage({
                 shieldedBalances.length > 0 ? openUnshield : undefined
               }
               rowActions={rowActions}
+              shieldedRows={shieldedRows}
               tokenRows={
                 page === "stables"
                   ? data.cashTokenRows

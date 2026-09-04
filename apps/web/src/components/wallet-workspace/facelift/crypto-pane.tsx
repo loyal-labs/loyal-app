@@ -8,6 +8,10 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
+import {
+  type ShieldedRow,
+  ShieldedTokenIcon,
+} from "@/components/wallet-workspace/facelift/unshield-pane";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
@@ -254,6 +258,54 @@ function TokenCell({
   );
 }
 
+// A balance still held in the sunset private-transfer program, listed under
+// the public assets so it is visible without opening the exit flow. Click
+// opens Unshield with this token preselected.
+function ShieldedCell({
+  isBalanceHidden,
+  onUnshield,
+  row,
+}: {
+  isBalanceHidden: boolean;
+  onUnshield: (mint: string) => void;
+  row: ShieldedRow;
+}) {
+  return (
+    <button
+      className="group relative flex w-full cursor-pointer items-center rounded-2xl px-4 text-left transition-colors duration-150 hover:bg-accent"
+      onClick={() => onUnshield(row.mint)}
+      type="button"
+    >
+      <span className="flex shrink-0 items-center py-2 pr-3">
+        <ShieldedTokenIcon icon={row.icon} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
+        <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
+          {row.symbol}
+        </span>
+        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+          <ScrambleText
+            isHidden={isBalanceHidden}
+            text={`${row.amountLabel} ${row.symbol} shielded`}
+          />
+        </span>
+      </span>
+      <span className="relative flex shrink-0 items-center justify-end pl-3">
+        <span className="flex flex-col items-end justify-center gap-0.5 py-[11px] transition-opacity duration-150 group-hover:opacity-0">
+          {row.valueLabel ? (
+            <SplitUsd isHidden={isBalanceHidden} value={row.valueLabel} />
+          ) : null}
+        </span>
+        <span className="pointer-events-none absolute right-0 flex items-center rounded-[40px] bg-secondary opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-hover:delay-100">
+          <span className="flex min-w-16 items-center justify-center rounded-[40px] bg-foreground px-4 py-2.5 font-medium text-[13px] text-background leading-4">
+            Unshield
+          </span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
 // Figma 4813:338844 (wide) / 4813:339148 (downsized) — the Crypto middle
 // pane, and via variant="stables" the Stablecoins one (4813:339437 /
 // 4813:339683): header actions, the stash balance cell, then the asset list.
@@ -267,6 +319,7 @@ export function CryptoPane({
   onSwap,
   onUnshield,
   rowActions,
+  shieldedRows = [],
   tokenRows,
   variant,
 }: {
@@ -278,8 +331,10 @@ export function CryptoPane({
   onSend: () => void;
   onSwap: () => void;
   /** Exit path for legacy shielded balances; only passed when the wallet holds some. */
-  onUnshield?: () => void;
+  onUnshield?: (mint?: string) => void;
   rowActions: CryptoRowActions;
+  /** Balances still held in the private-transfer program, listed under the assets. */
+  shieldedRows?: ShieldedRow[];
   tokenRows: TokenRow[];
   variant: CryptoPaneVariant;
 }) {
@@ -317,7 +372,7 @@ export function CryptoPane({
                 icon="icon-withdraw-arrow.svg"
                 iconColorClass="text-tertiary"
                 label="Unshield"
-                onClick={onUnshield}
+                onClick={() => onUnshield()}
               />
             ) : null}
             <HeaderPill
@@ -406,6 +461,21 @@ export function CryptoPane({
               variant={variant}
             />
           ))}
+          {onUnshield && shieldedRows.length > 0 ? (
+            <>
+              <p className="px-4 pt-4 pb-2 font-semibold text-[16px] text-foreground leading-5">
+                Shielded
+              </p>
+              {shieldedRows.map((row) => (
+                <ShieldedCell
+                  isBalanceHidden={isBalanceHidden}
+                  key={row.mint}
+                  onUnshield={onUnshield}
+                  row={row}
+                />
+              ))}
+            </>
+          ) : null}
         </div>
       </section>
 
@@ -441,7 +511,7 @@ export function CryptoPane({
         {onUnshield ? (
           <button
             className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-secondary p-2.5"
-            onClick={onUnshield}
+            onClick={() => onUnshield()}
             type="button"
           >
             <ThemedIcon
