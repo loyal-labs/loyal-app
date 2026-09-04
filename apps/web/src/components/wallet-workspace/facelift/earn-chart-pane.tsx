@@ -31,6 +31,15 @@ const FORECAST_PRINCIPAL_USD = 6000;
 
 export type ChartTab = (typeof CHART_TABS)[number];
 
+// Product variant slot: Earn MAX reuses the whole chart card / expanded
+// overlay machinery (tabs pill, resize/entrance motion, Esc handling) but
+// brings its own tab set and body renderers.
+export type ChartCardCustomContent = {
+  defaultTab: ChartTab;
+  renderBody: (activeTab: ChartTab, isExpanded: boolean) => ReactNode;
+  tabs: readonly ChartTab[];
+};
+
 // transitions.dev "Tabs sliding" (frontend/transitions/tabs-sliding.md): the
 // white active pill is one absolutely-positioned span that tweens between the
 // measured offset/width of the selected tab. First paint and resizes write
@@ -157,6 +166,7 @@ function ChartBody({
 export function EarnChartCard({
   actionAriaLabel,
   actionIconSrc,
+  custom,
   earnData,
   footer,
   isExpanded = false,
@@ -168,6 +178,7 @@ export function EarnChartCard({
 }: {
   actionAriaLabel: string;
   actionIconSrc: string;
+  custom?: ChartCardCustomContent;
   earnData: EarnPositionData;
   footer?: ReactNode;
   isExpanded?: boolean;
@@ -185,13 +196,17 @@ export function EarnChartCard({
   // 4693:67592); it becomes the default view when it appears, unless the
   // user already picked a tab by hand.
   const hasEarnedTab = earnData.hasPosition;
-  const visibleTabs: readonly ChartTab[] = hasEarnedTab
+  const visibleTabs: readonly ChartTab[] = custom
+    ? custom.tabs
+    : hasEarnedTab
     ? CHART_TABS
     : CHART_TABS.filter((tab) => tab !== "Earned");
   const activeTab: ChartTab = isLoggedOut
     ? "APY"
     : selectedTab && visibleTabs.includes(selectedTab)
     ? selectedTab
+    : custom
+    ? custom.defaultTab
     : hasEarnedTab
     ? "Earned"
     : "APY";
@@ -244,14 +259,20 @@ export function EarnChartCard({
           />
         </button>
       </header>
-      <ChartBody
-        activeTab={activeTab}
-        apy={apy}
-        earnData={earnData}
-        isApyLoaded={isApyLoaded}
-        isExpanded={isExpanded}
-        mainUsdcReserveApyBps={mainUsdcReserveApyBps}
-      />
+      {custom ? (
+        <div className="flex min-h-0 w-full flex-1 flex-col px-6 pt-2 pb-6">
+          {custom.renderBody(activeTab, isExpanded)}
+        </div>
+      ) : (
+        <ChartBody
+          activeTab={activeTab}
+          apy={apy}
+          earnData={earnData}
+          isApyLoaded={isApyLoaded}
+          isExpanded={isExpanded}
+          mainUsdcReserveApyBps={mainUsdcReserveApyBps}
+        />
+      )}
       {footer}
     </section>
   );
@@ -265,6 +286,7 @@ export function EarnChartCard({
 // then enlarges leftward on the t-resize clock (transitions.dev card resize).
 // Kept mounted while closing so the fade-out plays before unmount.
 function ExpandedChartOverlay({
+  custom,
   earnData,
   isLoggedOut = false,
   isOpen,
@@ -272,6 +294,7 @@ function ExpandedChartOverlay({
   onSelectTab,
   selectedTab,
 }: {
+  custom?: ChartCardCustomContent;
   earnData: EarnPositionData;
   isLoggedOut?: boolean;
   isOpen: boolean;
@@ -382,6 +405,7 @@ function ExpandedChartOverlay({
           <EarnChartCard
             actionAriaLabel="Close expanded chart"
             actionIconSrc={`${ASSET_BASE}/icon-cross.svg`}
+            custom={custom}
             earnData={earnData}
             isLoggedOut={isLoggedOut}
             footer={
@@ -409,6 +433,7 @@ function ExpandedChartOverlay({
 
 export function EarnChartPane({
   banner,
+  custom,
   earnData,
   hideAside = false,
   isExpanded,
@@ -418,6 +443,7 @@ export function EarnChartPane({
   selectedTab,
   statsPanel,
 }: {
+  custom?: ChartCardCustomContent;
   // Optional promo banner (EarnBanners) overlaying the bottom of the right
   // pane — Earn root only; slotted in so the shell owns its actions.
   banner?: ReactNode;
@@ -462,6 +488,7 @@ export function EarnChartPane({
           <EarnChartCard
             actionAriaLabel="Expand chart"
             actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
+            custom={custom}
             earnData={earnData}
             isLoggedOut={isLoggedOut}
             onAction={() => onExpandedChange(true)}
@@ -478,6 +505,7 @@ export function EarnChartPane({
       )}
 
       <ExpandedChartOverlay
+        custom={custom}
         earnData={earnData}
         isLoggedOut={isLoggedOut}
         isOpen={isExpanded}

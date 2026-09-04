@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { ActivityPage } from "@/components/wallet-workspace/facelift/activity-page";
@@ -20,12 +20,17 @@ import {
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
-import { EarnMaxPage } from "@/components/wallet-workspace/facelift/earn-max-pane";
+import {
+  buildEarnMaxEarnedBars,
+  EarnMaxWorkspace,
+  isEarnMaxUntouched,
+} from "@/components/wallet-workspace/facelift/earn-max-pane";
+import { useEarnEarnedData } from "@/components/wallet-workspace/facelift/earned-chart";
 import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
-import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
+import { SettingsSheet } from "@/components/wallet-workspace/facelift/settings-sheet";
 import {
   MiddlePaneSlide,
   PaneReveal,
@@ -60,12 +65,13 @@ export type WorkspacePage =
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit" | "autoswap";
 
 const PAGE_STORAGE_KEY = "loyal:workspace-page";
-const EARN_MAX_VISIBLE = false;
+const EARN_MAX_VISIBLE = true;
 const WORKSPACE_PAGES: WorkspacePage[] = [
   "crypto",
   "stables",
   "activity",
   "earn",
+  "earnmax",
   "wallet",
 ];
 
@@ -74,6 +80,7 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
   a: "activity",
   c: "crypto",
   e: "earn",
+  m: "earnmax",
   s: "stables",
 };
 
@@ -88,39 +95,57 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
 export function WorkspaceFaceliftShell() {
   const publicEnv = usePublicEnv();
   const [isChartExpanded, setIsChartExpanded] = useState(false);
+  // Mobile settings sheet (Figma 5462:75016 / 5462:74914) — opened by the
+  // header gears on the home and signed-out screens.
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // One shared tab choice for every chart card (compact right pane, mobile
   // inline card, enlarged overlay) — enlarging must not reset the tab.
   const [chartTab, setChartTab] = useState<ChartTab | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("earn");
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
-  // Reload lands on the last visited page — signed-in only; a disconnected
-  // wallet always lands on Earn. Restored in an effect (not the initializer)
+  // Reload lands on the last visited page (signed out: Earn or Earn MAX,
+  // the pages that work without a wallet). Restored in an effect (not the
+  // initializer)
   // so the client's first render matches the server HTML, and only after auth
   // hydration (the pre-hydration render is the quiet white pane anyway). The
   // once-ref keeps a later sign-in from yanking the user back to the stored
   // page mid-session.
   const hasRestoredPageRef = useRef(false);
+  // The persist effect below writes the boot page ("earn") on mount, before
+  // auth hydration lets the restore run — so the pre-clobber value must be
+  // captured the first time either effect touches storage.
+  const storedPageRef = useRef<string | null>(null);
   useEffect(() => {
+    storedPageRef.current ??= localStorage.getItem(PAGE_STORAGE_KEY) ?? "";
     if (!isHydrated || hasRestoredPageRef.current) {
       return;
     }
     hasRestoredPageRef.current = true;
-    if (!isSignedIn) {
+    const stored = storedPageRef.current as WorkspacePage;
+    if (!WORKSPACE_PAGES.includes(stored) || stored === "earn") {
       return;
     }
-    const stored = localStorage.getItem(PAGE_STORAGE_KEY) as WorkspacePage;
-    if (WORKSPACE_PAGES.includes(stored) && stored !== "earn") {
-      setActivePage(stored);
+    // Signed out only the Earn products render — every other stored page
+    // needs a session, so those reloads fall back to Earn.
+    if (!isSignedIn && stored !== "earnmax") {
+      return;
     }
+    setActivePage(stored);
   }, [isHydrated, isSignedIn]);
   useEffect(() => {
+    storedPageRef.current ??= localStorage.getItem(PAGE_STORAGE_KEY) ?? "";
     localStorage.setItem(PAGE_STORAGE_KEY, activePage);
   }, [activePage]);
-  // Signing out mid-session snaps back to Earn — the only page that works
-  // without a wallet (its empty pane carries the Connect wallet CTA).
+  // Signing out mid-session snaps back to the Earn products — the only
+  // pages that work without a wallet (their connect panes carry the CTA).
   useEffect(() => {
-    if (isHydrated && !isSignedIn && activePage !== "earn") {
+    if (
+      isHydrated &&
+      !isSignedIn &&
+      activePage !== "earn" &&
+      activePage !== "earnmax"
+    ) {
       setActivePage("earn");
     }
   }, [activePage, isHydrated, isSignedIn]);
@@ -159,6 +184,23 @@ export function WorkspaceFaceliftShell() {
     settingsPda: EARN_MAX_VISIBLE ? earnData.settingsPda : undefined,
     walletAddress: EARN_MAX_VISIBLE ? earnData.walletAddress : null,
   });
+  // 30-day earned figures for the mobile home product cards (Figma
+  // 5465:83340) — same feeds the Earned charts render, just summed.
+  const earnEarned = useEarnEarnedData(earnData);
+  const earnEarned30dUsd =
+    earnEarned.showEarningsLoader || earnEarned.earningsUnavailable
+      ? null
+      : earnEarned.dailyBars.reduce((sum, bar) => sum + bar.earnedUsd, 0);
+  const earnMaxEarned30dUsd = useMemo(
+    () =>
+      earnMax.view.isLoading
+        ? null
+        : buildEarnMaxEarnedBars(earnMax.view).reduce(
+            (sum, bar) => sum + bar.earnedUsd,
+            0
+          ),
+    [earnMax.view]
+  );
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
   // Send/Swap screens — including re-selecting the page it's already on.
   const [navigationNonce, setNavigationNonce] = useState(0);
@@ -197,9 +239,9 @@ export function WorkspaceFaceliftShell() {
     if (!EARN_MAX_VISIBLE && page === "earnmax") {
       return;
     }
-    // Disconnected wallets live on Earn — every other page needs a session,
-    // so tapping one opens the connect-wallet modal instead of navigating.
-    if (!isSignedIn && page !== "earn") {
+    // Disconnected wallets can browse Earn and Earn MAX — every other page
+    // needs a session, so tapping one opens the connect-wallet modal instead.
+    if (!isSignedIn && page !== "earn" && page !== "earnmax") {
       openSignIn();
       return;
     }
@@ -319,10 +361,17 @@ export function WorkspaceFaceliftShell() {
       (earnData.settingsPda === undefined || !earnData.hasResolvedPosition));
   const isEarnRootView = activeMiddleView === "earn";
   const isMobileGrayBackground =
-    activePage === "earn" &&
-    isEarnRootView &&
-    earnData.hasPosition &&
-    !isPositionLoading;
+    (activePage === "earn" &&
+      isEarnRootView &&
+      earnData.hasPosition &&
+      !isPositionLoading) ||
+    // Earn MAX main view runs card-on-gray too (Figma 5459:71906); its
+    // action screens are full-bleed white cards so gray never peeks through.
+    (EARN_MAX_VISIBLE &&
+      activePage === "earnmax" &&
+      isSignedIn &&
+      !earnMax.view.isLoading &&
+      !isEarnMaxUntouched(earnMax.view));
 
   return (
     <BalanceVisibilityProvider>
@@ -344,6 +393,10 @@ export function WorkspaceFaceliftShell() {
         {/* Status pill for Earn deposit/withdraw/autodeposit flows —
             use-earn-actions.ts drives it through the earnToast emitter. */}
         <EarnToastHost />
+        <SettingsSheet
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
         {/* ASK-1972 — one-time lifecycle onboarding pop-ups (welcome /
             post-deposit / autodeposit-enabled), shown only on the Earn
             root so they never cover an in-progress action screen. */}
@@ -387,7 +440,9 @@ export function WorkspaceFaceliftShell() {
           {activePage === "wallet" ? (
             <WalletHomePage
               earnBalanceUsd={earnData.earnBalanceUsd}
+              earnEarned30dUsd={earnEarned30dUsd}
               earnMaxBalanceUsd={earnMax.view.balanceUsd}
+              earnMaxEarned30dUsd={earnMaxEarned30dUsd}
               earnMaxForecastApyBps={earnMax.view.forecastApyBps}
               isEarnBalanceLoading={isPositionLoading}
               isEarnMaxBalanceLoading={earnMax.view.isLoading}
@@ -396,18 +451,26 @@ export function WorkspaceFaceliftShell() {
                 setActivePage("earn");
                 setMiddleView("autodeposit");
               }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
               showActivityBadge={hasUnseenActivity}
               showEarnMax={EARN_MAX_VISIBLE}
             />
           ) : activePage === "activity" ? (
             <ActivityPage
+              earnMaxActivity={earnMax.view.activity}
               onSelectPage={handleSelectPage}
               refreshKey={earnData.actions.earnTransactionsRefreshKey}
               settingsPda={earnData.settingsPda}
               walletAddress={earnData.walletAddress}
             />
           ) : EARN_MAX_VISIBLE && activePage === "earnmax" ? (
-            <EarnMaxPage actions={earnMax.actions} view={earnMax.view} />
+            <EarnMaxWorkspace
+              earnData={earnData}
+              earnMax={earnMax}
+              onBack={() => handleSelectPage("wallet")}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onViewAllActivity={() => handleSelectPage("activity")}
+            />
           ) : activePage !== "earn" && activePage !== "earnmax" ? (
             <CryptoPage
               navigationNonce={navigationNonce}
@@ -459,6 +522,7 @@ export function WorkspaceFaceliftShell() {
                     <PaneReveal>
                       <EarnPositionPane
                         data={earnData}
+                        onBack={() => handleSelectPage("wallet")}
                         onDeposit={() => {
                           setDepositSourceKey(null);
                           setMiddleView("deposit");
@@ -482,10 +546,12 @@ export function WorkspaceFaceliftShell() {
                   ) : (
                     <PaneReveal>
                       <EarnEmptyPane
+                        onBack={() => handleSelectPage("wallet")}
                         onDeposit={() => {
                           setDepositSourceKey(null);
                           setMiddleView("deposit");
                         }}
+                        onOpenSettings={() => setIsSettingsOpen(true)}
                         onManageAutoswap={
                           earnData.autoswapConfig
                             ? () => setMiddleView("autoswap")
@@ -546,13 +612,9 @@ export function WorkspaceFaceliftShell() {
                   ) : null}
                 </SheetReveal>
               ) : null}
-              {isEarnRootView ? (
-                <MobileTabBar
-                  activeTab="earn"
-                  onSelect={handleSelectPage}
-                  showActivityBadge={hasUnseenActivity}
-                />
-              ) : null}
+              {/* No tab bar here — Earn is a subscreen behind the home's
+                  product card (Figma 5459:71689: back arrow + bottom
+                  Deposit/Withdraw bar instead). */}
             </>
           )}
         </div>

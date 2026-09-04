@@ -4,52 +4,44 @@ import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
-// Figma 4813:400091 — mobile-only bottom tab bar: Wallet home · Earn (mascot
-// pill) · Activity. Active icons render in the foreground color, inactive in
-// tertiary. Shown only on the root views; input screens (deposit/withdraw/
-// autodeposit, send/swap) hide it under the system keyboard.
+// Figma 5465:83296 — mobile-only bottom tab bar: bone (future quests,
+// inactive) · mascot pill (the wallet home) · Activity. Earn and Earn MAX are
+// subscreens behind the home's product cards, not tabs. Input screens
+// (deposit/withdraw/autodeposit, send/swap) hide the bar under the keyboard.
 export function MobileTabBar({
   activeTab,
   onSelect,
   showActivityBadge = false,
 }: {
-  activeTab: "activity" | "earn" | "wallet";
-  onSelect: (tab: "activity" | "earn" | "wallet") => void;
+  activeTab: "activity" | "wallet";
+  onSelect: (tab: "activity" | "wallet") => void;
   showActivityBadge?: boolean;
 }) {
   return (
     <div className="cherry-mobile-tab-bar w-full shrink-0 bg-card px-4 min-[796px]:hidden">
       <div className="flex w-full items-center gap-4">
+        {/* Future quests slot — decorative until the feature ships. */}
+        <div
+          aria-hidden="true"
+          className="flex flex-1 flex-col items-center justify-center py-4 opacity-40"
+        >
+          <ThemedIcon
+            className="size-7 text-tertiary"
+            src={`${ASSET_BASE}/icon-bone.svg`}
+          />
+        </div>
         <button
           aria-current={activeTab === "wallet" ? "page" : undefined}
           aria-label="Wallet"
-          className="flex flex-1 flex-col items-center justify-center py-4"
+          className="flex-1 py-2"
           onClick={() => onSelect("wallet")}
           type="button"
         >
-          <ThemedIcon
-            className={`size-7 ${
-              activeTab === "wallet" ? "text-foreground" : "text-tertiary"
-            }`}
-            src={`${ASSET_BASE}/${
-              activeTab === "wallet"
-                ? "icon-tab-wallet-black.svg"
-                : "icon-tab-wallet.svg"
-            }`}
-          />
-        </button>
-        <button
-          aria-current={activeTab === "earn" ? "page" : undefined}
-          aria-label="Earn"
-          className="flex-1 py-2"
-          onClick={() => onSelect("earn")}
-          type="button"
-        >
-          {/* Active Earn = the dark pill (Figma 4693:72074); inactive = the
-              light-red tint (4813:400091). */}
+          {/* The mascot pill IS the wallet: dark when the home is open
+              (Figma 5465:83302), light-red tint elsewhere. */}
           <span
             className={`relative mx-auto block h-11 w-full max-w-16 overflow-hidden rounded-full ${
-              activeTab === "earn" ? "bg-foreground" : "bg-primary/[0.14]"
+              activeTab === "wallet" ? "bg-foreground" : "bg-primary/[0.14]"
             }`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}

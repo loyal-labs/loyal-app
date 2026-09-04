@@ -38,13 +38,25 @@ const TODAY_BAR_HOVER_FILL =
 const BAR_MAX_FRACTION = 290 / 300;
 const BAR_MIN_HEIGHT_PX = 4;
 
+// One rendered daily bar — the shape EarnedBarsChart consumes. Earn feeds it
+// from the earnings API; Earn MAX derives it from position snapshots.
+export type EarnedChartBar = {
+  apyBps: number | null;
+  earnedUsd: number;
+  endAt: string;
+  isCurrent: boolean;
+  label: string;
+  startAt: string;
+};
+
 // The "good old" Earned chart re-skinned for the facelift right pane. Data and
 // derivations mirror EarnDetailView/EarningsBlock exactly (same hook, same
 // cache key recipe, same live-estimate math) — only the markup is new.
-export function EarnedChart({ data }: { data: EarnPositionData }) {
+// Shared wiring for everything derived from the Earn earnings feed — the
+// Earned chart consumes all of it, the wallet-home Earn card only the bars.
+export function useEarnEarnedData(data: EarnPositionData) {
   const publicEnv = usePublicEnv();
   const earnForecastApy = useEarnForecastApy();
-  const { isBalanceHidden } = useBalanceVisibility();
   const hasPositiveCurrentBalance = data.hasPosition && data.earnBalanceUsd > 0;
   const earnEarningsRevalidationKey = data.position?.principalAmountRaw ?? "0";
   const earnEarningsCacheKey = getEarnEarningsCacheKey({
@@ -102,7 +114,6 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   const earningsUnavailable = earningsOutcome === "unavailable";
   const earningsStale = earningsFreshness === "stale";
 
-  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const realBars = dailyData?.bars;
   const hasRealBars = (realBars?.length ?? 0) > 0;
   const showEarningsLoader = isEarningsLoading && !hasRealBars;
@@ -121,15 +132,82 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
       ),
     [realBars, estimatedTodayEarnedUsd]
   );
+
+  return {
+    currentApyBps: dailyData?.currentApyBps ?? null,
+    dailyBars,
+    earningsStale,
+    earningsUnavailable,
+    lifetimeEarnedUsd: estimatedEarnedAmounts.lifetimeEarnedUsd,
+    refreshEarnings,
+    showEarningsLoader,
+  };
+}
+
+export function EarnedChart({ data }: { data: EarnPositionData }) {
+  const earned = useEarnEarnedData(data);
+  return (
+    <EarnedBarsChart
+      bars={earned.dailyBars}
+      currentApyBps={earned.currentApyBps}
+      isLoading={earned.showEarningsLoader}
+      isStale={earned.earningsStale}
+      isUnavailable={earned.earningsUnavailable}
+      lifetimeEarnedUsd={earned.lifetimeEarnedUsd}
+      onRetry={earned.refreshEarnings}
+    />
+  );
+}
+
+// Presentational half of the Earned chart — header, hover states and the
+// animated daily bars. Earn and Earn MAX both render through this so the two
+// products share one Earned chart implementation.
+export function EarnedBarsChart({
+  bars,
+  currentApyBps,
+  isLoading,
+  isStale,
+  isUnavailable,
+  lifetimeEarnedUsd,
+  onRetry,
+}: {
+  bars: EarnedChartBar[];
+  currentApyBps: number | null;
+  isLoading: boolean;
+  isStale: boolean;
+  isUnavailable: boolean;
+  lifetimeEarnedUsd: number;
+  onRetry?: () => void;
+}) {
+  const { isBalanceHidden } = useBalanceVisibility();
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const dailyBars = bars;
+  const earningsStale = isStale;
+  const earningsUnavailable = isUnavailable;
+  const showEarningsLoader = isLoading;
+  const refreshEarnings = onRetry ?? (() => undefined);
   const maxDailyEarnedUsd = useMemo(
     () => dailyBars.reduce((max, bar) => Math.max(max, bar.earnedUsd), 0),
     [dailyBars]
   );
+  // Earn's feed never goes below zero; Earn MAX equity can (drawdowns), so
+  // the scale gains a baseline and loss bars drop under it in red.
+  const minDailyEarnedUsd = useMemo(
+    () => dailyBars.reduce((min, bar) => Math.min(min, bar.earnedUsd), 0),
+    [dailyBars]
+  );
+  const hasNegativeBars = minDailyEarnedUsd < 0;
+  const valueRange = maxDailyEarnedUsd - minDailyEarnedUsd;
+  // Fraction of the chart height sitting below the zero line.
+  const baselineFraction =
+    hasNegativeBars && valueRange > 0
+      ? Math.abs(minDailyEarnedUsd) / valueRange
+      : 0;
   const hoveredBarEntry =
     hoveredBar !== null ? dailyBars[hoveredBar] ?? null : null;
   const hoveredApyBps = hoveredBarEntry
     ? hoveredBarEntry.isCurrent
-      ? dailyData?.currentApyBps ?? hoveredBarEntry.apyBps
+      ? currentApyBps ?? hoveredBarEntry.apyBps
       : hoveredBarEntry.apyBps
     : null;
   const hoveredDateLabel = hoveredBarEntry
@@ -137,11 +215,13 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
       ? `Today, ${hoveredBarEntry.label}`
       : hoveredBarEntry.label
     : "";
-  const headerValue = splitEarningsHeaderValue(
-    hoveredBarEntry
-      ? Math.max(0, hoveredBarEntry.earnedUsd)
-      : estimatedEarnedAmounts.lifetimeEarnedUsd
-  );
+  const headerRawValue = hoveredBarEntry
+    ? hasNegativeBars
+      ? hoveredBarEntry.earnedUsd
+      : Math.max(0, hoveredBarEntry.earnedUsd)
+    : lifetimeEarnedUsd;
+  const headerValue = splitEarningsHeaderValue(Math.abs(headerRawValue));
+  const headerSign = headerRawValue < 0 ? "-" : "";
   let headerSubtitle: ReactNode;
   if (!hoveredBarEntry) {
     headerSubtitle = earningsStale ? "Updating earnings…" : "Total earned";
@@ -229,7 +309,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
                   isHidden={isBalanceHidden}
                   popOnChange={false}
                   segments={[
-                    { text: `$${headerValue.whole}` },
+                    { text: `${headerSign}$${headerValue.whole}` },
                     { color: "var(--tertiary)", text: `.${headerValue.fraction}` },
                   ]}
                 />
@@ -273,16 +353,42 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         ) : (
           dailyBars.map((bar, i) => {
             const isActive = hoveredBar === i;
+            const clampedValue = hasNegativeBars
+              ? bar.earnedUsd
+              : Math.max(0, bar.earnedUsd);
+            const scale = hasNegativeBars ? valueRange : maxDailyEarnedUsd;
             const fillPercent =
-              maxDailyEarnedUsd > 0
-                ? (Math.max(0, bar.earnedUsd) / maxDailyEarnedUsd) *
-                  BAR_MAX_FRACTION *
-                  100
+              scale > 0
+                ? (Math.abs(clampedValue) / scale) * BAR_MAX_FRACTION * 100
                 : 0;
+            const isLoss = clampedValue < 0;
+            // With losses in range every bar anchors to the shared zero
+            // line; without them the original bottom-anchored layout stays.
+            const anchorStyle = hasNegativeBars
+              ? isLoss
+                ? {
+                    position: "absolute" as const,
+                    top: `${(
+                      (1 - baselineFraction * BAR_MAX_FRACTION) * 100
+                    ).toFixed(2)}%`,
+                    transformOrigin: "center top",
+                  }
+                : {
+                    position: "absolute" as const,
+                    bottom: `${(baselineFraction * BAR_MAX_FRACTION * 100).toFixed(2)}%`,
+                  }
+              : {};
+            const fillColor = isLoss
+              ? isActive
+                ? "var(--destructive)"
+                : "color-mix(in srgb, var(--destructive) 80%, transparent)"
+              : isActive
+              ? BAR_HOVER_COLOR
+              : BAR_COLOR;
             return (
               <button
                 aria-label={`${bar.label} earned ${formatSignedEarningsAmount(
-                  Math.max(0, bar.earnedUsd)
+                  clampedValue
                 )}`}
                 className="earned-bar"
                 key={`${bar.startAt}:${bar.endAt}`}
@@ -306,12 +412,14 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
                           height: `${fillPercent.toFixed(2)}%`,
                           minHeight:
                             bar.earnedUsd > 0 ? `${BAR_MIN_HEIGHT_PX}px` : 0,
+                          ...anchorStyle,
                         }
                       : {
-                          background: isActive ? BAR_HOVER_COLOR : BAR_COLOR,
+                          background: fillColor,
                           height: `${fillPercent.toFixed(2)}%`,
                           minHeight:
-                            bar.earnedUsd > 0 ? `${BAR_MIN_HEIGHT_PX}px` : 0,
+                            clampedValue !== 0 ? `${BAR_MIN_HEIGHT_PX}px` : 0,
+                          ...anchorStyle,
                         }
                   }
                 />
@@ -330,6 +438,17 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
 
       <div className="flex w-full justify-between pt-2 text-[13px] leading-4 text-tertiary">
         <span className="whitespace-nowrap">{dailyBars[0]?.label ?? ""}</span>
+        {hasNegativeBars ? (
+          // Loss floor reference (Figma 5459:71906's −$1.00 axis mark).
+          <span className="whitespace-nowrap">
+            <ScrambleText
+              isHidden={isBalanceHidden}
+              text={`-${formatMaxDailyEarningsLabel(
+                Math.abs(minDailyEarnedUsd)
+              )}`}
+            />
+          </span>
+        ) : null}
         <span className="whitespace-nowrap">
           {dailyBars[dailyBars.length - 1]?.label ?? ""}
         </span>

@@ -38,6 +38,7 @@ const ASSET_BASE = "/wallet-workspace/facelift";
 // the chart card renders inline between them, and the cards run full-bleed.
 export function EarnPositionPane({
   data,
+  onBack,
   onDeposit,
   onOpenAutodeposit,
   onOpenAutoswap,
@@ -50,6 +51,8 @@ export function EarnPositionPane({
   selectedTransactionId,
 }: {
   data: EarnPositionData;
+  /** Mobile back chevron to the wallet home. */
+  onBack: () => void;
   onDeposit: () => void;
   onOpenAutodeposit: () => void;
   onOpenAutoswap: () => void;
@@ -114,17 +117,49 @@ export function EarnPositionPane({
       <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-y-auto">
         <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-t-none">
           <header className="flex w-full items-center p-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
+            {/* Figma 5459:71689 — mobile treats Earn as a subscreen. */}
+            <button
+              aria-label="Back"
+              className="t-hover hidden size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:flex"
+              onClick={onBack}
+              type="button"
+            >
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
+                src={`${ASSET_BASE}/icon-arrow-left.svg`}
+              />
+            </button>
+            <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4 max-[795px]:pl-1">
               <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
                 Earn
               </h1>
               {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
+              <span className="max-[795px]:hidden">
+                <InfoTooltip
+                  iconClassName="size-6"
+                  placement="bottom"
+                  text="Earn yield on your idle USDC"
+                />
+              </span>
+            </div>
+            <button
+              aria-label="Expand chart"
+              className="t-hover hidden size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent max-[795px]:flex"
+              onClick={onOpenChart}
+              type="button"
+            >
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
+                src={`${ASSET_BASE}/icon-chart.svg`}
+              />
+            </button>
+            <span className="hidden size-11 shrink-0 items-center justify-center max-[795px]:flex">
               <InfoTooltip
                 iconClassName="size-6"
                 placement="bottom"
                 text="Earn yield on your idle USDC"
               />
-            </div>
+            </span>
             <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
               <button
                 className="t-hover flex items-center justify-center gap-2 rounded-full bg-accent p-2.5 hover:-translate-y-0.5 hover:bg-accent-active active:translate-y-0"

@@ -27,6 +27,7 @@ import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
+import { EARN_MAX_FALLBACK_APY_BPS } from "@/features/earn-max";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { captureBrowserLoadingMetricAfterPaint } from "@/features/observability/client";
@@ -43,8 +44,9 @@ import {
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
-// Same destinations the old workspace's bottom rail linked to.
-const SIDEBAR_LINKS = [
+// Same destinations the old workspace's bottom rail linked to. The mobile
+// settings sheet reuses these entries with its own labels.
+export const SIDEBAR_LINKS = [
   {
     href: "https://x.com/loyal_hq",
     icon: "icon-x-social.svg",
@@ -248,10 +250,9 @@ export function FaceliftSidebar({
   const cryptoBalance = splitUsdBalance(cryptoUsd);
   const earnBalance = splitUsdBalance(earnBalanceUsd);
   const earnMaxBalance = splitUsdBalance(earnMaxBalanceUsd);
-  const earnMaxApyLabel =
-    earnMaxForecastApyBps === null
-      ? "—"
-      : `${(earnMaxForecastApyBps / 100).toFixed(2)}% APY`;
+  const earnMaxApyLabel = `${(
+    (earnMaxForecastApyBps ?? EARN_MAX_FALLBACK_APY_BPS) / 100
+  ).toFixed(2)}% APY`;
   // Hidden products must not affect the public wallet total.
   const totalBalance = splitUsdBalance(
     data.totalUsd + earnBalanceUsd + (showEarnMax ? earnMaxBalanceUsd : 0)
@@ -317,6 +318,10 @@ export function FaceliftSidebar({
     }, 1500);
   };
 
+  // Figma 5429:36627 — signed out the sidebar drops the balance blocks and
+  // shows just the Earn / Earn MAX product cells (APY-only, switchable).
+  const isSignedOutNav = isHydrated && !isSignedIn;
+
   const handleCopyAddress = () => {
     const address = data.walletAddress;
     if (!address) {
@@ -369,6 +374,7 @@ export function FaceliftSidebar({
         </div>
       </div>
 
+      {isSignedOutNav ? null : (
       <div className="w-full py-2">
         <div className="flex w-full flex-col gap-0.5 px-4 py-2">
           <div className="flex items-center gap-1">
@@ -415,8 +421,74 @@ export function FaceliftSidebar({
           </div>
         </div>
       </div>
+      )}
 
-      <nav className="flex w-full flex-1 flex-col py-2">
+      {isSignedOutNav ? (
+        <nav className="flex w-full flex-col py-2">
+          {/* Figma 5429:36643 — same 60px cell metrics as the signed-in rows
+              (44px icon in a py-2 wrapper), single line: label + APY badge. */}
+          <button
+            className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+              activePage === "earn" ? "bg-accent" : "hover:bg-accent"
+            }`}
+            onClick={() => onSelectPage("earn")}
+            type="button"
+          >
+            <span className="flex items-center py-2 pr-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-11 shrink-0"
+                src={`${ASSET_BASE}/earn-icon.svg`}
+              />
+            </span>
+            <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
+              <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
+                Earn
+              </span>
+              <SkeletonReveal
+                isRevealed={isApyLoaded}
+                skeletonClassName="rounded-md bg-accent-selected"
+              >
+                <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
+                  <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                    {formatEarnApyLabel(earnApy.apyBps)}
+                  </span>
+                </span>
+              </SkeletonReveal>
+            </span>
+          </button>
+          <button
+            className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+              activePage === "earnmax" ? "bg-accent" : "hover:bg-accent"
+            }`}
+            onClick={() => onSelectPage("earnmax")}
+            type="button"
+          >
+            <span className="flex items-center py-2 pr-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-11 shrink-0"
+                src={`${ASSET_BASE}/earn-max-icon.svg`}
+              />
+            </span>
+            <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
+              <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
+                Earn MAX
+              </span>
+              <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
+                <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                  {earnMaxApyLabel}
+                </span>
+              </span>
+            </span>
+          </button>
+        </nav>
+      ) : (
+      <nav className="flex w-full flex-col py-2">
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "earn" ? "bg-accent" : "hover:bg-accent"
@@ -589,7 +661,10 @@ export function FaceliftSidebar({
           </span>
         </button>
       </nav>
+      )}
 
+      {/* Figma 5429:36693 / 5429:37228 — the link list sits directly under
+          the product cells; the spacer below pushes the wallet row down. */}
       <div className="flex w-full flex-col py-2">
         {SIDEBAR_LINKS.map((link) => (
           <a
@@ -612,10 +687,11 @@ export function FaceliftSidebar({
         ))}
       </div>
 
+      <div aria-hidden="true" className="w-full min-h-0 flex-1" />
+
       {/* Figma 4768:102489 — bottom rail: wallet chip left, Receive +
           Settings right; the wallet menu now grows upward from the chip.
-          Signed out it collapses to a single Connect-account trigger with
-          the og sidebar's Main Account image. */}
+          Signed out it shows the Connect wallet chip + theme toggle. */}
       {isHydrated && !isSignedIn ? (
         <div className="flex w-full shrink-0 items-center">
           <button
@@ -623,19 +699,42 @@ export function FaceliftSidebar({
             onClick={openSignIn}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="mr-3 size-11 shrink-0 rounded-[11px]"
-              src="/agents/Agent-01.svg"
-            />
-            <span className="whitespace-nowrap text-[16px] text-foreground leading-5">
+            {/* Figma 5429:36740 — plain wallet chip replaces the agent
+                avatar on the redesigned logged-out sidebar. */}
+            <span className="mr-3 flex size-11 shrink-0 items-center justify-center rounded-[11px] bg-accent">
+              <ThemedIcon
+                className="size-7 text-tertiary"
+                src={`${ASSET_BASE}/icon-wallet-fill.svg`}
+              />
+            </span>
+            <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
               {cherryRuntime.mode === "cherry_embedded"
                 ? "Verify account"
-                : "Connect account"}
+                : "Connect wallet"}
             </span>
           </button>
+          <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
+            <button
+              aria-label={
+                isDark ? "Switch to light theme" : "Switch to dark theme"
+              }
+              className="t-hover flex size-11 items-center justify-center rounded-3xl text-tertiary hover:bg-accent"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                toggleTheme({
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+                });
+              }}
+              type="button"
+            >
+              {isDark ? (
+                <Sun className="size-6" />
+              ) : (
+                <Moon className="size-6" />
+              )}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="relative flex w-full shrink-0 items-center">
