@@ -35,11 +35,39 @@ function getGitInfo() {
 
 const { commitHash, branch } = getGitInfo();
 
+// Privy's recommended CSP (docs.privy.io/security/implementation-guide/
+// content-security-policy) plus what this app actually loads. Shipped as
+// Report-Only first: violations POST to /api/csp-report and nothing is
+// blocked. Flip to enforcing once the report stream is quiet.
+// ponytail: 'unsafe-inline'/'unsafe-eval' in script-src — Next inline
+// bootstrap + wallet-adapter libs need them; nonces are the upgrade path.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "child-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org",
+  "frame-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://challenges.cloudflare.com",
+  // Own API + Privy + Solana RPC/WS (Helius) + Jupiter + realtime + analytics.
+  "connect-src 'self' https://auth.privy.io https://api.privy.io https://*.rpc.privy.systems wss://relay.walletconnect.com wss://relay.walletconnect.org wss://www.walletlink.org https://explorer-api.walletconnect.com https://*.helius-rpc.com wss://*.helius-rpc.com https://api.mainnet-beta.solana.com https://api.devnet.solana.com https://api.jup.ag https://lite-api.jup.ag https://loyal-yield-realtime.onrender.com wss://loyal-yield-realtime.onrender.com https://api.mixpanel.com https://stats.askloyal.com",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "report-uri /api/csp-report",
+].join("; ");
+
 const COMMON_SECURITY_HEADERS = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   {
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=()",
+  },
+  {
+    key: "Content-Security-Policy-Report-Only",
+    value: CONTENT_SECURITY_POLICY,
   },
 ] as const;
 

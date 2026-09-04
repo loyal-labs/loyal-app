@@ -46,6 +46,18 @@ describe("frame security headers", () => {
       expect(response.headers.get("content-security-policy")).toBeNull();
     }
   });
+
+  // Report-Only must never turn enforcing by accident: a bad allowlist would
+  // silently break wallet/RPC calls in prod. Enforcement is a deliberate flip.
+  test("ships the Privy CSP as report-only on app routes", async () => {
+    const response = await unstable_getResponseFromNextConfig({
+      url: "https://askloyal.com/app",
+      nextConfig,
+    });
+    const csp = response.headers.get("content-security-policy-report-only");
+    expect(csp).toContain("frame-src https://auth.privy.io");
+    expect(csp).toContain("report-uri /api/csp-report");
+  });
 });
 
 describe("earn banner asset caching", () => {
