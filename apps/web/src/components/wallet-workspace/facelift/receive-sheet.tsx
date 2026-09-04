@@ -115,9 +115,6 @@ export function ReceiveSheet({
               address={evm.info?.address ?? null}
               copy={
                 <>
-                  <span className="mr-1.5 inline-flex rounded-md bg-primary/[0.14] px-1.5 py-px align-middle font-medium text-[11px] text-primary uppercase leading-[13px] tracking-[0.06px]">
-                    Alpha
-                  </span>
                   Send USDC, USDT or ETH on{" "}
                   {(evm.info?.chains ?? EVM_CHAIN_FALLBACK)
                     .map((c) => CHAIN_LABELS[c] ?? c)
@@ -125,12 +122,21 @@ export function ReceiveSheet({
                   . It arrives as USDC in your loyal wallet in a few minutes.
                   {evm.info?.minimums.ethereum
                     ? ` Minimum on Ethereum: $${evm.info.minimums.ethereum}.`
-                    : null}{" "}
-                  This is an early release; start with a small amount.
+                    : null}
                 </>
               }
               error={evm.error}
               loading={!evm.info && !evm.error}
+              notice={
+                <>
+                  <span className="flex h-5 shrink-0 items-center rounded-md bg-primary/[0.14] px-1.5 font-medium text-[11px] text-primary uppercase tracking-[0.06px]">
+                    Alpha
+                  </span>
+                  <span className="text-[13px] text-foreground leading-4">
+                    Early release. Start with a small amount.
+                  </span>
+                </>
+              }
               page="2"
               placeholder="Preparing your deposit address…"
             />
@@ -156,6 +162,7 @@ function ReceiveBody({
   copy,
   error,
   loading = false,
+  notice,
   page,
   placeholder,
 }: {
@@ -163,6 +170,7 @@ function ReceiveBody({
   copy: ReactNode;
   error?: string | null;
   loading?: boolean;
+  notice?: ReactNode;
   page: "1" | "2";
   placeholder: string;
 }) {
@@ -175,9 +183,14 @@ function ReceiveBody({
       className="t-receive-page col-start-1 row-start-1 flex w-full flex-col items-center gap-6"
       data-page-id={page}
     >
-      <p className="max-w-[300px] text-center text-[13px] leading-4 text-muted-foreground">
-        {copy}
-      </p>
+      <div className="flex flex-col items-center gap-2">
+        {notice ? (
+          <div className="flex items-center gap-2">{notice}</div>
+        ) : null}
+        <p className="max-w-[300px] text-center text-[13px] leading-4 text-muted-foreground">
+          {copy}
+        </p>
+      </div>
       <div
         className={`t-skel flex w-full max-w-[280px] flex-col items-center gap-4 rounded-[20px] border border-border p-8 ${
           revealed ? "is-revealed" : ""
