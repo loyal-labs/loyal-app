@@ -21,6 +21,7 @@ import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell
 import { SplitAmount } from "@/components/wallet-workspace/facelift/sidebar";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { AddEmailNudge } from "@/components/auth/add-email-nudge";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { WalletHomeBanners } from "@/components/wallet-workspace/facelift/wallet-home-banners";
@@ -321,6 +322,9 @@ export function WalletHomePage({
               </div>
             </div>
 
+            <div className="w-full shrink-0 px-4">
+              <AddEmailNudge />
+            </div>
             <div className="min-h-0 w-full flex-1 px-4 py-2">
               <div className="grid h-full min-h-[400px] grid-cols-2 grid-rows-[repeat(3,minmax(0,1fr))] gap-2">
                 <WalletHomeBanners onSetUpAutodeposit={onSetUpAutodeposit} />

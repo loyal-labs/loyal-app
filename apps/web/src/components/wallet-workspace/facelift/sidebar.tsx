@@ -22,6 +22,7 @@ import { ReceiveSheet } from "@/components/wallet-workspace/facelift/receive-she
 import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { AddEmailNudge } from "@/components/auth/add-email-nudge";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useAuthSession } from "@/contexts/auth-session-context";
@@ -414,6 +415,10 @@ export function FaceliftSidebar({
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="w-full px-2">
+        <AddEmailNudge />
       </div>
 
       <nav className="flex w-full flex-1 flex-col py-2">

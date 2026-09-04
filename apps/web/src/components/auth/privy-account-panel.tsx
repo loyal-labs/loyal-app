@@ -13,6 +13,7 @@ import { useUpdateEmail } from "@privy-io/react-auth/ui";
 import { KeyRound, Mail, ShieldCheck, Wallet } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 
+import { usePrivyAuth } from "@/components/auth/privy-session-sync";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -44,6 +45,7 @@ function usePrivyAppConfig(appId: string | undefined) {
  */
 export function PrivyAccountPanel() {
   const { user: privyUser } = usePrivy();
+  const privyAuth = usePrivyAuth();
   const { user, refreshSession } = useAuthSession();
   const { privyAppId } = usePublicEnv();
   const [busy, setBusy] = useState(false);
@@ -77,7 +79,27 @@ export function PrivyAccountPanel() {
   const { exportWallet } = useExportWallet();
   const { showMfaEnrollmentModal } = useMfaEnrollment();
 
-  if (!privyUser) return null;
+  if (!privyUser) {
+    // Legacy wallet session (signed in before Privy): one row that logs the
+    // same wallet into Privy and asks for an email.
+    return (
+      <div className="flex flex-col gap-1">
+        <Row
+          action="Add"
+          disabled={!privyAuth || privyAuth.step !== "idle"}
+          icon={<Mail className="size-6" />}
+          onClick={() => privyAuth?.addEmail()}
+          subtitle="For account updates and recovery."
+          title="Email"
+        />
+        {privyAuth?.error ? (
+          <p className="px-4 text-[13px] text-destructive leading-4">
+            {privyAuth.error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   const linked = privyUser.linkedAccounts;
   const email = linked.find((a) => a.type === "email");
   const google = linked.find((a) => a.type === "google_oauth");
