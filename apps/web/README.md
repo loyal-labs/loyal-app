@@ -47,9 +47,10 @@ Create a `.env.local` file with required API keys (see `.env.example`).
 Wallet auth and wallet session refresh are fully owned by this frontend. The
 local auth surface is:
 
-- `POST /api/auth/privy/complete` (Privy login: email or external Solana wallet)
-- `POST /api/auth/wallet/challenge` (Cherry embed only)
-- `POST /api/auth/wallet/complete` (Cherry embed only)
+- `POST /api/auth/privy/complete` (Privy login: email, external Solana wallet,
+  or the Cherry embed wallet via headless SIWS)
+- `POST /api/auth/wallet/challenge` (legacy, only when Privy is off)
+- `POST /api/auth/wallet/complete` (legacy, only when Privy is off)
 - `GET /api/auth/session`
 - `POST /api/auth/session/refresh`
 - `POST /api/auth/logout`

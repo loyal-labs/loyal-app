@@ -23,6 +23,7 @@ import {
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 
 type Step = "idle" | "privy" | "creating_wallet" | "exchanging";
 
@@ -43,7 +44,7 @@ export function usePrivyAuth(): PrivyAuthState | null {
   return useContext(PrivyAuthContext);
 }
 
-async function exchangePrivySession(walletAddress: string) {
+export async function exchangePrivySession(walletAddress: string) {
   const identityToken = await getIdentityToken();
   if (!identityToken) throw new Error("Privy identity token unavailable.");
   const res = await fetch("/api/auth/privy/complete", {
@@ -81,6 +82,7 @@ export function PrivyAuthController({ children }: { children: ReactNode }) {
 
 function Inner({ children }: { children: ReactNode }) {
   const { ready, authenticated, user: privyUser, logout } = usePrivy();
+  const isCherryEmbedded = useCherryRuntime().mode === "cherry_embedded";
   const { refreshUser } = useUser();
   const { createWallet } = useCreateWallet();
   const { ready: walletsReady, wallets: privyWallets } = useWallets();
@@ -159,15 +161,17 @@ function Inner({ children }: { children: ReactNode }) {
   }, [authenticated, linkEmail, login, setWantsSession]);
 
   // "Connect" anywhere on the page goes straight to Privy while signed out;
-  // signed in, the modal shows the Account view as before.
+  // signed in, the modal shows the Account view as before. Cherry never opens
+  // the Privy modal: features/cherry/client/privy-sign-in owns that path.
   useEffect(() => {
+    if (isCherryEmbedded) return;
     registerHandler(() => {
       if (isAuthenticated || !ready) return false;
       start();
       return true;
     });
     return () => registerHandler(null);
-  }, [isAuthenticated, ready, registerHandler, start]);
+  }, [isAuthenticated, isCherryEmbedded, ready, registerHandler, start]);
 
   const completeSignIn = useCallback(async () => {
     if (!privyUser) return;

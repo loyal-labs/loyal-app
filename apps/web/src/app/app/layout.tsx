@@ -67,15 +67,16 @@ export default function AppLayout({
               <FeatureFlagsProvider>
                 <SignInModalProvider>
                   <PrivyAuthController>
-                    <WalletAutoReauth />
-                    <CherryAuthPrompt />
-                    <AnalyticsBootstrap />
-                    {/* Header/main nav is hidden for the wallet workspace redesign. */}
-                    <RealtimeSyncProvider>
-                      <AppWorkspaceShell />
-                      {children}
-                    </RealtimeSyncProvider>
-                    <SignInModal />
+                    <CherryAuthPrompt>
+                      <WalletAutoReauth />
+                      <AnalyticsBootstrap />
+                      {/* Header/main nav is hidden for the wallet workspace redesign. */}
+                      <RealtimeSyncProvider>
+                        <AppWorkspaceShell />
+                        {children}
+                      </RealtimeSyncProvider>
+                      <SignInModal />
+                    </CherryAuthPrompt>
                   </PrivyAuthController>
                 </SignInModalProvider>
               </FeatureFlagsProvider>
