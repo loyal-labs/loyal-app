@@ -19,6 +19,7 @@ import { useAuthCapability } from "@/lib/auth/capability";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { CherryPrivySignIn } from "@/features/cherry/client/privy-sign-in";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 
 import { PrivyAccountPanel } from "./privy-account-panel";
@@ -185,10 +186,12 @@ export function SignInModal() {
                 </DialogDescription>
               </DialogHeader>
               <div className="px-6 pb-6">
-                {privyAppId && cherryRuntime.mode !== "cherry_embedded" ? (
-                  <PrivySignIn />
-                ) : (
+                {!privyAppId ? (
                   <WalletSignIn />
+                ) : cherryRuntime.mode === "cherry_embedded" ? (
+                  <CherryPrivySignIn />
+                ) : (
+                  <PrivySignIn />
                 )}
               </div>
             </>
