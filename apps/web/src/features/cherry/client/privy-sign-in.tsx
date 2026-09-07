@@ -2,7 +2,6 @@
 
 import { useLoginWithSiws, usePrivy } from "@privy-io/react-auth";
 import { useWallet } from "@solana/wallet-adapter-react";
-import bs58 from "bs58";
 import {
   createContext,
   type ReactNode,
@@ -85,9 +84,11 @@ export function CherryPrivyAuthController({
       setStatus("signing");
       const message = await generateSiwsMessage({ address: verifiedAddress });
       const signature = await signMessage(new TextEncoder().encode(message));
+      // Privy's own SIWS flow sends the signature base64-encoded (not base58);
+      // anything else fails server-side as "Invalid SIWS message and/or nonce".
       await loginWithSiws({
         message,
-        signature: bs58.encode(signature),
+        signature: btoa(String.fromCharCode(...signature)),
         walletClientType: "cherry",
         connectorType: "injected",
       });
