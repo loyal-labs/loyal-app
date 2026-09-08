@@ -3170,7 +3170,14 @@ async function runRpcHoldingsWithdrawalPreview(): Promise<void> {
   console.log(`[earn-mainnet] evidence ${EVIDENCE_PATH}`);
 }
 
+const LEGACY_TRANSACTION_API_RETIRED = true;
+
 async function main() {
+  if (LEGACY_TRANSACTION_API_RETIRED && !OFFLINE_POLICY_VERIFY) {
+    throw new Error(
+      "This historical verifier can submit transactions before calling retired web APIs. Only offline policy verification remains supported; use docs/workers/earn-client-release.md for current local E2E."
+    );
+  }
   if (OFFLINE_POLICY_VERIFY) {
     await runOfflinePolicyVerifier();
     return;

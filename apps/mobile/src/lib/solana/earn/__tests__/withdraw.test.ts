@@ -7,6 +7,8 @@ jest.mock("rpc-websockets", () => ({
   WebSocket: jest.fn(),
 }));
 
+jest.mock("../position-store", () => ({ readEarnOverlay: () => null }));
+
 const prepareEarnUsdcWithdraw = jest.fn();
 const prepareEarnUsdcCleanup = jest.fn();
 const createSmartAccountVaultsClient = jest.fn(() => ({
@@ -210,7 +212,8 @@ describe("executeEarnWithdraw", () => {
     });
     prepareEarnUsdcWithdraw.mockResolvedValue({
       prepared: withdrawOperation,
-      withdrawSteps: [{ prepared: withdrawOperation }],
+      amountRaw: 1000000n,
+      withdrawSteps: [{ prepared: withdrawOperation, amountRaw: 1000000n }],
     });
     prepareEarnUsdcCleanup.mockResolvedValue({
       prepared: cleanupOperation,
@@ -258,10 +261,8 @@ describe("executeEarnWithdraw", () => {
     expect(signAndSendPreparedOperations.mock.calls[1]?.[0]).toMatchObject({
       operations: [cleanupOperation],
     });
-    expect(result).toEqual({
-      cleanupSignature: "cleanup-signature",
-      withdrawalSignatures: ["withdraw-signature"],
-    });
+    expect(result.withdrawalConfirmedSlots).toEqual(["101"]);
+    expect(result.cleanupSignature).toBe("cleanup-signature");
   });
 
   test("waits past a stale confirmed Autodeposit close before withdrawing", async () => {
@@ -314,9 +315,8 @@ describe("executeEarnWithdraw", () => {
 
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
     expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      withdrawalSignatures: ["withdraw-signature"],
-    });
+    expect(result.withdrawalSignatures).toEqual(["withdraw-signature"]);
+    expect(result.cleanupSignature).toBeUndefined();
     // Message-matched, not counted: the fixture's placeholder mint also draws
     // a benign catalog-miss warning from tokenProgramForEarnMint.
     expect(warn).toHaveBeenCalledWith(
@@ -333,10 +333,7 @@ describe("executeEarnWithdraw", () => {
       signer,
     });
 
-    expect(result).toEqual({
-      cleanupSignature: "cleanup-signature",
-      withdrawalSignatures: ["withdraw-signature"],
-    });
+    expect(result.cleanupSignature).toBe("cleanup-signature");
     expect(observeLifecycle).not.toHaveBeenCalledWith(
       "cleanup_backend_confirm",
       expect.anything()
@@ -355,10 +352,7 @@ describe("executeEarnWithdraw", () => {
     });
 
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({
-      cleanupSignature: "cleanup-signature",
-      withdrawalSignatures: ["withdraw-signature"],
-    });
+    expect(result.cleanupSignature).toBe("cleanup-signature");
   });
 
   test("does not retry cleanup after the user rejects a wallet prompt", async () => {
@@ -375,9 +369,8 @@ describe("executeEarnWithdraw", () => {
 
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
     expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      withdrawalSignatures: ["withdraw-signature"],
-    });
+    expect(result.withdrawalSignatures).toEqual(["withdraw-signature"]);
+    expect(result.cleanupSignature).toBeUndefined();
     warn.mockRestore();
   });
 
@@ -401,9 +394,36 @@ describe("executeEarnWithdraw", () => {
     expect(fetchEarnWithdrawCleanupPrepareContext).not.toHaveBeenCalled();
     expect(prepareEarnUsdcCleanup).not.toHaveBeenCalled();
     expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      withdrawalSignatures: ["withdraw-signature"],
+    expect(result.withdrawalSignatures).toEqual(["withdraw-signature"]);
+    expect(result.withdrawalConfirmedSlots).toEqual(["101"]);
+  });
+
+  test("a later withdrawal stage rejection preserves the landed partial amount without declaring a full exit", async () => {
+    prepareEarnUsdcWithdraw.mockResolvedValue({
+      prepared: withdrawOperation,
+      withdrawSteps: [
+        { prepared: withdrawOperation, amountRaw: 400000n },
+        { prepared: withdrawOperation, amountRaw: 600000n },
+      ],
     });
+    const onConfirmed = jest.fn();
+    signAndSendPreparedOperations.mockReset();
+    signAndSendPreparedOperations.mockImplementation(
+      async ({ onConfirmed: confirmed }) => {
+        confirmed({ signature: "first-stage", confirmedSlot: "101" }, 0);
+        throw new WalletRejectedError();
+      }
+    );
+    await expect(
+      executeEarnWithdraw({ signer, amountUsd: 1, mode: "full", onConfirmed })
+    ).rejects.toBeInstanceOf(WalletRejectedError);
+    expect(onConfirmed).toHaveBeenCalledTimes(1);
+    expect(onConfirmed.mock.calls[0][0]).toMatchObject({
+      deltaAmountRaw: "-400000",
+      fullExit: false,
+      confirmedSlot: "101",
+    });
+    expect(fetchEarnWithdrawCleanupPrepareContext).not.toHaveBeenCalled();
   });
 
   test("fails closed when device prepare exhausts its retry budget", async () => {

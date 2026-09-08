@@ -65,6 +65,7 @@ import {
   createBrowserLifecycleTracker,
 } from "@/features/observability/client";
 import type { BrowserErrorOperation } from "@/features/observability/error-contract";
+import { ConfirmedClientEarnPolicy } from "@/features/earn-policy/confirmed-client-policy";
 import { resolveRequiredClientEarnPolicy } from "@/features/earn-policy/resolve-client-policy";
 import {
   resolveSmartAccountMutationRefreshPlan,
@@ -2861,6 +2862,14 @@ export function useSmartAccountSidebarData(
   const smartAccountScopeGeneration = smartAccountScopeGenerationRef.current;
   const smartAccountScopeSnapshot =
     smartAccountScopeGeneration.update(smartAccountScope);
+  const confirmedClientEarnPolicy = useMemo(
+    () =>
+      new ConfirmedClientEarnPolicy(
+        user?.settingsPda ?? "",
+        () => smartAccountScopeGeneration.isCurrent(smartAccountScopeSnapshot)
+      ),
+    [smartAccountScopeGeneration, smartAccountScopeSnapshot, user?.settingsPda]
+  );
   const refreshRunIdRef = useRef(0);
   const earnStateRefreshRunIdRef = useRef(0);
   const groupRefreshSingleflightRef = useRef<SmartAccountRefreshSingleflight>(
@@ -5554,10 +5563,8 @@ export function useSmartAccountSidebarData(
       }
 
       const currentEarnState = earnState ?? (await fetchEarnState());
-      if (currentEarnState && currentEarnState !== earnState) {
-        setEarnState(currentEarnState);
-      }
-      const currentEarnPolicy = currentEarnState?.policy ?? null;
+      const currentEarnPolicy =
+        confirmedClientEarnPolicy.resolve(currentEarnState);
       if (
         !options?.force &&
         !shouldInitializeEarnYieldRoutingPolicyForDeposit({
@@ -5570,7 +5577,10 @@ export function useSmartAccountSidebarData(
         return {
           success: true,
           status: "executed",
-          policy: currentEarnPolicy ?? undefined,
+          policy:
+            currentEarnState?.policy?.account === currentEarnPolicy?.account
+              ? currentEarnState?.policy ?? undefined
+              : undefined,
         };
       }
 
@@ -5578,7 +5588,11 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
-        if (!(overview && earnState?.policySignerPublicKey)) {
+        if (
+          !(overview && earnState?.policySignerPublicKey) ||
+          overview.settingsPda !== user.settingsPda ||
+          earnState.settingsPda !== user.settingsPda
+        ) {
           throw new Error("Earn context is unavailable. Refresh and retry.");
         }
         const client = createSmartAccountVaultsClient({
@@ -5620,11 +5634,20 @@ export function useSmartAccountSidebarData(
           return sendResult;
         }
         const signature = sendResult.signature;
+        confirmedClientEarnPolicy.record(
+          preparedPolicy.persistence, "policy", walletConfirmedSlot?.toString()
+        );
         const confirmedSlot = await resolveEarnDepositConfirmedSlot({
           transportSlot: walletConfirmedSlot,
           fallback: () =>
             resolveConfirmedSignatureSlot({ connection, signature }),
+        }).catch((error) => {
+          captureBrowserError(error, "earn.policy_setup.execute");
+          return undefined;
         });
+        confirmedClientEarnPolicy.record(
+          preparedPolicy.persistence, "policy", confirmedSlot
+        );
         let setupWalletConfirmedSlot: number | undefined;
         const setupSendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
@@ -5645,6 +5668,9 @@ export function useSmartAccountSidebarData(
           return setupSendResult;
         }
         const setupPolicySignature = setupSendResult.signature;
+        confirmedClientEarnPolicy.record(
+          preparedPolicy.persistence, "policy-finalize", setupWalletConfirmedSlot?.toString()
+        );
         const setupPolicyConfirmedSlot = await resolveEarnDepositConfirmedSlot({
           transportSlot: setupWalletConfirmedSlot,
           fallback: () =>
@@ -5652,8 +5678,19 @@ export function useSmartAccountSidebarData(
               connection,
               signature: setupPolicySignature,
             }),
+        }).catch((error) => {
+          captureBrowserError(error, "earn.policy_setup.execute");
+          return undefined;
         });
 
+        confirmedClientEarnPolicy.record(
+          preparedPolicy.persistence, "policy-finalize", setupPolicyConfirmedSlot
+        );
+        if (!confirmedSlot || !setupPolicyConfirmedSlot) {
+          // Both sends confirmed. Missing optional slot metadata must not ask
+          // the user to submit the policy pair again.
+          return { success: true, signature, status: "executed" };
+        }
         return {
           success: true,
           signature,
@@ -5702,7 +5739,16 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, earnState, overview, solanaEnv, user?.walletAddress, wallet]
+    [
+      confirmedClientEarnPolicy,
+      connection,
+      earnState,
+      overview,
+      solanaEnv,
+      user?.settingsPda,
+      user?.walletAddress,
+      wallet,
+    ]
   );
 
   const executeEarnAutoswapSetup = useCallback(
@@ -6147,6 +6193,9 @@ export function useSmartAccountSidebarData(
           return sendResult;
         }
 
+        confirmedClientEarnPolicy.record(
+          request.preparedDeposit.persistence, request.stage, walletConfirmedSlot?.toString()
+        );
         let confirmedSlot: string;
         try {
           confirmedSlot = await resolveEarnDepositConfirmedSlot({
@@ -6167,6 +6216,9 @@ export function useSmartAccountSidebarData(
           };
         }
 
+        confirmedClientEarnPolicy.record(
+          request.preparedDeposit.persistence, request.stage, confirmedSlot
+        );
         return {
           success: true,
           signature: sendResult.signature,
@@ -6197,7 +6249,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, solanaEnv, user?.walletAddress, wallet]
+    [confirmedClientEarnPolicy, connection, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnDepositBatch = useCallback(
@@ -6309,26 +6361,29 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
-        const currentEarnState = earnState ?? (await fetchEarnState());
-        if (currentEarnState && currentEarnState !== earnState) {
-          setEarnState(currentEarnState);
-        }
+        const currentEarnState =
+          earnState?.settingsPda === request.preparedDeposit.persistence.settings
+            ? earnState
+            : null;
+        confirmedClientEarnPolicy.resolve(currentEarnState);
 
-        const onboarding = currentEarnState?.onboarding;
-        let policyConfirmedSlot =
-          request.policyConfirmedSlot ??
-          onboarding?.policy?.lastSeenSlot ??
-          currentEarnState?.policy?.lastSeenSlot;
-        let policySignature =
-          request.policySignature ??
-          onboarding?.policy?.lastSeenSignature ??
-          currentEarnState?.policy?.lastSeenSignature;
-        let setupPolicyConfirmedSlot =
-          request.setupPolicyConfirmedSlot ??
-          onboarding?.setupPolicy?.lastSeenSlot;
-        let setupPolicySignature =
-          request.setupPolicySignature ??
-          onboarding?.setupPolicy?.lastSeenSignature;
+        const matchesPolicy = (
+          projected: { account: string; seed: string } | null | undefined,
+          prepared: { account: PublicKey; seed: bigint } | undefined
+        ) => Boolean(
+          projected && prepared &&
+          projected.account === prepared.account.toBase58() &&
+          projected.seed === prepared.seed.toString()
+        );
+        // Legacy onboarding signatures must not advance a new pair's resume stage.
+        const policy = [currentEarnState?.onboarding?.policy, currentEarnState?.policy]
+          .find((candidate) => matchesPolicy(candidate, request.preparedDeposit.policy));
+        const setupPolicy = [currentEarnState?.onboarding?.setupPolicy, currentEarnState?.policy?.setupPolicy]
+          .find((candidate) => matchesPolicy(candidate, request.preparedDeposit.setupPolicy));
+        let policyConfirmedSlot = request.policyConfirmedSlot ?? policy?.lastSeenSlot;
+        let policySignature = request.policySignature ?? policy?.lastSeenSignature;
+        let setupPolicyConfirmedSlot = request.setupPolicyConfirmedSlot ?? setupPolicy?.lastSeenSlot;
+        let setupPolicySignature = request.setupPolicySignature ?? setupPolicy?.lastSeenSignature;
         let depositConfirmedSlot: string | undefined;
         let depositSignature: string | undefined;
 
@@ -6394,6 +6449,9 @@ export function useSmartAccountSidebarData(
                 );
               }
 
+              confirmedClientEarnPolicy.record(
+                request.preparedDeposit.persistence, confirmedStage.stage, slot?.toString()
+              );
               let confirmedSlot: string;
               try {
                 confirmedSlot = await resolveEarnDepositConfirmedSlot({
@@ -6410,6 +6468,9 @@ export function useSmartAccountSidebarData(
                 throw error;
               }
 
+              confirmedClientEarnPolicy.record(
+                request.preparedDeposit.persistence, confirmedStage.stage, confirmedSlot
+              );
               if (
                 confirmedStage.stage === "policy" ||
                 confirmedStage.stage === "policy-finalize"
@@ -6509,7 +6570,14 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, earnState, solanaEnv, user?.walletAddress, wallet]
+    [
+      confirmedClientEarnPolicy,
+      connection,
+      earnState,
+      solanaEnv,
+      user?.walletAddress,
+      wallet,
+    ]
   );
 
   const executeEarnDeposit = useCallback(
@@ -6646,6 +6714,9 @@ export function useSmartAccountSidebarData(
         console.log("[executeEarnDeposit] wallet send completed", {
           signature,
         });
+        confirmedClientEarnPolicy.record(
+          preparedDeposit.persistence, "deposit", walletConfirmedSlot?.toString()
+        );
         let confirmedSlot: string;
         try {
           confirmedSlot = await resolveEarnDepositConfirmedSlot({
@@ -6667,6 +6738,9 @@ export function useSmartAccountSidebarData(
             error: EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
           };
         }
+        confirmedClientEarnPolicy.record(
+          preparedDeposit.persistence, "deposit", confirmedSlot
+        );
         console.log("[executeEarnDeposit] signature confirmed", {
           confirmedSlot,
           signature,
@@ -6696,6 +6770,7 @@ export function useSmartAccountSidebarData(
       }
     },
     [
+      confirmedClientEarnPolicy,
       connection,
       overview,
       solanaEnv,
@@ -6794,6 +6869,7 @@ export function useSmartAccountSidebarData(
           }
         }
 
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "withdrawal",
@@ -6804,6 +6880,9 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedStep.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
@@ -6811,9 +6890,12 @@ export function useSmartAccountSidebarData(
           return sendResult;
         }
         const signature = sendResult.signature;
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature,
+        const confirmedSlot = await resolveEarnDepositConfirmedSlot({
+          transportSlot: walletConfirmedSlot,
+          fallback: () => resolveConfirmedSignatureSlot({ connection, signature }),
+        }).catch((error) => {
+          captureBrowserError(error, "earn.withdrawal.execute");
+          return undefined;
         });
 
         try {
@@ -6829,7 +6911,10 @@ export function useSmartAccountSidebarData(
           success: true,
           signature,
           confirmedSlot,
-          status: "executed",
+          status: confirmedSlot ? "executed" : "confirmation_record_failed",
+          ...(confirmedSlot
+            ? {}
+            : { error: EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE }),
           mode: preparedStep.mode,
           amountRaw: preparedStep.amountRaw.toString(),
         };
@@ -6843,7 +6928,14 @@ export function useSmartAccountSidebarData(
           "earn.withdrawal.execute",
           err
         );
-        return { success: false, error };
+        const signature = getSubmittedTransactionSignature(err);
+        return {
+          success: false,
+          ...(signature ? { signature } : {}),
+          error: signature
+            ? "Your withdrawal was submitted. Check its status before withdrawing again."
+            : error,
+        };
       } finally {
         setIsActionPending(false);
       }
@@ -6916,6 +7008,7 @@ export function useSmartAccountSidebarData(
           }
         }
 
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "earn cleanup",
@@ -6926,6 +7019,9 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedCleanup.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
@@ -6933,16 +7029,25 @@ export function useSmartAccountSidebarData(
           return sendResult;
         }
         const signature = sendResult.signature;
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature,
+        confirmedClientEarnPolicy.record(
+          preparedCleanup.persistence, "cleanup", walletConfirmedSlot?.toString()
+        );
+        const confirmedSlot = await resolveEarnDepositConfirmedSlot({
+          transportSlot: walletConfirmedSlot,
+          fallback: () => resolveConfirmedSignatureSlot({ connection, signature }),
+        }).catch((error) => {
+          captureBrowserError(error, "earn.cleanup.execute");
+          return undefined;
         });
+        confirmedClientEarnPolicy.record(
+          preparedCleanup.persistence, "cleanup", confirmedSlot
+        );
 
         return {
           success: true,
           signature,
           confirmedSlot,
-          status: "executed",
+          status: confirmedSlot ? "executed" : "confirmation_record_failed",
           idleTransferAmountRaw:
             preparedCleanup.persistence.idleTransferAmountRaw,
         };
@@ -6956,12 +7061,19 @@ export function useSmartAccountSidebarData(
           "earn.cleanup.execute",
           err
         );
-        return { success: false, error };
+        const signature = getSubmittedTransactionSignature(err);
+        return {
+          success: false,
+          ...(signature ? { signature } : {}),
+          error: signature
+            ? "Earn cleanup was submitted. Check its status before trying again."
+            : error,
+        };
       } finally {
         setIsActionPending(false);
       }
     },
-    [connection, solanaEnv, user?.walletAddress, wallet]
+    [confirmedClientEarnPolicy, connection, solanaEnv, user?.walletAddress, wallet]
   );
 
   const getEarnAutodepositPrepareContext = useCallback(() => {
@@ -6983,6 +7095,13 @@ export function useSmartAccountSidebarData(
       );
     }
 
+    confirmedClientEarnPolicy.resolve(earnState);
+    if (
+      overview.settingsPda !== user.settingsPda ||
+      earnState?.settingsPda !== user.settingsPda
+    ) {
+      throw new Error("Earn account changed. Review the action again.");
+    }
     const policySignerPublicKey = earnState?.policySignerPublicKey;
     if (!policySignerPublicKey) {
       throw new Error("Earn policy signer is unavailable. Refresh and retry.");
@@ -7001,10 +7120,12 @@ export function useSmartAccountSidebarData(
       walletAddress: new PublicKey(user.walletAddress),
     };
   }, [
+    confirmedClientEarnPolicy,
     connection,
-    earnState?.policySignerPublicKey,
+    earnState,
     overview,
     solanaEnv,
+    user?.settingsPda,
     user?.walletAddress,
     wallet.publicKey,
   ]);
@@ -7028,7 +7149,7 @@ export function useSmartAccountSidebarData(
           "No eligible Safe Kamino reserve is available for this Earn asset."
         );
       }
-      const policy = earnState?.policy;
+      const policy = confirmedClientEarnPolicy.resolve(earnState);
       try {
         return await context.client.prepareEarnUsdcDeposit({
           amountRaw: request.amountRaw,
@@ -7070,7 +7191,8 @@ export function useSmartAccountSidebarData(
     },
     [
       bestApyReservesByStablecoin?.reserves,
-      earnState?.policy,
+      confirmedClientEarnPolicy,
+      earnState,
       getEarnAutodepositPrepareContext,
     ]
   );
@@ -7081,6 +7203,7 @@ export function useSmartAccountSidebarData(
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
       const context = getEarnAutodepositPrepareContext();
       const policy = await resolveRequiredClientEarnPolicy({
+        resolvePolicy: (state) => confirmedClientEarnPolicy.resolve(state),
         currentState: earnState,
         expectedSettingsPda: context.settingsPda.toBase58(),
         onRefreshed: (nextEarnState) => {
@@ -7126,7 +7249,7 @@ export function useSmartAccountSidebarData(
           : { ...base, mode: "partial" }
       );
     },
-    [earnState, getEarnAutodepositPrepareContext]
+    [confirmedClientEarnPolicy, earnState, getEarnAutodepositPrepareContext]
   );
 
   const prepareEarnCleanup = useCallback(
@@ -7135,6 +7258,7 @@ export function useSmartAccountSidebarData(
     ): Promise<PreparedEarnUsdcCleanup> => {
       const context = getEarnAutodepositPrepareContext();
       const policy = await resolveRequiredClientEarnPolicy({
+        resolvePolicy: (state) => confirmedClientEarnPolicy.resolve(state),
         currentState: earnState,
         expectedSettingsPda: context.settingsPda.toBase58(),
         onRefreshed: (nextEarnState) => {
@@ -7184,7 +7308,7 @@ export function useSmartAccountSidebarData(
         );
       return { ...preparedCleanup, estimatedRefundLamports };
     },
-    [earnState, getEarnAutodepositPrepareContext]
+    [confirmedClientEarnPolicy, earnState, getEarnAutodepositPrepareContext]
   );
 
   const prepareEarnAutodepositSetup = useCallback(
@@ -7801,6 +7925,7 @@ export function useSmartAccountSidebarData(
             policy: request.policy,
             recurringDelegation: request.recurringDelegation,
           }));
+        let walletConfirmedSlot: number | undefined;
         const closeSend = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "autodeposit close",
@@ -7811,21 +7936,30 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedClose.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!closeSend.success) {
           return closeSend;
         }
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature: closeSend.signature,
+        const confirmedSlot = await resolveEarnDepositConfirmedSlot({
+          transportSlot: walletConfirmedSlot,
+          fallback: () => resolveConfirmedSignatureSlot({
+            connection,
+            signature: closeSend.signature,
+          }),
+        }).catch((error) => {
+          captureBrowserError(error, "earn.autodeposit_close.execute");
+          return undefined;
         });
         return {
           success: true,
           signature: closeSend.signature,
           confirmedSlot,
-          status: "executed",
+          status: confirmedSlot ? "executed" : "confirmation_record_failed",
         };
       } catch (err) {
         const error =
@@ -7835,7 +7969,14 @@ export function useSmartAccountSidebarData(
           "earn.autodeposit_close.execute",
           err
         );
-        return { success: false, error };
+        const signature = getSubmittedTransactionSignature(err);
+        return {
+          success: false,
+          ...(signature ? { signature } : {}),
+          error: signature
+            ? "Autodeposit close was submitted. Check its status before trying again."
+            : error,
+        };
       } finally {
         setIsActionPending(false);
       }

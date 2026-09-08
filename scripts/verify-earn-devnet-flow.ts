@@ -479,7 +479,14 @@ async function executePrepared(args: {
   return { signature, confirmedSlot };
 }
 
+const LEGACY_TRANSACTION_API_RETIRED = true;
+
 async function main() {
+  if (LEGACY_TRANSACTION_API_RETIRED) {
+    throw new Error(
+      "This historical verifier submits transactions before calling retired web confirm APIs. Use docs/workers/earn-client-release.md instead."
+    );
+  }
   assertDevnet();
 
   const wallet = loadTestingKeypair();

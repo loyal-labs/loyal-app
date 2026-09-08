@@ -98,6 +98,7 @@ function parseArgs(argv: string[]): { command: string; args: Args } {
     !command ||
     ![
       "initial",
+      "bootstrap",
       "topup",
       "partial",
       "full",
@@ -554,6 +555,10 @@ async function initial(args: Args): Promise<void> {
       { commitment: "confirmed" },
       TOKEN_PROGRAM_ID
     );
+    if (args["bootstrap-only"] === "1") {
+      await writeFile(args.state!, JSON.stringify(state, null, 2));
+      return;
+    }
     const vaults = createSmartAccountVaultsClient({
       connection,
       programId: PROGRAM_ID,
@@ -842,7 +847,8 @@ async function listen(args: Args): Promise<void> {
 }
 
 const { command, args } = parseArgs(process.argv.slice(2));
-if (command === "initial") await initial(args);
+if (command === "initial" || command === "bootstrap")
+  await initial({ ...args, ...(command === "bootstrap" ? { "bootstrap-only": "1" } : {}) });
 else if (command === "topup" || command === "partial" || command === "full")
   await next(command, args);
 else if (command === "wait-finalized") await waitFinalized(args);

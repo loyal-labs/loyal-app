@@ -31,7 +31,16 @@ import {
   type EarnWithdrawSource,
 } from "./earn-api";
 import { signEarnAuth, withEarnAuth } from "./earn-auth";
-import { signAndSendPreparedOperations } from "./send-prepared";
+import {
+  signAndSendPreparedOperations,
+  type SentTransaction,
+} from "./send-prepared";
+import {
+  bindEarnAccountingTargets,
+  type EarnAccountingTarget,
+  type ConfirmedEarnMutation,
+} from "./position-overlay";
+import { readEarnOverlay } from "./position-store";
 import type { HydratedPreparedOperation } from "./wire";
 
 const USDC_DECIMALS = 6;
@@ -59,11 +68,10 @@ function usdToUsdcRaw(amountUsd: number): string {
 export type EarnWithdrawResult = {
   cleanupSignature?: string;
   withdrawalSignatures: string[];
-};
-
-type EarnWithdrawSendResult = EarnWithdrawResult & {
   withdrawalConfirmedSlots: string[];
 };
+
+type EarnWithdrawSendResult = EarnWithdrawResult;
 
 // Rebuild the SDK withdraw input from the `prepare-context` wire form. The
 // context's `autodepositClose` is handled by the close-first loop in
@@ -309,10 +317,11 @@ async function fetchCleanupContextWithRetry(args: {
 }
 
 // Sign every client-built step in one wallet prompt and send strictly in
-// order. Finalized LaserStream updates project every landed step.
+// order. Confirmed LaserStream updates project every landed step.
 async function signSendAndConfirmWithdraw(args: {
   signer: Signer;
   operations: HydratedPreparedOperation[];
+  onConfirmed?: (transaction: SentTransaction, index: number) => void;
   flow: LifecycleFlow<"earn.withdrawal">;
 }): Promise<EarnWithdrawSendResult> {
   const connection = getConnection();
@@ -321,6 +330,7 @@ async function signSendAndConfirmWithdraw(args: {
     connection,
     signer: args.signer,
     operations: args.operations,
+    onConfirmed: args.onConfirmed,
   }).catch((error) => {
     args.flow.failFrom("wallet_submit_confirm", error);
     throw error;
@@ -360,6 +370,7 @@ export async function executeEarnWithdraw(args: {
   // exactly one source; required (from the picker) when the position spans
   // multiple sources.
   source?: EarnWithdrawSource | null;
+  onConfirmed?: (mutation: ConfirmedEarnMutation) => void;
 }): Promise<EarnWithdrawResult> {
   const flow = startLifecycleFlow({
     ...(args.flowId ? { flowId: args.flowId } : {}),
@@ -384,6 +395,7 @@ async function runEarnWithdraw(
     amountUsd: number;
     mode: EarnWithdrawMode;
     source?: EarnWithdrawSource | null;
+    onConfirmed?: (mutation: ConfirmedEarnMutation) => void;
   },
   flow: LifecycleFlow<"earn.withdrawal">
 ): Promise<EarnWithdrawResult> {
@@ -499,6 +511,8 @@ async function runEarnWithdraw(
       args.signer.publicKey
     );
     let operations: HydratedPreparedOperation[];
+    let stepAmounts: string[];
+    let stepTargets: EarnAccountingTarget[][];
     try {
       const preparedWithdraw = await withConnectionRetry(
         "device prepare",
@@ -513,6 +527,59 @@ async function runEarnWithdraw(
       operations = hasSteps
         ? preparedWithdraw.withdrawSteps.map((step) => step.prepared)
         : [preparedWithdraw.prepared];
+      stepAmounts = hasSteps
+        ? preparedWithdraw.withdrawSteps.map((step) =>
+            step.amountRaw.toString()
+          )
+        : [preparedWithdraw.amountRaw.toString()];
+      const source = context.withdrawInput.source;
+      const fallbackTargets: EarnAccountingTarget[] =
+        source?.type === "idle"
+          ? [] // Idle accounting retains the prior venue: resolve IDs from signature history.
+          : source
+          ? [
+              {
+                kind: "withdrawal",
+                liquidityMint: source.liquidityMint,
+                reserve: source.reserve,
+              },
+            ]
+          : (
+              context.withdrawInput.fullWithdrawalTargets ??
+              (context.withdrawInput.target
+                ? [context.withdrawInput.target]
+                : [])
+            ).map((target) => ({
+              kind: "withdrawal",
+              liquidityMint: target.liquidityMint,
+              reserve: target.reserve,
+            }));
+      const cached = readEarnOverlay(args.signer.publicKey.toBase58());
+      const rows =
+        cached?.settingsPda === context.settingsPda
+          ? cached.projectedPositions
+          : [];
+      stepTargets = (hasSteps ? preparedWithdraw.withdrawSteps : [null]).map(
+        (step) => {
+          const targets: EarnAccountingTarget[] = step?.reserveWithdrawals
+            ?.length
+            ? step.reserveWithdrawals.map((reserve) => ({
+                kind: "withdrawal",
+                liquidityMint: reserve.liquidityMint,
+                reserve: reserve.executionReserve,
+              }))
+            : step?.executionReserve
+            ? [
+                {
+                  kind: "withdrawal",
+                  liquidityMint: step.executionReserve.liquidityMint.toBase58(),
+                  reserve: step.executionReserve.reserve.toBase58(),
+                },
+              ]
+            : fallbackTargets;
+          return bindEarnAccountingTargets(targets, rows);
+        }
+      );
       flow.observe("prepare");
     } catch (error) {
       flow.failFrom("prepare", error, prepareSubstage("device_prepare"));
@@ -522,11 +589,22 @@ async function runEarnWithdraw(
       signer: args.signer,
       operations,
       flow,
+      onConfirmed: (transaction, index) =>
+        args.onConfirmed?.({
+          ...transaction,
+          walletAddress: args.signer.publicKey.toBase58(),
+          settingsPda: context.settingsPda,
+          cluster: context.cluster,
+          deltaAmountRaw: (-BigInt(stepAmounts[index])).toString(),
+          accountingTargets: stepTargets[index],
+          // A failed intermediate stage must never masquerade as a full exit.
+          fullExit: needsSeparateCleanup && index === operations.length - 1,
+        }),
     });
     if (!needsSeparateCleanup) {
       flow.complete("ui_commit");
       return {
-        withdrawalSignatures: withdrawResult.withdrawalSignatures,
+        ...withdrawResult,
       };
     }
 
@@ -589,7 +667,7 @@ async function runEarnWithdraw(
     flow.complete("ui_commit");
     return {
       ...(cleanupSignature !== undefined ? { cleanupSignature } : {}),
-      withdrawalSignatures: withdrawResult.withdrawalSignatures,
+      ...withdrawResult,
     };
   }
 

@@ -11,6 +11,20 @@ import {
   removeClientCache,
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
+import {
+  assertEarnProjectionDoesNotRegress,
+  bindEarnAccountingTargets,
+  type EarnAccountingTarget,
+  type EarnPositionMutation,
+  type EarnProjectedPosition,
+  isEarnMutationCovered,
+  parseEarnConfirmationSlot,
+  recoverEarnMutationEvidence,
+} from "@/lib/yield-optimization/earn-position-accounting.client";
+import {
+  readEarnPositionRecovery,
+  writeEarnPositionRecovery,
+} from "@/lib/yield-optimization/earn-position-recovery.client";
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import {
   type EarnRpcHolding,
@@ -25,9 +39,6 @@ const EARN_POSITION_CACHE_VERSION = 6;
 const EARN_POSITION_REFRESH_DEBOUNCE_MS = 350;
 const EARN_POSITION_INITIAL_LOAD_MAX_ATTEMPTS = 2;
 const EARN_POSITION_INITIAL_LOAD_RETRY_DELAY_MS = 2_000;
-const EARN_POSITION_RECONCILE_MIN_DELTA_RAW = BigInt(10_000);
-const EARN_POSITION_RECONCILE_ENDPOINT =
-  "/api/smart-accounts/yield-optimization/position/reconcile";
 
 export type ActiveEarnPositionHolding = {
   amountRaw: string;
@@ -46,6 +57,7 @@ export type ActiveEarnPositionHolding = {
 };
 
 export type ActiveEarnPosition = {
+  lastConfirmedSlot?: string | null;
   currentSupplyApyBps: string | null;
   display: {
     label: string;
@@ -92,12 +104,14 @@ type EarnPositionConnection = Pick<
   Partial<Pick<Connection, "onAccountChange" | "removeAccountChangeListener">>;
 
 type RpcPositionRead = {
+  observedSlot: bigint;
   position: ActiveEarnPosition | null;
   watchedAccounts: EarnRpcWatchedAccount[];
 };
 
 type ConfirmedEarnPositionResponse = {
   position: ActiveEarnPosition | null;
+  projectedPositions?: EarnProjectedPosition[];
 };
 
 export function isActiveEarnPosition(
@@ -200,36 +214,22 @@ function shouldKeepCurrentPositionOverConfirmed(args: {
   );
 }
 
-function getEarnPositionSourceSignature(
-  position: ActiveEarnPosition | null | undefined
-): string | null {
-  if (!position) {
-    return null;
+// RPC owns the live amount, not the principal ledger. Adopt projected basis
+// only once the relevant rows cover every locally confirmed mutation.
+function mergeProjectedMetadata(
+  current: ActiveEarnPosition | null,
+  projected: ActiveEarnPosition | null | undefined,
+  accountingCovered: boolean
+): ActiveEarnPosition | null {
+  if (!current || !projected || !accountingCovered) {
+    return current;
   }
-
-  const holdings =
-    position.holdings && position.holdings.length > 0
-      ? position.holdings
-      : [
-          {
-            kind: "kamino" as const,
-            liquidityMint: position.currentHolding.liquidityMint,
-            market: position.currentHolding.market,
-            reserve: position.currentHolding.reserve,
-          },
-        ];
-
-  return holdings
-    .map((holding) =>
-      [
-        holding.kind,
-        holding.liquidityMint,
-        holding.market ?? "",
-        holding.reserve ?? "",
-      ].join(":")
-    )
-    .sort()
-    .join("|");
+  return {
+    ...current,
+    initialHolding: projected.initialHolding,
+    lastConfirmedSlot: projected.lastConfirmedSlot,
+    principalAmountRaw: projected.principalAmountRaw,
+  };
 }
 
 export function resolveFailedEarnPositionLoad(args: {
@@ -252,52 +252,6 @@ export function resolveFailedEarnPositionLoad(args: {
     return { kind: "retry" };
   }
   return { kind: "unresolved" };
-}
-
-function shouldRequestPositionReconciliation(args: {
-  base: ActiveEarnPosition | null;
-  rpc: ActiveEarnPosition | null;
-}): boolean {
-  if (!(args.base && args.rpc)) {
-    return false;
-  }
-
-  const baseAmountRaw = parseEarnRawAmount(args.base.currentTotalAmountRaw);
-  const rpcAmountRaw = parseEarnRawAmount(args.rpc.currentTotalAmountRaw);
-  if (baseAmountRaw !== null && rpcAmountRaw !== null) {
-    const delta =
-      baseAmountRaw > rpcAmountRaw
-        ? baseAmountRaw - rpcAmountRaw
-        : rpcAmountRaw - baseAmountRaw;
-    if (delta >= EARN_POSITION_RECONCILE_MIN_DELTA_RAW) {
-      return true;
-    }
-  }
-
-  return (
-    getEarnPositionSourceSignature(args.base) !==
-    getEarnPositionSourceSignature(args.rpc)
-  );
-}
-
-async function requestEarnPositionReconciliation() {
-  const response = await fetch(EARN_POSITION_RECONCILE_ENDPOINT, {
-    body: JSON.stringify({ force: true }),
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to reconcile Earn position."
-    );
-  }
 }
 
 export function getEarnPositionCacheKey(args: {
@@ -326,25 +280,6 @@ function getLastEarnPositionCacheKey(args: {
     args.solanaEnv,
     args.walletAddress,
   ].join(":");
-}
-
-function readLastEarnPositionCache(args: {
-  solanaEnv: string;
-  walletAddress: string;
-}): LastEarnPositionCachePayload | null {
-  const key = getLastEarnPositionCacheKey(args);
-  const payload = readClientCache<LastEarnPositionCachePayload>({
-    key,
-    version: EARN_POSITION_CACHE_VERSION,
-    solanaEnv: args.solanaEnv,
-    walletAddress: args.walletAddress,
-    validate: (data): data is LastEarnPositionCachePayload =>
-      typeof data === "object" &&
-      data !== null &&
-      "position" in data &&
-      "settingsPda" in data,
-  });
-  return payload;
 }
 
 function writeLastEarnPositionCache(args: {
@@ -434,7 +369,7 @@ function isConfirmedEarnPositionResponse(
   );
 }
 
-async function fetchConfirmedEarnPosition(): Promise<ActiveEarnPosition | null> {
+async function fetchConfirmedEarnPosition(): Promise<ConfirmedEarnPositionResponse> {
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/position",
     {
@@ -451,7 +386,7 @@ async function fetchConfirmedEarnPosition(): Promise<ActiveEarnPosition | null> 
     throw new Error("Invalid confirmed Earn position response.");
   }
 
-  return data.position;
+  return data;
 }
 
 export function useActiveEarnPosition({
@@ -480,7 +415,6 @@ export function useActiveEarnPosition({
     EarnRpcWatchedAccount[]
   >([]);
   const positionRef = useRef<ActiveEarnPosition | null>(null);
-  const reconcileRequestKeyRef = useRef<string | null>(null);
   const refreshDirtyRef = useRef(false);
   const refreshGenerationRef = useRef(0);
   const positionScope = [
@@ -495,6 +429,12 @@ export function useActiveEarnPosition({
   );
   const refreshInFlightScopeRef = useRef<string | null>(null);
   const suppressSubscriptionRefreshThroughSlotRef = useRef<bigint | null>(null);
+  const projectedRowsRef = useRef<EarnProjectedPosition[]>([]);
+  const adoptedRowsRef = useRef<EarnProjectedPosition[]>([]);
+  const adoptedPrincipalRef = useRef("0");
+  const mutationsRef = useRef<EarnPositionMutation[]>([]);
+  const rpcObservedSlotRef = useRef<bigint | null>(null);
+  const hydratedScopeRef = useRef<string | null>(null);
 
   // Advance identity synchronously during render. A response that resolves
   // between this render and passive-effect cleanup must not commit into the
@@ -505,7 +445,45 @@ export function useActiveEarnPosition({
     refreshDirtyRef.current = false;
     refreshInFlightRef.current = null;
     refreshInFlightScopeRef.current = null;
+    suppressSubscriptionRefreshThroughSlotRef.current = null;
+    projectedRowsRef.current = [];
+    adoptedRowsRef.current = [];
+    adoptedPrincipalRef.current = "0";
+    mutationsRef.current = [];
+    rpcObservedSlotRef.current = null;
+    positionRef.current = null;
+    hydratedScopeRef.current = null;
   }
+
+  if (hydratedScopeRef.current !== positionScope) {
+    hydratedScopeRef.current = positionScope;
+    const saved = enabled && walletAddress && settingsPda
+      ? readEarnPositionRecovery(positionScope) : null;
+    positionRef.current = saved?.position ?? null;
+    if (saved) {
+      mutationsRef.current = [...saved.mutations];
+      projectedRowsRef.current = saved.projectedRows;
+      adoptedRowsRef.current = saved.adoptedRows;
+      adoptedPrincipalRef.current = saved.adoptedPrincipal;
+      rpcObservedSlotRef.current = parseEarnConfirmationSlot(saved.rpcObservedSlot);
+      suppressSubscriptionRefreshThroughSlotRef.current = parseEarnConfirmationSlot(saved.slotFloor);
+    }
+    setPositionState(positionRef.current);
+    setHasResolved(saved !== null);
+  }
+
+  const persistRecovery = useCallback(() => {
+    if (!(enabled && walletAddress && settingsPda) || activePositionScopeRef.current !== positionScope) return;
+    writeEarnPositionRecovery(positionScope, {
+      position: positionRef.current,
+      mutations: mutationsRef.current,
+      projectedRows: projectedRowsRef.current,
+      adoptedRows: adoptedRowsRef.current,
+      adoptedPrincipal: adoptedPrincipalRef.current,
+      rpcObservedSlot: rpcObservedSlotRef.current?.toString() ?? null,
+      slotFloor: suppressSubscriptionRefreshThroughSlotRef.current?.toString() ?? null,
+    });
+  }, [enabled, walletAddress, settingsPda, positionScope]);
 
   const canUseCache = Boolean(enabled && walletAddress && settingsPda);
 
@@ -514,31 +492,109 @@ export function useActiveEarnPosition({
       next:
         | ActiveEarnPosition
         | null
-        | ((current: ActiveEarnPosition | null) => ActiveEarnPosition | null)
+        | ((current: ActiveEarnPosition | null) => ActiveEarnPosition | null),
+      mutation?: EarnPositionMutation
     ) => {
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
+      if (
+        mutation?.signature &&
+        mutationsRef.current.some((prior) => prior.signature === mutation.signature)
+      ) {
+        return;
+      }
+      // Local confirmation supersedes reads already in flight, including a
+      // full-withdrawal null tombstone. Update the ref synchronously.
+      refreshGenerationRef.current += 1;
+      refreshInFlightRef.current = null;
+      refreshInFlightScopeRef.current = null;
+      const current = positionRef.current;
+      let resolved = typeof next === "function" ? next(current) : next;
+      if (mutation) {
+        const principalCovered = isEarnMutationCovered(
+          adoptedRowsRef.current, mutation
+        );
+        if (principalCovered && resolved) {
+          resolved = {
+            ...resolved,
+            principalAmountRaw: adoptedPrincipalRef.current,
+          };
+        }
+        mutationsRef.current.push(mutation);
+        const slot = parseEarnConfirmationSlot(mutation.confirmedSlot);
+        if (slot !== null) {
+          const floor = suppressSubscriptionRefreshThroughSlotRef.current;
+          suppressSubscriptionRefreshThroughSlotRef.current =
+            floor === null || slot > floor ? slot : floor;
+          // A complete RPC snapshot can already include this transaction.
+          // Preserve its amount, but still apply the unprojected principal delta.
+          if (
+            (rpcObservedSlotRef.current !== null &&
+              rpcObservedSlotRef.current >= slot) ||
+            (rpcObservedSlotRef.current === null && principalCovered)
+          ) {
+            resolved = current
+              ? {
+                  ...current,
+                  principalAmountRaw: principalCovered
+                    ? adoptedPrincipalRef.current
+                    : resolved?.principalAmountRaw ?? "0",
+                }
+              : null;
+          }
+        }
+      }
+      positionRef.current = resolved;
+      persistRecovery();
       setHasResolved(true);
       setIsLoading(false);
-      setPositionState((current) => {
-        if (activePositionScopeRef.current !== positionScope) {
-          return current;
-        }
-        const resolved = typeof next === "function" ? next(current) : next;
-        positionRef.current = resolved;
-        if (walletAddress && settingsPda) {
-          writeEarnPositionCache({
-            solanaEnv,
-            walletAddress,
-            settingsPda,
-            position: resolved,
-          });
-        }
-        return resolved;
-      });
+      setPositionState(resolved);
+      if (walletAddress && settingsPda) {
+        writeEarnPositionCache({
+          solanaEnv,
+          walletAddress,
+          settingsPda,
+          position: resolved,
+        });
+      }
     },
-    [positionScope, settingsPda, solanaEnv, walletAddress]
+    [persistRecovery, positionScope, settingsPda, solanaEnv, walletAddress]
+  );
+
+  const captureAccountingTargets = useCallback(
+    (targets: EarnAccountingTarget[]) =>
+      bindEarnAccountingTargets(targets, projectedRowsRef.current),
+    []
+  );
+
+  const isAccountingCovered = useCallback(
+    (response: ConfirmedEarnPositionResponse) => {
+      assertEarnProjectionDoesNotRegress(
+        projectedRowsRef.current, response.projectedPositions ?? []
+      );
+      if (mutationsRef.current.length) {
+        return mutationsRef.current.every((mutation) =>
+          isEarnMutationCovered(response.projectedPositions ?? [], mutation)
+        );
+      }
+      const floor = suppressSubscriptionRefreshThroughSlotRef.current;
+      return floor === null ||
+        (parseEarnRawAmount(response.position?.lastConfirmedSlot) ?? BigInt(-1)) >= floor;
+    },
+    []
+  );
+
+  const retainProjectionEvidence = useCallback(
+    (response: ConfirmedEarnPositionResponse, covered: boolean) => {
+      if (!response.projectedPositions) return;
+      projectedRowsRef.current = response.projectedPositions;
+      if (covered) {
+        adoptedRowsRef.current = response.projectedPositions;
+        adoptedPrincipalRef.current = response.position?.principalAmountRaw ?? "0";
+      }
+    },
+    []
   );
 
   const readRpcPosition = useCallback(
@@ -549,15 +605,25 @@ export function useActiveEarnPosition({
         return null;
       }
 
+      // A WS-confirmed action can lack metadata. Never replace its amount
+      // with an unfenced read while exact signature evidence is unavailable.
+      if (mutationsRef.current.some((mutation) =>
+        parseEarnConfirmationSlot(mutation.confirmedSlot) === null)) {
+        throw new Error("Earn confirmation slot evidence is still pending.");
+      }
+      const slotFloor = suppressSubscriptionRefreshThroughSlotRef.current;
       const snapshot = await fetchEarnRpcHoldingsSnapshot({
         cluster: resolveLoyalClusterForSolanaEnv(resolveSolanaEnv(solanaEnv)),
         connection,
+        minContextSlot: slotFloor === null ? undefined : Number(slotFloor),
+        requireCompleteReserveReads: true,
         policy: earnPolicy,
         programId: new PublicKey(programId),
         settingsPda: new PublicKey(settingsPda),
       });
 
       return {
+        observedSlot: BigInt(snapshot.observedSlot),
         position: applyEarnRpcSnapshotToPosition(basePosition, snapshot),
         watchedAccounts: snapshot.provenance.watchedAccounts,
       };
@@ -570,6 +636,10 @@ export function useActiveEarnPosition({
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
+      const slotFloor = suppressSubscriptionRefreshThroughSlotRef.current;
+      if (slotFloor !== null && next.observedSlot < slotFloor) {
+        throw new Error("Earn RPC snapshot predates the confirmed transaction.");
+      }
       if (walletAddress && settingsPda) {
         writeEarnPositionCache({
           solanaEnv,
@@ -578,29 +648,42 @@ export function useActiveEarnPosition({
           position: next.position,
         });
       }
+      rpcObservedSlotRef.current = next.observedSlot;
       positionRef.current = next.position;
+      persistRecovery();
       setWatchedAccounts(next.watchedAccounts);
       setPositionState(next.position);
       setHasResolved(true);
       setIsLoading(false);
     },
-    [positionScope, settingsPda, solanaEnv, walletAddress]
+    [persistRecovery, positionScope, settingsPda, solanaEnv, walletAddress]
   );
 
   const commitConfirmedPosition = useCallback(
-    (nextPosition: ActiveEarnPosition | null) => {
+    (response: ConfirmedEarnPositionResponse) => {
+      let nextPosition = response.position;
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
-      if (
-        shouldKeepCurrentPositionOverConfirmed({
-          current: positionRef.current,
-          confirmed: nextPosition,
-        })
-      ) {
+      const covered = isAccountingCovered(response);
+      retainProjectionEvidence(response, covered);
+      // Null REST alone cannot acknowledge a full exit; closed target rows can.
+      if (!covered) {
+        persistRecovery();
         setHasResolved(true);
         setIsLoading(false);
         return;
+      }
+      const keepRpc = rpcObservedSlotRef.current !== null || shouldKeepCurrentPositionOverConfirmed({
+        current: positionRef.current,
+        confirmed: nextPosition,
+      });
+      if (keepRpc) {
+        nextPosition = mergeProjectedMetadata(
+          positionRef.current,
+          nextPosition,
+          covered
+        );
       }
 
       if (walletAddress && settingsPda) {
@@ -612,17 +695,20 @@ export function useActiveEarnPosition({
         });
       }
       positionRef.current = nextPosition;
-      setWatchedAccounts([]);
+      persistRecovery();
+      if (!keepRpc) {
+        setWatchedAccounts([]);
+      }
       setPositionState(nextPosition);
       setHasResolved(true);
       setIsLoading(false);
     },
-    [positionScope, settingsPda, solanaEnv, walletAddress]
+    [isAccountingCovered, persistRecovery, retainProjectionEvidence, positionScope, settingsPda, solanaEnv, walletAddress]
   );
 
   const refresh = useCallback(() => {
     if (activePositionScopeRef.current !== positionScope) {
-      return Promise.resolve(positionRef.current);
+      return Promise.reject(new Error("Earn position refresh was superseded."));
     }
     if (
       refreshInFlightRef.current &&
@@ -642,19 +728,66 @@ export function useActiveEarnPosition({
           refreshDirtyRef.current = false;
           lastError = undefined;
           try {
-            const next = await readRpcPosition(positionRef.current);
+            // SSE is an invalidation: refetch the canonical ledger as well
+            // as live holdings, otherwise cached principal never catches up.
+            const projected = await fetchConfirmedEarnPosition();
+            if (generation !== refreshGenerationRef.current || activePositionScopeRef.current !== positionScope) {
+              throw new Error("Earn position refresh was superseded.");
+            }
+            if (mutationsRef.current.some((mutation) =>
+              !isEarnMutationCovered(projected.projectedPositions ?? [], mutation))) {
+              const history = await fetch("/api/smart-accounts/earn-transactions", { cache: "no-store" })
+                .then(async (response) => response.ok ? response.json() : null)
+                .catch(() => null);
+              if (generation !== refreshGenerationRef.current || activePositionScopeRef.current !== positionScope) {
+                throw new Error("Earn position refresh was superseded.");
+              }
+              mutationsRef.current = mutationsRef.current.map((mutation) =>
+                recoverEarnMutationEvidence(mutation, projected.projectedPositions ?? [], history));
+              for (const mutation of mutationsRef.current) {
+                const slot = parseEarnConfirmationSlot(mutation.confirmedSlot);
+                const floor = suppressSubscriptionRefreshThroughSlotRef.current;
+                if (slot !== null && (floor === null || slot > floor)) {
+                  suppressSubscriptionRefreshThroughSlotRef.current = slot;
+                }
+              }
+              persistRecovery();
+            }
+            const covered = isAccountingCovered(projected);
+            // Retain row high-waters even if the balance read fails, but do not
+            // mark principal adopted until a position commit actually succeeds.
+            retainProjectionEvidence(projected, false);
+            persistRecovery();
+            const base = mergeProjectedMetadata(
+              positionRef.current,
+              projected.position,
+              covered
+            );
+            const next = await readRpcPosition(base);
             if (
               generation !== refreshGenerationRef.current ||
               activePositionScopeRef.current !== positionScope
             ) {
-              return positionRef.current;
+              throw new Error("Earn position refresh was superseded.");
             }
             if (next) {
+              next.position = mergeProjectedMetadata(
+                next.position,
+                projected.position,
+                covered
+              );
               commitRpcPosition(next);
+              retainProjectionEvidence(projected, covered);
+              persistRecovery();
               result = next.position;
             } else {
-              setHasResolved(true);
+              commitConfirmedPosition(projected);
               result = positionRef.current;
+            }
+            if (!covered && mutationsRef.current.length > 0) {
+              // Live amount may be ready before the ledger. Keep the resource
+              // retryable rather than acknowledging an unprojected principal.
+              throw new Error("Earn accounting projection is still pending.");
             }
           } catch (error) {
             lastError = error;
@@ -669,7 +802,7 @@ export function useActiveEarnPosition({
           generation !== refreshGenerationRef.current ||
           activePositionScopeRef.current !== positionScope
         ) {
-          return positionRef.current;
+          throw new Error("Earn position refresh was superseded.");
         }
         if (lastError !== undefined) {
           throw lastError;
@@ -694,44 +827,45 @@ export function useActiveEarnPosition({
     refreshInFlightRef.current = promise;
     refreshInFlightScopeRef.current = positionScope;
     return promise;
-  }, [commitRpcPosition, positionScope, readRpcPosition]);
+  }, [
+    commitConfirmedPosition,
+    commitRpcPosition,
+    isAccountingCovered,
+    persistRecovery,
+    retainProjectionEvidence,
+    positionScope,
+    readRpcPosition,
+  ]);
 
   const suppressSubscriptionRefreshThroughSlot = useCallback(
     (slot: bigint | number | string | null | undefined) => {
-      if (slot == null) {
+      if (slot == null || activePositionScopeRef.current !== positionScope) {
         return;
       }
 
       try {
         const nextSlot = BigInt(slot);
+        if (nextSlot < BigInt(0) || nextSlot > BigInt(Number.MAX_SAFE_INTEGER)) {
+          return;
+        }
         const current = suppressSubscriptionRefreshThroughSlotRef.current;
         if (current === null || nextSlot > current) {
           suppressSubscriptionRefreshThroughSlotRef.current = nextSlot;
+          refreshGenerationRef.current += 1;
+          refreshInFlightRef.current = null;
+          refreshInFlightScopeRef.current = null;
+          persistRecovery();
         }
       } catch {
         // Ignore malformed slot hints; the subscription will refresh normally.
       }
     },
-    []
+    [persistRecovery, positionScope]
   );
 
   useEffect(() => {
     if (!(canUseCache && walletAddress && settingsPda)) {
       setWatchedAccounts([]);
-      if (enabled && walletAddress && !settingsPda) {
-        const fallback = readLastEarnPositionCache({
-          solanaEnv,
-          walletAddress,
-        });
-        if (fallback?.position) {
-          positionRef.current = fallback.position;
-          setPositionState(fallback.position);
-          setHasResolved(true);
-          setIsLoading(false);
-          return;
-        }
-      }
-
       if (enabled && walletAddress) {
         setHasResolved(false);
         setIsLoading(true);
@@ -745,12 +879,13 @@ export function useActiveEarnPosition({
       return;
     }
 
-    const cached = readEarnPositionCache({
+    const recovery = readEarnPositionRecovery(positionScope);
+    const cached = recovery ? recovery.position : readEarnPositionCache({
       solanaEnv,
       walletAddress,
       settingsPda,
     });
-    if (cached) {
+    if (recovery || cached) {
       positionRef.current = cached;
       setPositionState(cached);
       setHasResolved(true);
@@ -762,9 +897,14 @@ export function useActiveEarnPosition({
     setIsLoading(true);
 
     let cancelled = false;
+    const generation = refreshGenerationRef.current;
+    const isSuperseded = () =>
+      cancelled ||
+      activePositionScopeRef.current !== positionScope ||
+      generation !== refreshGenerationRef.current;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const handleUnexpectedLoadError = (error: unknown) => {
-      if (cancelled || activePositionScopeRef.current !== positionScope) {
+      if (isSuperseded()) {
         return;
       }
       console.warn(
@@ -790,7 +930,7 @@ export function useActiveEarnPosition({
         next = await readRpcPosition(rpcBasePosition);
       } catch (error) {
         const confirmedPosition = await confirmedPositionPromise;
-        if (cancelled || activePositionScopeRef.current !== positionScope) {
+        if (isSuperseded()) {
           return;
         }
         console.warn(
@@ -800,11 +940,11 @@ export function useActiveEarnPosition({
         const resolution = resolveFailedEarnPositionLoad({
           attempt,
           cachedPosition: cached,
-          confirmedPosition,
+          confirmedPosition: confirmedPosition?.position,
           currentPosition: positionRef.current,
         });
         if (resolution.kind === "confirmed") {
-          commitConfirmedPosition(resolution.position);
+          commitConfirmedPosition(confirmedPosition!);
           return;
         }
         if (resolution.kind === "preserve-existing") {
@@ -826,44 +966,25 @@ export function useActiveEarnPosition({
         setIsLoading(false);
         return;
       }
-      if (cancelled || activePositionScopeRef.current !== positionScope) {
+      if (isSuperseded()) {
         return;
       }
       if (next) {
+        // Show confirmed RPC exposure immediately; a slow projection read
+        // must not delay the local balance. Adopt only ledger metadata later.
         commitRpcPosition(next);
-        const confirmedPosition = await confirmedPositionPromise;
-        if (cancelled || activePositionScopeRef.current !== positionScope) {
+        const projected = await confirmedPositionPromise;
+        if (isSuperseded()) {
           return;
         }
-        const basePosition =
-          confirmedPosition === undefined ? rpcBasePosition : confirmedPosition;
-        if (
-          shouldRequestPositionReconciliation({
-            base: basePosition,
-            rpc: next.position,
-          })
-        ) {
-          const reconcileRequestKey = [
-            basePosition?.currentTotalAmountRaw ?? "none",
-            next.position?.currentTotalAmountRaw ?? "none",
-            getEarnPositionSourceSignature(basePosition) ?? "none",
-            getEarnPositionSourceSignature(next.position) ?? "none",
-          ].join("|");
-          if (reconcileRequestKeyRef.current !== reconcileRequestKey) {
-            reconcileRequestKeyRef.current = reconcileRequestKey;
-            requestEarnPositionReconciliation().catch((error) => {
-              console.warn(
-                "[earn-position] failed to reconcile stale confirmed position",
-                error
-              );
-            });
-          }
+        if (projected) {
+          commitConfirmedPosition(projected);
         }
         return;
       }
 
       const confirmedPosition = await confirmedPositionPromise;
-      if (cancelled || activePositionScopeRef.current !== positionScope) {
+      if (isSuperseded()) {
         return;
       }
       if (confirmedPosition !== undefined) {
@@ -875,7 +996,14 @@ export function useActiveEarnPosition({
       setIsLoading(false);
     };
 
-    void loadLivePosition().catch(handleUnexpectedLoadError);
+    // Reopened proofs must pass the same fenced recovery path as invalidations.
+    if (recovery) {
+      void refresh().catch(() => {
+        if (!isSuperseded()) { setHasResolved(true); setIsLoading(false); }
+      });
+    } else {
+      void loadLivePosition().catch(handleUnexpectedLoadError);
+    }
 
     return () => {
       cancelled = true;
@@ -889,11 +1017,27 @@ export function useActiveEarnPosition({
     commitRpcPosition,
     enabled,
     readRpcPosition,
+    refresh,
     positionScope,
     settingsPda,
     solanaEnv,
     walletAddress,
   ]);
+
+  useEffect(() => {
+    if (!canUseCache) return;
+    // Projection may land after the last SSE/account invalidation. Retry only
+    // read-only evidence; confirmed optimism never expires or resends writes.
+    const timer = setInterval(() => {
+      if (mutationsRef.current.some((mutation) =>
+        !isEarnMutationCovered(adoptedRowsRef.current, mutation)) ||
+        (suppressSubscriptionRefreshThroughSlotRef.current !== null &&
+          (rpcObservedSlotRef.current === null || rpcObservedSlotRef.current < suppressSubscriptionRefreshThroughSlotRef.current))) {
+        void refresh().catch(() => {});
+      }
+    }, EARN_POSITION_INITIAL_LOAD_RETRY_DELAY_MS);
+    return () => clearInterval(timer);
+  }, [canUseCache, refresh]);
 
   const watchAccountKey = watchedAccounts
     .filter((account) => account.kind !== "reserve")
@@ -994,6 +1138,7 @@ export function useActiveEarnPosition({
   }, [connection, enabled, refresh, watchAccountKey]);
 
   return {
+    captureAccountingTargets,
     hasResolved,
     isLoading,
     position,

@@ -188,10 +188,9 @@ export async function POST(request: Request) {
       // An already-active Autodeposit must be deleted, not set up over: a
       // fresh prepare mints a second policy seed and stands up a duplicate
       // on-chain policy that delete/withdraw flows then trip over. A stale
-      // "active" row heals through the `/state` reconcile before retry.
-      // A position-paused row is the same fully-built autodeposit (it
-      // auto-resumes on the next state read after a deposit), so it guards
-      // identically.
+      // "active" row must wait for Render's chain projection before retry.
+      // A position-paused row is the same fully-built autodeposit (Render
+      // resumes it after a projected deposit), so it guards identically.
       if (
         target?.lifecycleStatus === "active" ||
         target?.lifecycleStatus === EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION

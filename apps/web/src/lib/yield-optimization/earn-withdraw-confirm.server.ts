@@ -26,12 +26,9 @@ import {
   type ConfirmedWithdrawalTransactionProof,
 } from "@/lib/yield-optimization/earn-withdraw-proof.shared";
 
-// Shared core for confirming an Earn withdrawal, used by BOTH the session
-// (`yield-optimization/withdrawals/confirm`) and mobile
-// (`mobile/earn/withdraw/confirm`) routes. The canonicalization here is
-// security-critical (it re-derives every PDA/reserve from the settings and
-// rejects any client-supplied metadata that doesn't match), so it must not
-// drift between the two entry points — hence the single shared module.
+// Legacy mobile withdrawal confirmation core. The web wrapper is retired;
+// retain this security-critical PDA/reserve canonicalization for pre-OTA
+// mobile requests. Current clients rely on Render's confirmed projection.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 export type EarnWithdrawConfirmPrincipal = {

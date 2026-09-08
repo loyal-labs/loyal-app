@@ -2,6 +2,7 @@ import { normalizeLoyalCluster } from "@loyal-labs/actions";
 import {
   createSmartAccountVaultsClient,
   isEarnPolicyUpdateRequiredError,
+  type SmartAccountNativeSolRequirement,
 } from "@loyal-labs/smart-account-vaults";
 import { PublicKey } from "@solana/web3.js";
 
@@ -24,6 +25,7 @@ import {
 import { signEarnAuth } from "./earn-auth";
 import { signAndSendPreparedOperations } from "./send-prepared";
 import type { HydratedPreparedOperation } from "./wire";
+import type { ConfirmedEarnMutation } from "./position-overlay";
 
 const DEPOSIT_NETWORK_MESSAGE =
   "We couldn't reach the network to prepare the deposit. No funds moved — check your connection and try again.";
@@ -38,6 +40,8 @@ function usdToStableRaw(amountUsd: number): string {
 
 export type EarnDepositResult = {
   depositSignature: string;
+  confirmedSlot: string;
+  depositedAmountRaw: string;
 };
 
 // The flow's stage transactions in send order. First-deposit policy stages
@@ -49,15 +53,24 @@ type EarnDepositStages = {
 };
 
 // Sign every client-built stage in one wallet prompt and send them strictly
-// in order. Finalized LaserStream account changes project the result; this
+// in order. Confirmed LaserStream account changes project the result; this
 // path never posts a second, client-authored accounting record.
 async function signSendAndConfirmDeposit(args: {
   signer: Signer;
   amountUsd: number;
   stages: EarnDepositStages;
+  nativeSolRequirement: SmartAccountNativeSolRequirement | undefined;
+  context: { settingsPda: string; cluster: string };
+  mint: string;
+  reserve: string;
+  onConfirmed?: (mutation: ConfirmedEarnMutation) => void;
   flow: LifecycleFlow<"earn.deposit">;
 }): Promise<EarnDepositResult> {
-  assertNativeSolRequirement(args.wirePreparedDeposit.nativeSolRequirement);
+  if (!args.nativeSolRequirement)
+    throw new Error(
+      "Earn deposit preparation did not verify the SOL requirement."
+    );
+  assertNativeSolRequirement(args.nativeSolRequirement);
 
   const connection = getConnection();
   const operations = [
@@ -69,6 +82,18 @@ async function signSendAndConfirmDeposit(args: {
     connection,
     signer: args.signer,
     operations,
+    onConfirmed: (transaction, index) => {
+      if (index !== operations.length - 1) return;
+      args.onConfirmed?.({
+        ...transaction,
+        ...args.context,
+        walletAddress: args.signer.publicKey.toBase58(),
+        deltaAmountRaw: usdToStableRaw(args.amountUsd),
+        accountingTargets: [
+          { kind: "deposit", liquidityMint: args.mint, reserve: args.reserve },
+        ],
+      });
+    },
   }).catch((error) => {
     args.flow.failFrom("wallet_submit_confirm", error);
     throw error;
@@ -85,14 +110,18 @@ async function signSendAndConfirmDeposit(args: {
   track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
 
   args.flow.complete("ui_commit");
-  return { depositSignature: deposit.signature };
+  return {
+    depositSignature: deposit.signature,
+    confirmedSlot: deposit.confirmedSlot,
+    depositedAmountRaw: usdToStableRaw(args.amountUsd),
+  };
 }
 
 // Policies are immutable permission records, so a legacy (classic-token-only)
 // Earn route policy is "updated" by creating a NEW owner-neutral route+setup
 // pair at the next seed — two signed transactions, one wallet prompt (the
 // Seed Vault batches them). The legacy pair stays on-chain and only strands
-// its rent. LaserStream discovers the replacement pair from finalized chain
+// its rent. LaserStream discovers the replacement pair from confirmed chain
 // updates before it projects the following deposit.
 async function runEarnPolicyUpdate(args: {
   client: ReturnType<typeof createSmartAccountVaultsClient>;
@@ -142,6 +171,7 @@ export async function executeEarnDeposit(args: {
   // The caller's loading-metric flow id, so the metric point and this flow's
   // events share one `loyal.flow.id`.
   flowId?: string;
+  onConfirmed?: (mutation: ConfirmedEarnMutation) => void;
 }): Promise<EarnDepositResult> {
   const flow = startLifecycleFlow({
     ...(args.flowId ? { flowId: args.flowId } : {}),
@@ -170,6 +200,7 @@ async function runEarnDeposit(
     signer: Signer;
     amountUsd: number;
     mint: string;
+    onConfirmed?: (mutation: ConfirmedEarnMutation) => void;
   },
   flow: LifecycleFlow<"earn.deposit">
 ): Promise<EarnDepositResult> {
@@ -278,6 +309,11 @@ async function runEarnDeposit(
   return signSendAndConfirmDeposit({
     signer: args.signer,
     amountUsd: args.amountUsd,
+    nativeSolRequirement: preparedDeposit.nativeSolRequirement,
+    mint: args.mint,
+    reserve: preparedDeposit.targetReserve.reserve.toBase58(),
+    context,
+    onConfirmed: args.onConfirmed,
     stages: {
       policySetup: preparedDeposit.policySetupPrepared ?? null,
       policyFinalize: preparedDeposit.policyFinalizePrepared ?? null,

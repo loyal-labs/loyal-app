@@ -1,87 +1,71 @@
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
-import { env } from "@/config/env";
-import { useWallet } from "@/lib/wallet/wallet-provider";
-import { earnHeaders } from "@/lib/solana/earn/earn-api";
-import { clearEarnSession, getEarnSessionToken } from "@/lib/solana/earn/earn-session";
+import { refreshEarnEarningsCache } from "@/hooks/wallet/useEarnEarnings";
+import {
+  EarnApiError,
+  fetchEarnRealtimeToken,
+} from "@/lib/solana/earn/earn-api";
+import { ensureEarnRealtimeSession } from "@/lib/solana/earn/earn-auth";
+import {
+  clearEarnSession,
+  getEarnSessionToken,
+} from "@/lib/solana/earn/earn-session";
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { mmkv } from "@/lib/storage";
 
-import { emitEarnRealtimeEvent } from "./events";
-
-type TokenResponse = {
-  accessToken: string;
-  eventsUrl: string;
-  expiresAt: string;
-  schemaVersion: 1;
-};
+import {
+  emitEarnRealtimeEvent,
+  setEarnRealtimeScope,
+  subscribeEarnRealtime,
+} from "./events";
+import { setEarnSessionRenewal } from "./session-renewal";
+import {
+  acceptEarnInvalidation,
+  earnCursorKey,
+  earnCursorScope,
+  parseEarnFrames,
+  type EarnSseFrame,
+} from "./stream";
 
 const RETRY_MAX_MS = 30_000;
 const SILENCE_TIMEOUT_MS = 45_000;
 
-function cursorKey(walletAddress: string): string {
-  return `earn:realtime:v1:${walletAddress}`;
-}
-
-function parseFrames(text: string): { data: string; event?: string; id?: string }[] {
-  return text.split(/\r?\n\r?\n/).flatMap((block) => {
-    if (!block.trim()) return [];
-    const frame: { data: string; event?: string; id?: string } = { data: "" };
-    for (const line of block.split(/\r?\n/)) {
-      if (!line || line.startsWith(":")) continue;
-      const separator = line.indexOf(":");
-      const field = separator < 0 ? line : line.slice(0, separator);
-      const value = separator < 0 ? "" : line.slice(separator + 1).replace(/^ /, "");
-      if (field === "data") frame.data += `${frame.data ? "\n" : ""}${value}`;
-      else if (field === "event") frame.event = value;
-      else if (field === "id") frame.id = value;
-    }
-    return frame.data || frame.event || frame.id ? [frame] : [];
-  });
-}
-
-async function requestToken(walletAddress: string): Promise<TokenResponse | null> {
-  const sessionToken = await getEarnSessionToken(walletAddress);
-  if (!sessionToken) return null;
-  const response = await fetch(
-    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/realtime/token`,
-    {
-      headers: { ...earnHeaders(), Authorization: `Bearer ${sessionToken}` },
-      method: "POST",
-    },
-  );
-  if (response.status === 401) await clearEarnSession();
-  if (!response.ok) return null;
-  const value = (await response.json()) as Partial<TokenResponse>;
-  return value.schemaVersion === 1 && value.accessToken && value.eventsUrl && value.expiresAt
-    ? (value as TokenResponse)
-    : null;
-}
-
 export function EarnRealtimeProvider(): null {
-  const { publicKey, state } = useWallet();
+  const { publicKey, state, signer } = useWallet();
 
   useEffect(() => {
-    if (!publicKey || state !== "vault-unlocked") return;
+    if (!publicKey || !isWalletUnlocked(state)) return;
     let stopped = false;
+    let generation = 0;
     let retryMs = 1_000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let renewTimer: ReturnType<typeof setTimeout> | null = null;
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
     let xhr: XMLHttpRequest | null = null;
+    let renewalInFlight: Promise<void> | null = null;
 
+    const unsubscribe = subscribeEarnRealtime(async (refresh) => {
+      if (refresh.earnings)
+        await refreshEarnEarningsCache(publicKey, {
+          notify: true,
+          throwOnError: true,
+        });
+    });
     const stopStream = () => {
+      ++generation;
       if (xhr) {
         xhr.onerror = null;
         xhr.onloadend = null;
         xhr.onprogress = null;
+        xhr.onreadystatechange = null;
         xhr.abort();
       }
       xhr = null;
       if (renewTimer) clearTimeout(renewTimer);
-      renewTimer = null;
       if (silenceTimer) clearTimeout(silenceTimer);
-      silenceTimer = null;
+      if (retryTimer) clearTimeout(retryTimer);
+      renewTimer = silenceTimer = retryTimer = null;
     };
     const schedule = (delay = retryMs) => {
       if (stopped || AppState.currentState !== "active") return;
@@ -89,98 +73,173 @@ export function EarnRealtimeProvider(): null {
       retryTimer = setTimeout(() => void connect(), delay);
       retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
     };
+    const renewSession = (): Promise<void> => {
+      if (renewalInFlight) return renewalInFlight;
+      renewalInFlight = (async () => {
+        if (stopped || !signer || signer.publicKey.toBase58() !== publicKey)
+          return;
+        if (!(await ensureEarnRealtimeSession(publicKey, signer, true)))
+          throw new Error(
+            "Unable to renew Earn live updates. Please try again."
+          );
+        if (!stopped) {
+          setEarnSessionRenewal(null);
+          schedule(0);
+        }
+      })().finally(() => {
+        renewalInFlight = null;
+      });
+      return renewalInFlight;
+    };
     const connect = async () => {
       stopStream();
-      const token = await requestToken(publicKey).catch(() => null);
-      if (!token || stopped || AppState.currentState !== "active") {
-        schedule(token ? retryMs : RETRY_MAX_MS);
-        return;
-      }
-      let consumed = 0;
-      let pending = "";
-      let processing = Promise.resolve();
-      let accepting = true;
-      const cursor = mmkv.getString(cursorKey(publicKey));
-      xhr = new XMLHttpRequest();
-      xhr.open("GET", token.eventsUrl, true);
-      xhr.setRequestHeader("Accept", "text/event-stream");
-      xhr.setRequestHeader("Authorization", `Bearer ${token.accessToken}`);
-      if (cursor) xhr.setRequestHeader("Last-Event-ID", cursor);
-      const resetSilenceTimer = () => {
-        if (silenceTimer) clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(() => {
+      const epoch = generation;
+      const current = () =>
+        !stopped && generation === epoch && AppState.currentState === "active";
+      if (!current()) return;
+      try {
+        let sessionToken = await getEarnSessionToken(publicKey);
+        if (!current()) return;
+        if (!sessionToken) {
+          if (
+            signer?.kind === "local" &&
+            signer.publicKey.toBase58() === publicKey
+          ) {
+            sessionToken = await ensureEarnRealtimeSession(publicKey, signer);
+            if (!current()) return;
+          } else {
+            setEarnSessionRenewal(renewSession);
+          }
+        }
+        if (!sessionToken) {
+          schedule(RETRY_MAX_MS);
+          return;
+        }
+        setEarnSessionRenewal(null);
+        const token = await fetchEarnRealtimeToken(sessionToken).catch(
+          async (error) => {
+            if (error instanceof EarnApiError && error.status === 401)
+              await clearEarnSession(sessionToken!);
+            throw error;
+          }
+        );
+        if (!current()) return;
+        const key = earnCursorKey(token, publicKey);
+        setEarnRealtimeScope(earnCursorScope(token, publicKey));
+        const saved = mmkv.getString(key);
+        const cursor = saved && /^\d+$/.test(saved) ? saved : null;
+        let consumed = 0;
+        let pending = "";
+        let admitted = false;
+        let processing = Promise.resolve();
+        const stream = new XMLHttpRequest();
+        xhr = stream;
+        const reconnect = () => {
+          if (!current()) return;
           stopStream();
           schedule();
-        }, SILENCE_TIMEOUT_MS);
-      };
-      const acceptFrame = async (frame: {
-        data: string;
-        event?: string;
-        id?: string;
-      }) => {
-        if (frame.event !== "loyal_yield" || !frame.data) return;
-        let message: Record<string, unknown>;
-        try {
-          message = JSON.parse(frame.data) as Record<string, unknown>;
-        } catch {
-          return;
-        }
-        if (message.eventType === "resync_required") {
-          await emitEarnRealtimeEvent();
-          mmkv.delete(cursorKey(publicKey));
-          return;
-        }
-        const eventId =
-          typeof message.eventId === "string" ? message.eventId : frame.id;
-        if (!eventId || !/^\d+$/.test(eventId)) return;
-        const previous = mmkv.getString(cursorKey(publicKey));
-        if (previous && BigInt(eventId) <= BigInt(previous)) return;
-        await emitEarnRealtimeEvent(
-          typeof message.eventType === "string"
-            ? message.eventType
-            : undefined,
-          typeof message.state === "string" ? message.state : undefined,
-        );
-        mmkv.setString(cursorKey(publicKey), eventId);
-        retryMs = 1_000;
-      };
-      xhr.onprogress = () => {
-        resetSilenceTimer();
-        const next = xhr?.responseText.slice(consumed) ?? "";
-        consumed += next.length;
-        pending += next;
-        const boundary = pending.match(/\r?\n\r?\n/);
-        if (!boundary) return;
-        const end = pending.lastIndexOf(boundary[0]);
-        const complete = pending.slice(0, end + boundary[0].length);
-        pending = pending.slice(end + boundary[0].length);
-        for (const frame of parseFrames(complete)) {
+        };
+        const enqueue = (work: () => Promise<void>) => {
           processing = processing
-            .then(() => (accepting ? acceptFrame(frame) : undefined))
-            .catch(() => {
-              accepting = false;
-              stopStream();
-              schedule();
+            .then(async () => {
+              if (current()) await work();
+            })
+            .catch(reconnect);
+        };
+        const resetSilenceTimer = () => {
+          if (silenceTimer) clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(reconnect, SILENCE_TIMEOUT_MS);
+        };
+        const acceptFrame = async (frame: EarnSseFrame) => {
+          if (frame.event !== "loyal_yield" || !frame.data) return;
+          const message = JSON.parse(frame.data) as Record<string, unknown>;
+          if (message.eventType === "resync_required") {
+            await acceptEarnInvalidation({
+              isCurrent: current,
+              refresh: () => emitEarnRealtimeEvent(),
+              acknowledge: () => {
+                mmkv.delete(key);
+                reconnect();
+              },
             });
-        }
-      };
-      xhr.onerror = () => {
-        stopStream();
-        schedule();
-      };
-      xhr.onloadend = () => {
-        stopStream();
-        schedule();
-      };
-      xhr.send();
-      resetSilenceTimer();
-      const renewIn = Math.max(Date.parse(token.expiresAt) - Date.now() - 15_000, 1_000);
-      renewTimer = setTimeout(() => void connect(), renewIn);
+            return;
+          }
+          const eventId =
+            typeof message.eventId === "string" ? message.eventId : frame.id;
+          if (!eventId || !/^\d+$/.test(eventId))
+            throw new Error("Invalid Earn event cursor.");
+          const previous = mmkv.getString(key);
+          if (
+            previous &&
+            /^\d+$/.test(previous) &&
+            BigInt(eventId) <= BigInt(previous)
+          )
+            return;
+          await acceptEarnInvalidation({
+            isCurrent: current,
+            refresh: () =>
+              emitEarnRealtimeEvent(
+                typeof message.eventType === "string"
+                  ? message.eventType
+                  : undefined,
+                typeof message.state === "string" ? message.state : undefined
+              ),
+            acknowledge: () => {
+              mmkv.setString(key, eventId);
+              retryMs = 1_000;
+            },
+          });
+        };
+        const admit = () => {
+          if (!current() || admitted || stream.readyState < 2) return;
+          if (stream.status !== 200) {
+            reconnect();
+            return;
+          }
+          admitted = true;
+          // Cursorless admission starts at the server high-water. Refresh AFTER
+          // admission, before accepting any frames, to close the initial-read gap.
+          // Also resync on resume/reconnect; replay is an invalidation plane.
+          enqueue(() => emitEarnRealtimeEvent());
+        };
+        stream.open("GET", token.eventsUrl, true);
+        stream.setRequestHeader("Accept", "text/event-stream");
+        stream.setRequestHeader("Authorization", `Bearer ${token.accessToken}`);
+        if (cursor) stream.setRequestHeader("Last-Event-ID", cursor);
+        stream.onreadystatechange = admit;
+        stream.onprogress = () => {
+          if (!current()) return;
+          admit();
+          if (!admitted) return;
+          resetSilenceTimer();
+          const next = stream.responseText.slice(consumed);
+          consumed += next.length;
+          pending += next;
+          let boundary: RegExpMatchArray | null;
+          while (
+            (boundary = pending.match(/\r?\n\r?\n/)) &&
+            boundary.index !== undefined
+          ) {
+            const end = boundary.index + boundary[0].length;
+            const complete = pending.slice(0, end);
+            pending = pending.slice(end);
+            for (const frame of parseEarnFrames(complete))
+              enqueue(() => acceptFrame(frame));
+          }
+        };
+        stream.onerror = reconnect;
+        stream.onloadend = reconnect;
+        stream.send();
+        resetSilenceTimer();
+        renewTimer = setTimeout(() => {
+          if (current()) void connect();
+        }, Math.max(Date.parse(token.expiresAt) - Date.now() - 15_000, 1_000));
+      } catch {
+        if (current()) schedule();
+      }
     };
-
     const appState = AppState.addEventListener("change", (next) => {
       if (next === "active") {
-        void emitEarnRealtimeEvent();
         retryMs = 1_000;
         void connect();
       } else stopStream();
@@ -189,10 +248,12 @@ export function EarnRealtimeProvider(): null {
     return () => {
       stopped = true;
       appState.remove();
+      unsubscribe();
+      setEarnSessionRenewal(null);
+      setEarnRealtimeScope(null);
       stopStream();
-      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [publicKey, state]);
+  }, [publicKey, state, signer]);
 
   return null;
 }

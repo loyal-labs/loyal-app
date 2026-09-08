@@ -104,6 +104,7 @@ export function useEarnPositionData(): EarnPositionData {
 
   const isPositionFetchEnabled = Boolean(settingsPda && walletAddress);
   const {
+    captureAccountingTargets,
     hasResolved,
     position,
     refresh: refreshPosition,
@@ -455,6 +456,7 @@ export function useEarnPositionData(): EarnPositionData {
 
   const actions = useEarnActions({
     autodepositConfig,
+    captureAccountingTargets,
     hasPosition,
     mainUsdc,
     position,

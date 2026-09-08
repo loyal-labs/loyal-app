@@ -188,6 +188,24 @@ Use `/apps/telegram/src/lib` for cross-slice infrastructure and integration prim
 - Run `bun run guard:admin-shared-schema` after admin schema/DB changes.
 - For Vercel monorepo deploys, set Root Directory to `apps/admin` (config in `apps/admin/vercel.json`).
 
+### Earn client / projection ownership
+
+- Web and current mobile build and submit Earn deposit, withdrawal, cleanup,
+  Autodeposit, and Autoswap transactions through `@loyal-labs/smart-account-vaults`.
+- Render's LaserStream consumers and reconciliation workers own canonical chain
+  projection/accounting. Supported-client state, history, and prepare-context
+  APIs must be read-only for Yield state; never repair it during a GET.
+- Keep installed-mobile prepare/confirm compatibility routes until the supported
+  release floor advances. Do not reintroduce their retired web equivalents.
+- Floor, pause/resume, and Execute Now endpoints persist authenticated user
+  intent/configuration, not RPC-derived chain accounting, and remain supported.
+- SSE carries invalidations, not balances. Acknowledge its cursor only after all
+  affected resources refresh successfully. RPC-confirmed local mutations bridge
+  projection lag using scoped identities and slot fences, never a trust timeout.
+- See `docs/workers/earn-client-release.md` for verification and web/mobile OTA
+  rollout gates. Never run local frontend builds for this checkout; use scoped
+  lint/typechecks, isolated E2E, and Vercel's deployment checks.
+
 ### Key Patterns
 
 - **PDAs**: Deposit accounts and vault use Program Derived Addresses with seeds `"deposit"`, `"vault"`, `"tg_session"`

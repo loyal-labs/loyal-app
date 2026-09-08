@@ -1,122 +1,107 @@
 import { env } from "@/config/env";
 
-import { earnHeaders, type EarnAuthFields } from "./earn-api";
+import { mintEarnSession, type EarnAuthFields } from "./earn-api";
 
-// Mobile Earn session (ASK-1846): a backend-minted bearer token that lets the
-// DB-only Autodeposit calls (execute-now, threshold, pause/resume) skip the
-// per-request wallet-signed auth message — i.e. skip the Seed Vault/MWA
-// approval prompt the signature costs. Minted opportunistically from auth
-// messages the user is already signing for real Earn flows (signEarnAuth), so
-// obtaining it never costs a prompt of its own. Web parity: these actions ride
-// a session cookie there.
-
+// SecureStore only: bearer credentials must never enter MMKV or logs. Keep the
+// shipped key so production OTA users retain their existing wallet approval.
+// New records carry origin/cluster; unscoped legacy records are accepted only
+// by the shipped production endpoint, never sent to preview/local servers.
 const STORAGE_KEY = "earn.session.v1";
-// Don't present a token that's about to expire mid-flow.
 const EXPIRY_SAFETY_MS = 5 * 60 * 1000;
-
 type StoredEarnSession = {
   walletAddress: string;
   token: string;
   expiresAt: string;
+  apiBaseUrl?: string;
+  cluster?: string;
 };
-
-// undefined = SecureStore not read yet this launch.
 let cached: StoredEarnSession | null | undefined;
-let mintInFlight: Promise<void> | null = null;
+let generation = 0;
+const mints = new Map<string, Promise<void>>();
+let storageWrites = Promise.resolve();
+function persist(operation: () => Promise<void>): Promise<void> {
+  const write = storageWrites.then(operation);
+  storageWrites = write.catch(() => undefined);
+  return write;
+}
 
-// Lazy-loaded so the native module never loads at module top-level (mirrors
-// the tweetnacl pattern in wallet/signer.ts; also keeps jest imports inert).
 async function secureStore() {
   return await import("expo-secure-store");
 }
-
 async function loadStored(): Promise<StoredEarnSession | null> {
-  if (cached !== undefined) {
-    return cached;
-  }
+  if (cached !== undefined) return cached;
+  const started = generation;
   try {
     const raw = await (await secureStore()).getItemAsync(STORAGE_KEY);
-    cached = raw ? (JSON.parse(raw) as StoredEarnSession) : null;
+    if (started === generation && cached === undefined)
+      cached = raw ? (JSON.parse(raw) as StoredEarnSession) : null;
   } catch {
-    cached = null;
+    if (started === generation && cached === undefined) cached = null;
   }
-  return cached;
+  return cached ?? null;
 }
 
-function isUsable(
-  session: StoredEarnSession,
-  walletAddress: string,
-): boolean {
-  const expiresAtMs = Date.parse(session.expiresAt);
-  return (
-    session.walletAddress === walletAddress &&
-    Number.isFinite(expiresAtMs) &&
-    expiresAtMs - EXPIRY_SAFETY_MS > Date.now()
-  );
-}
-
-// The cached token for this wallet, or null when a signed auth message (and a
-// wallet prompt) is needed. A stale token for a different wallet is ignored —
-// it gets overwritten by that wallet's next opportunistic mint.
 export async function getEarnSessionToken(
-  walletAddress: string,
+  walletAddress: string
 ): Promise<string | null> {
   const stored = await loadStored();
-  return stored && isUsable(stored, walletAddress) ? stored.token : null;
+  const scopeMatches = stored?.apiBaseUrl
+    ? stored.apiBaseUrl === env.earnApiBaseUrl &&
+      stored.cluster === env.solanaEnv
+    : env.earnApiBaseUrl === "https://askloyal.com" &&
+      env.solanaEnv === "mainnet";
+  return scopeMatches &&
+    stored?.walletAddress === walletAddress &&
+    Date.parse(stored.expiresAt) - EXPIRY_SAFETY_MS > Date.now()
+    ? stored.token
+    : null;
 }
 
-// Drop the cached token (server rejected it, or hygiene).
-export async function clearEarnSession(): Promise<void> {
+// A late 401 must not erase a newer session minted by another request.
+export async function clearEarnSession(rejectedToken?: string): Promise<void> {
+  if (rejectedToken && (await loadStored())?.token !== rejectedToken) return;
+  ++generation;
   cached = null;
   try {
-    await (await secureStore()).deleteItemAsync(STORAGE_KEY);
+    await persist(async () => {
+      await (await secureStore()).deleteItemAsync(STORAGE_KEY);
+    });
   } catch {
-    // Nothing usable remains cached either way.
+    /* No usable cached credential. */
   }
 }
 
-// Trade an already-signed auth message for a session token, in the background.
-// Never throws and never prompts; a failed mint just means the next DB-only
-// action falls back to a signed message (the status quo).
-export function maybeMintEarnSession(auth: EarnAuthFields): void {
-  if (mintInFlight) {
-    return;
-  }
-  mintInFlight = (async () => {
+// Best-effort piggyback mint. Returning the shared promise also lets passive
+// local-wallet bootstrap wait for it without a second signature or mint.
+export function maybeMintEarnSession(auth: EarnAuthFields): Promise<void> {
+  const existing = mints.get(auth.walletAddress);
+  if (existing) return existing;
+  const started = generation;
+  const promise = (async () => {
     try {
-      if (await getEarnSessionToken(auth.walletAddress)) {
-        return;
-      }
-      const res = await fetch(
-        `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/session`,
-        {
-          method: "POST",
-          headers: earnHeaders(),
-          body: JSON.stringify({ ...auth }),
-        },
-      );
-      if (!res.ok) {
-        return;
-      }
-      const payload = (await res.json()) as {
-        token?: string;
-        expiresAt?: string;
-      };
-      if (!payload.token || !payload.expiresAt) {
-        return;
-      }
-      cached = {
-        expiresAt: payload.expiresAt,
-        token: payload.token,
+      if (await getEarnSessionToken(auth.walletAddress)) return;
+      const payload = await mintEarnSession(auth);
+      if (started !== generation) return;
+      const session = {
+        ...payload,
         walletAddress: auth.walletAddress,
+        apiBaseUrl: env.earnApiBaseUrl,
+        cluster: env.solanaEnv,
       };
-      await (
-        await secureStore()
-      ).setItemAsync(STORAGE_KEY, JSON.stringify(cached));
+      cached = session;
+      await persist(async () => {
+        if (started !== generation || cached !== session) return;
+        await (
+          await secureStore()
+        ).setItemAsync(STORAGE_KEY, JSON.stringify(session));
+      });
     } catch {
-      // Best-effort by design.
-    } finally {
-      mintInFlight = null;
+      /* Passive auth failure stays retryable, never unhandled. */
     }
-  })();
+  })().finally(() => {
+    if (mints.get(auth.walletAddress) === promise)
+      mints.delete(auth.walletAddress);
+  });
+  mints.set(auth.walletAddress, promise);
+  return promise;
 }

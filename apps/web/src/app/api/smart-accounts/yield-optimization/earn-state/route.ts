@@ -17,6 +17,8 @@ import {
 import { findEarnCrossMintSnapshot } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
 import {
   serializeEarnDepositOnboardingState,
+  serializeEarnPositionAccounting,
+  serializeEarnProjectedPositions,
   serializeAutodepositState,
   serializeRoutePolicyState,
   type CurrentEarnAutodepositStateWithProgress,
@@ -27,7 +29,7 @@ import {
   findCurrentEarnDepositOnboardingAttempt,
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
-  findReconciledActiveYieldPositionForVault,
+  findYieldPositionsForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -43,8 +45,10 @@ function resolveConfiguredCluster(solanaEnv = resolveConfiguredSolanaEnv()) {
 
 function serializePosition(
   position: UserYieldPositionRecord,
+  positions: UserYieldPositionRecord[],
   currentTotalAmountRaw: bigint
 ) {
+  const accounting = serializeEarnPositionAccounting(positions);
   return {
     currentHolding: {
       amountRaw: position.currentAmountRaw.toString(),
@@ -70,7 +74,8 @@ function serializePosition(
     // total, not a quantity denominated in one mint.
     currentTotalAmountRaw: currentTotalAmountRaw.toString(),
     currentTotalNominalUsdMicros: currentTotalAmountRaw.toString(),
-    principalAmountRaw: position.principalAmountRaw.toString(),
+    lastConfirmedSlot: accounting.lastConfirmedSlot,
+    principalAmountRaw: accounting.principalAmountRaw,
     status: position.status,
   };
 }
@@ -159,7 +164,7 @@ export async function GET(request: Request) {
     autoswapResult,
   ] = await Promise.all([
     loadEarnStatePart("position", () =>
-      findReconciledActiveYieldPositionForVault({
+      findYieldPositionsForVault({
         cluster,
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
@@ -220,7 +225,9 @@ export async function GET(request: Request) {
       })
     ),
   ]);
-  const position = positionResult.data;
+  const projectedPositions = positionResult.data ?? [];
+  const positions = projectedPositions.filter((row) => row.status === "active");
+  const position = positions[0] ?? null;
   const policyPair = policyResult.data;
   const policy = policyPair?.routePolicy ?? null;
   const onboarding = onboardingResult.data;
@@ -273,8 +280,11 @@ export async function GET(request: Request) {
     policy: policy
       ? serializeRoutePolicyState(policy, policyPair?.setupPolicy ?? null)
       : null,
+    projectedPositions: positionResult.error
+      ? null
+      : serializeEarnProjectedPositions(projectedPositions),
     position: position
-      ? serializePosition(position, currentTotalAmountRaw)
+      ? serializePosition(position, positions, currentTotalAmountRaw)
       : null,
     policySignerPublicKey: getDeploymentPolicySignerPublicKey().toBase58(),
     settingsPda: principal.settingsPda,

@@ -97,6 +97,7 @@ export type UserYieldPositionHistoryEventRecord = {
   amountRaw: bigint;
   confirmedAt: Date;
   confirmedSlot: bigint;
+  transactionSlot?: bigint | null;
   eventType: UserYieldPositionHoldingEventRecord["eventType"];
   id: bigint;
   reserve: string;
@@ -2906,6 +2907,8 @@ export async function findYieldPosition(
   return position ?? null;
 }
 
+// Supported API reads consume Render's projection as-is. Never reconcile or
+// repair accounting/holding rows from these readers; legacy writers are below.
 export async function findActiveYieldPositionForVault(
   input: ActiveYieldPositionForVaultLookupInput,
   dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
@@ -2947,6 +2950,27 @@ export async function findActiveYieldPositionsForVault(
       eq(userYieldPositions.vaultIndex, input.vaultIndex),
       eq(userYieldPositions.walletAddress, input.walletAddress),
       eq(userYieldPositions.status, "active")
+    ),
+    orderBy: [desc(userYieldPositions.updatedAt), desc(userYieldPositions.id)],
+  });
+}
+
+// Includes closed rows so a fully withdrawn vault still has accounting slot
+// evidence. Like the active readers, this is a single read with no repair path.
+export async function findYieldPositionsForVault(
+  input: ActiveYieldPositionForVaultLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionRecord[]> {
+  return dependencies.client.db.query.userYieldPositions.findMany({
+    where: and(
+      eq(userYieldPositions.settings, input.settings),
+      ...(input.liquidityMint
+        ? [eq(userYieldPositions.initialLiquidityMint, input.liquidityMint)]
+        : []),
+      eq(userYieldPositions.vaultIndex, input.vaultIndex),
+      eq(userYieldPositions.walletAddress, input.walletAddress)
     ),
     orderBy: [desc(userYieldPositions.updatedAt), desc(userYieldPositions.id)],
   });
@@ -3870,6 +3894,7 @@ async function findYieldPositionHistoryEventsForPosition(
       ? await dependencies.client.db
           .select({
             id: userYieldPositionDeposits.id,
+            confirmedSlot: userYieldPositionDeposits.confirmedSlot,
             principalAmountRaw: userYieldPositionDeposits.principalAmountRaw,
           })
           .from(userYieldPositionDeposits)
@@ -3890,6 +3915,7 @@ async function findYieldPositionHistoryEventsForPosition(
       ? await dependencies.client.db
           .select({
             id: userYieldPositionWithdrawals.id,
+            confirmedSlot: userYieldPositionWithdrawals.confirmedSlot,
             mode: userYieldPositionWithdrawals.mode,
             sourceType: userYieldPositionWithdrawals.sourceType,
             withdrawnAmountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
@@ -3899,6 +3925,9 @@ async function findYieldPositionHistoryEventsForPosition(
       : [];
   const depositAmountById = new Map(
     depositAmounts.map((deposit) => [deposit.id, deposit.principalAmountRaw])
+  );
+  const depositSlotById = new Map(
+    depositAmounts.map((deposit) => [deposit.id, deposit.confirmedSlot])
   );
   const rebalanceAmountById = new Map(
     rebalanceAmounts.map((rebalance) => [rebalance.id, rebalance.amountRaw])
@@ -3966,6 +3995,12 @@ async function findYieldPositionHistoryEventsForPosition(
       amountRaw: event.amountRaw,
       confirmedAt: event.confirmedAt,
       confirmedSlot: event.confirmedSlot,
+      // The legacy confirmedSlot is a holding observation, not exact landing.
+      transactionSlot: event.sourceDepositId !== null
+        ? depositSlotById.get(event.sourceDepositId) ?? null
+        : event.sourceWithdrawalId !== null
+        ? withdrawalById.get(event.sourceWithdrawalId)?.confirmedSlot ?? null
+        : null,
       destinationReserve:
         type === "rebalance" || type === "reconciliation"
           ? event.reserve

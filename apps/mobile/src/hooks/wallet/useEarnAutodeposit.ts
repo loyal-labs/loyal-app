@@ -25,18 +25,21 @@ type OptimisticMutation = {
 // backend endpoint. Like useEarnPosition: wallet-address-keyed, never signs.
 export function useEarnAutodeposit(walletAddress: string | null) {
   const [autodeposit, setAutodeposit] = useState<EarnAutodepositState | null>(
-    null,
+    null
   );
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
   const optimisticMutationRef = useRef<OptimisticMutation | null>(null);
+  const walletRef = useRef(walletAddress);
+  walletRef.current = walletAddress;
 
   const confirmAutodepositSetup = useCallback(
     (confirmed: ConfirmedEarnAutodepositSetup) => {
-      if (!walletAddress) {
+      if (!walletAddress || walletRef.current !== walletAddress) {
         return;
       }
+      ++fetchIdRef.current;
       const optimistic: OptimisticMutation = {
         confirmed: {
           identities: [confirmed.policyAccount],
@@ -57,14 +60,15 @@ export function useEarnAutodeposit(walletAddress: string | null) {
       optimisticMutationRef.current = optimistic;
       setAutodeposit(optimistic.state);
     },
-    [walletAddress],
+    [walletAddress]
   );
 
   const confirmAutodepositClose = useCallback(
     (confirmed: ConfirmedEarnAutodepositClose) => {
-      if (!walletAddress) {
+      if (!walletAddress || walletRef.current !== walletAddress) {
         return;
       }
+      ++fetchIdRef.current;
       optimisticMutationRef.current = {
         confirmed: {
           identities: confirmed.policyAccounts,
@@ -75,7 +79,7 @@ export function useEarnAutodeposit(walletAddress: string | null) {
       };
       setAutodeposit(null);
     },
-    [walletAddress],
+    [walletAddress]
   );
 
   const refreshAutodeposit = useCallback(
@@ -89,6 +93,12 @@ export function useEarnAutodeposit(walletAddress: string | null) {
       setIsLoading(true);
       try {
         const state = await fetchEarnAutodepositState(walletAddress);
+        if (
+          fetchId !== fetchIdRef.current ||
+          walletRef.current !== walletAddress
+        ) {
+          throw new Error("Autodeposit refresh was superseded.");
+        }
         const optimistic = optimisticMutationRef.current;
         let nextAutodeposit = state.autodeposit;
         if (optimistic?.walletAddress === walletAddress) {
@@ -132,17 +142,19 @@ export function useEarnAutodeposit(walletAddress: string | null) {
         }
       }
     },
-    [walletAddress],
+    [walletAddress]
   );
 
   useEffect(() => {
-    if (walletAddress) {
-      refreshAutodeposit();
-    } else {
-      optimisticMutationRef.current = null;
-      setAutodeposit(null);
-      setHasLoaded(false);
-    }
+    ++fetchIdRef.current;
+    optimisticMutationRef.current = null;
+    setAutodeposit(null);
+    setHasLoaded(false);
+    if (walletAddress) void refreshAutodeposit();
+    const requestIds = fetchIdRef;
+    return () => {
+      ++requestIds.current;
+    };
   }, [walletAddress, refreshAutodeposit]);
 
   useEffect(
@@ -150,7 +162,7 @@ export function useEarnAutodeposit(walletAddress: string | null) {
       subscribeEarnRealtime(async (refresh) => {
         if (refresh.earnState) await refreshAutodeposit({ throwOnError: true });
       }),
-    [refreshAutodeposit],
+    [refreshAutodeposit]
   );
 
   return {

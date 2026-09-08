@@ -3,6 +3,7 @@ import type {
   SmartAccountEarnUsdcReserveTargetInput,
   SmartAccountEarnUsdcWithdrawInput,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
 import {
   AccountLayout,
@@ -38,6 +39,7 @@ import type {
   ActiveEarnPosition,
   ActiveEarnPositionHolding,
 } from "@/hooks/use-active-earn-position";
+import type { EarnAccountingTarget } from "@/lib/yield-optimization/earn-position-accounting.client";
 import {
   resolveEarnPositionDisplay,
   resolveEarnTransactionMarketIcon,
@@ -452,7 +454,7 @@ function earnHoldingMatchesWithdrawSource(
         : null;
     return (
       holding.kind === "idle" &&
-      (tokenAccount === source.tokenAccount ||
+      ((source.tokenAccount !== null && tokenAccount === source.tokenAccount) ||
         holding.liquidityMint === source.liquidityMint)
     );
   }
@@ -574,22 +576,60 @@ export function applySubmittedEarnWithdrawToPosition(args: {
   };
 }
 
-// app-wallet-workspace.tsx:873-1003
-function hasEarnPositionObservedConfirmedSlot(
-  position: ActiveEarnPosition,
-  confirmedSlot: string | undefined
-): boolean {
-  if (!confirmedSlot) {
-    return false;
+// Each confirmed transaction commits only its own reserve withdrawals. A later
+// rejected stage must neither erase this stage nor optimistically withdraw it twice.
+export function getEarnWithdrawStepUpdate(
+  prepared: SmartAccountPreparedEarnUsdcWithdraw,
+  stepIndex: number,
+  draft: EarnWithdrawDraft
+) {
+  const step = prepared.withdrawSteps[stepIndex];
+  const metadata = step?.persistence ?? prepared.persistence;
+  const withdrawals =
+    step?.reserveWithdrawals ?? metadata.reserveWithdrawals ?? [];
+  const sources = withdrawals.length
+    ? withdrawals.map((withdrawal) => ({
+        amountRaw: BigInt(withdrawal.withdrawnAmountRaw),
+        source: {
+          ...draft.source,
+          type: "reserve" as const,
+          liquidityMint: withdrawal.liquidityMint,
+          reserve: withdrawal.accountingReserve,
+          market: withdrawal.market,
+        },
+      }))
+    : [{ amountRaw: BigInt(metadata.withdrawnAmountRaw), source: draft.source }];
+  const targets: EarnAccountingTarget[] = sources.map(({ source }) => ({
+    kind: "withdrawal",
+    liquidityMint: source.liquidityMint,
+    reserve: source.reserve,
+    vaultPubkey: metadata.vaultPubkey,
+  }));
+  // A final reserve transaction may also transfer already-idle vault tokens.
+  const idleRemainder = BigInt(metadata.vaultUsdcRemainderRaw ?? "0");
+  if (withdrawals.length && idleRemainder > BigInt(0)) {
+    sources.push({
+      amountRaw: idleRemainder,
+      source: {
+        ...draft.source,
+        type: "idle",
+        reserve: null,
+        liquidityMint: metadata.liquidityMint,
+      },
+    });
   }
-
-  try {
-    return (
-      BigInt(position.currentHolding.observedSlot) >= BigInt(confirmedSlot)
-    );
-  } catch {
-    return false;
-  }
+  return {
+    targets,
+    apply: (current: ActiveEarnPosition | null) =>
+      sources.reduce(
+        (position, source) => applySubmittedEarnWithdrawToPosition({
+          amountRaw: source.amountRaw,
+          current: position,
+          draft: { ...draft, mode: "partial", source: source.source },
+        }),
+        current
+      ),
+  };
 }
 
 function upsertPostDepositEarnHolding(args: {
@@ -630,13 +670,6 @@ export function buildPostDepositEarnPosition(args: {
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
 }): ActiveEarnPosition {
   const current = args.current;
-  if (
-    current &&
-    hasEarnPositionObservedConfirmedSlot(current, args.confirmedSlot)
-  ) {
-    return current;
-  }
-
   const amountRawString = args.amountRaw.toString();
   const currentTotalAmountRaw = (
     BigInt(current?.currentTotalAmountRaw ?? "0") + args.amountRaw

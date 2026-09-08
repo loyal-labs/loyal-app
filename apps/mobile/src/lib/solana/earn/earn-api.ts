@@ -133,6 +133,54 @@ async function throwEarnError(res: Response, fallback: string): Promise<never> {
   );
 }
 
+export type EarnRealtimeTokenResponse = {
+  accessToken: string;
+  eventsUrl: string;
+  expiresAt: string;
+  schemaVersion: 1;
+};
+
+export async function fetchEarnRealtimeToken(
+  sessionToken: string
+): Promise<EarnRealtimeTokenResponse> {
+  const res = await fetchWithTimeout(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/realtime/token`,
+    {
+      method: "POST",
+      headers: { ...earnHeaders(), Authorization: `Bearer ${sessionToken}` },
+    }
+  );
+  if (!res.ok) return throwEarnError(res, "Earn realtime is unavailable.");
+  const value = (await res.json()) as EarnRealtimeTokenResponse;
+  if (
+    value.schemaVersion !== 1 ||
+    !value.accessToken ||
+    !value.eventsUrl ||
+    !Number.isFinite(Date.parse(value.expiresAt))
+  ) {
+    throw new EarnApiError("Invalid Earn realtime token response.");
+  }
+  return value;
+}
+
+export async function mintEarnSession(
+  auth: EarnAuthFields
+): Promise<{ token: string; expiresAt: string }> {
+  const res = await fetchWithTimeout(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/session`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify(auth),
+    }
+  );
+  if (!res.ok) return throwEarnError(res, "Unable to renew Earn session.");
+  const value = (await res.json()) as { token: string; expiresAt: string };
+  if (!value.token || !Number.isFinite(Date.parse(value.expiresAt)))
+    throw new EarnApiError("Invalid Earn session response.");
+  return value;
+}
+
 // Everything the device needs to run the SDK's deposit prepare locally
 // (client-side instruction building on the device's own RPC) instead of
 // calling `deposit/prepare` — mirrors the autodeposit `/state` prepareContext.
@@ -513,7 +561,7 @@ export type EarnAutodepositStateResponse = {
 export async function fetchEarnAutodepositState(
   walletAddress: string
 ): Promise<EarnAutodepositStateResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${
       env.earnApiBaseUrl
     }/api/smart-accounts/mobile/earn/autodeposit/state?walletAddress=${encodeURIComponent(
@@ -693,10 +741,28 @@ export type EarnPosition = {
   currentSupplyApyBps: string | null;
   principalAmountRaw: string;
   status: string;
+  lastConfirmedSlot?: string | null;
+};
+
+export type EarnProjectedPosition = {
+  id: string;
+  liquidityMint: string; // Initial mint: deposits belong to this row after rebalance too.
+  initialReserveAddress: string;
+  currentLiquidityMint: string;
+  currentReserveAddress: string | null;
+  currentAmountRaw: string;
+  currentObservedSlot: string;
+  lastConfirmedSlot: string;
+  principalAmountRaw: string;
+  status: string;
+  vaultPubkey: string;
 };
 
 export type EarnStateResponse = {
+  cluster?: string;
+  projectedPositions?: EarnProjectedPosition[];
   position: EarnPosition | null;
+  projectedSlot?: string | null;
   settingsPda: string | null;
   smartAccountAddress: string | null;
 };
@@ -707,7 +773,7 @@ export type EarnStateResponse = {
 export async function fetchEarnState(
   walletAddress: string
 ): Promise<EarnStateResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${
       env.earnApiBaseUrl
     }/api/smart-accounts/mobile/earn/state?walletAddress=${encodeURIComponent(
@@ -747,20 +813,35 @@ export type EarnHoldingsResponse = {
 };
 
 export async function fetchEarnHoldings(
-  walletAddress: string
+  walletAddress: string,
+  options?: { minContextSlot?: string }
 ): Promise<EarnHoldingsResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${
       env.earnApiBaseUrl
     }/api/smart-accounts/mobile/earn/holdings?walletAddress=${encodeURIComponent(
       walletAddress
-    )}`,
+    )}${
+      options?.minContextSlot
+        ? `&minContextSlot=${encodeURIComponent(options.minContextSlot)}`
+        : ""
+    }`,
     { method: "GET", headers: earnHeaders() }
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn holdings.");
   }
-  return (await res.json()) as EarnHoldingsResponse;
+  const value = (await res.json()) as EarnHoldingsResponse;
+  if (
+    options?.minContextSlot &&
+    (!value.observedSlot ||
+      BigInt(value.observedSlot) < BigInt(options.minContextSlot))
+  ) {
+    throw new EarnApiError(
+      "Earn holdings have not reached the confirmed transaction slot."
+    );
+  }
+  return value;
 }
 
 // Per-user Earn earnings for the Earnings chart (read-only, keyed by wallet
@@ -813,7 +894,7 @@ export async function fetchEarnEarnings(
   walletAddress: string
 ): Promise<EarnEarningsResponse> {
   const timezone = deviceTimezone();
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${
       env.earnApiBaseUrl
     }/api/smart-accounts/mobile/earn/earnings?walletAddress=${encodeURIComponent(
@@ -858,6 +939,10 @@ export type EarnTransactionAccount = { label: string; icon: string | null };
 // `dateGroup`/`timestamp` are display strings, raw values echoed for detail.
 export type EarnTransactionItem = {
   id: string;
+  // Immutable accounting identity, distinct from the transaction/event ID.
+  positionId?: string | null;
+  // Exact landing; confirmedSlot on history rows is the projection observation.
+  transactionSlot?: string | null;
   kind: EarnTransactionKind;
   eventType: EarnTransactionEventType;
   confirmedAt?: string;
@@ -885,7 +970,7 @@ export type EarnTransactionsResponse = {
 export async function fetchEarnTransactions(
   walletAddress: string
 ): Promise<EarnTransactionsResponse> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${
       env.earnApiBaseUrl
     }/api/smart-accounts/mobile/earn/transactions?walletAddress=${encodeURIComponent(

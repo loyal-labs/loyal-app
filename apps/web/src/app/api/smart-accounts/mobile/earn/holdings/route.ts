@@ -15,7 +15,7 @@ import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { fetchEarnRpcHoldingsSnapshot } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
-  findActiveYieldPositionsForVault,
+  findYieldPositionsForVault,
   findActiveYieldRoutePolicyPair,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -36,12 +36,11 @@ import {
 // Stale-read protection: the RPC pool can serve a lagging node whose account
 // view predates a deposit the DB already confirmed, and the client trusts a
 // successful live read over the read-model. Primary defense: every chain read
-// carries minContextSlot = the position's last confirmed slot, so a lagging
+// carries minContextSlot >= the projected and client-confirmed slots, so a lagging
 // node errors instead of answering (a max-observed-slot check alone cannot
 // catch a mixed read where only the obligation request hit a lagging node).
 // Fallbacks: one retry on rejection, then 502 → the client keeps the
-// read-model balance; plus a residual observedAt: null suppression should a
-// stale snapshot slip through anyway.
+// read-model balance. Fenced requests never return an unfenced empty success.
 const EARN_VAULT_INDEX = 1;
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -75,8 +74,28 @@ function getConnection(cluster: SolanaEnv): Connection {
 }
 
 export async function GET(request: Request) {
-  const walletAddress =
-    new URL(request.url).searchParams.get("walletAddress")?.trim() ?? "";
+  const searchParams = new URL(request.url).searchParams;
+  const walletAddress = searchParams.get("walletAddress")?.trim() ?? "";
+  const requestedSlot = searchParams.get("minContextSlot");
+  if (
+    requestedSlot !== null &&
+    (!/^\d+$/.test(requestedSlot) ||
+      !Number.isSafeInteger(Number(requestedSlot)))
+  ) {
+    return jsonError(
+      400,
+      "invalid_request",
+      "minContextSlot must be a non-negative safe integer."
+    );
+  }
+  const requestedSlotFloor =
+    requestedSlot === null ? BigInt(0) : BigInt(requestedSlot);
+  const pendingSnapshot = () =>
+    jsonError(
+      503,
+      "earn_holdings_pending",
+      "A slot-fenced Earn holdings snapshot is not available yet. Retry shortly."
+    );
   if (!walletAddress) {
     return jsonError(400, "invalid_request", "walletAddress is required.");
   }
@@ -111,7 +130,9 @@ export async function GET(request: Request) {
       walletAddress,
     });
     if (!user) {
-      return NextResponse.json(emptySnapshot);
+      return requestedSlot !== null
+        ? pendingSnapshot()
+        : NextResponse.json(emptySnapshot);
     }
 
     const account = await findReadyCurrentUserSmartAccount({
@@ -119,7 +140,9 @@ export async function GET(request: Request) {
       walletAddress,
     });
     if (!account) {
-      return NextResponse.json(emptySnapshot);
+      return requestedSlot !== null
+        ? pendingSnapshot()
+        : NextResponse.json(emptySnapshot);
     }
 
     const serverEnv = getServerEnv();
@@ -141,6 +164,9 @@ export async function GET(request: Request) {
       vaultPubkey: earnVaultPda.toBase58(),
     });
     if (!policyPair?.routePolicy) {
+      if (requestedSlot !== null) {
+        return pendingSnapshot();
+      }
       return NextResponse.json({
         ...emptySnapshot,
         settingsPda: account.settingsPda,
@@ -155,7 +181,7 @@ export async function GET(request: Request) {
     // the obligation as it looked BEFORE a confirmed deposit/withdrawal while
     // the other request looks fresh — the exact "balance flashes an old value"
     // bug. With it, a lagging node errors instead of answering.
-    const positions = await findActiveYieldPositionsForVault({
+    const positions = await findYieldPositionsForVault({
       cluster,
       settings: account.settingsPda,
       vaultIndex: EARN_VAULT_INDEX,
@@ -166,7 +192,7 @@ export async function GET(request: Request) {
         position.currentObservedSlot > latest
           ? position.currentObservedSlot
           : latest,
-      BigInt(0)
+      requestedSlotFloor
     );
     const minContextSlot =
       confirmedSlotFloor > BigInt(0) ? Number(confirmedSlotFloor) : undefined;
@@ -176,6 +202,7 @@ export async function GET(request: Request) {
         cluster,
         connection: getConnection(solanaEnv),
         minContextSlot,
+        requireCompleteReserveReads: true,
         policy: serializeRoutePolicyState(
           policyPair.routePolicy,
           policyPair.setupPolicy ?? null
@@ -212,13 +239,14 @@ export async function GET(request: Request) {
         observedSlot: snapshot.observedSlot,
         walletAddress,
       });
+      return pendingSnapshot();
     }
 
     return NextResponse.json({
       currentTotalAmountRaw: snapshot.currentTotalAmountRaw,
       currentTotalNominalUsdMicros: snapshot.currentTotalNominalUsdMicros,
       holdings: snapshot.holdings,
-      observedAt: staleLiveRead ? null : snapshot.observedAt,
+      observedAt: snapshot.observedAt,
       observedSlot: snapshot.observedSlot,
       settingsPda: account.settingsPda,
       smartAccountAddress: account.smartAccountAddress,

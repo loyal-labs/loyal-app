@@ -15,7 +15,15 @@ import type { Signer } from "@/lib/wallet/signer";
 
 import type { HydratedPreparedOperation } from "./wire";
 
-export type SentTransaction = { signature: string; confirmedSlot: string };
+export type SentTransaction = {
+  signature: string;
+  confirmedSlot: string;
+  // null: WS success supplied only a conservative read fence. Resolve the
+  // exact landing slot later for accounting; never invite a second send.
+  accountingSlot?: string | null;
+};
+
+class OnChainTransactionError extends Error {}
 
 // `confirmTransaction` (WebSocket/blockheight strategy) and a follow-up
 // `getSignatureStatuses` read can land on different load-balanced RPC nodes, so
@@ -57,14 +65,14 @@ const delay = (ms: number): Promise<void> =>
 // the node hasn't caught up yet, and throws only on a real on-chain failure.
 async function readConfirmedSlot(
   connection: Connection,
-  signature: string,
+  signature: string
 ): Promise<string | null> {
   const { value } = await connection.getSignatureStatuses([signature], {
     searchTransactionHistory: true,
   });
   const status = value[0];
   if (status?.err) {
-    throw new Error("Transaction failed on-chain.");
+    throw new OnChainTransactionError("Transaction failed on-chain.");
   }
   if (
     status &&
@@ -82,7 +90,7 @@ async function readConfirmedSlot(
 async function pollConfirmedSlot(
   connection: Connection,
   signature: string,
-  attempts: number,
+  attempts: number
 ): Promise<string | null> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     const slot = await readConfirmedSlot(connection, signature);
@@ -103,13 +111,13 @@ async function confirmSentTransaction(
   connection: Connection,
   signature: string,
   blockhash: string,
-  lastValidBlockHeight: number,
+  lastValidBlockHeight: number
 ): Promise<SentTransaction> {
   let contextSlot: number | null = null;
   try {
     const confirmation = await connection.confirmTransaction(
       { blockhash, lastValidBlockHeight, signature },
-      "confirmed",
+      "confirmed"
     );
     if (confirmation.value.err) {
       throw new Error("Transaction failed on-chain.");
@@ -128,7 +136,7 @@ async function confirmSentTransaction(
     const slot = await pollConfirmedSlot(
       connection,
       signature,
-      POST_EXPIRY_ATTEMPTS,
+      POST_EXPIRY_ATTEMPTS
     );
     if (slot !== null) {
       return { signature, confirmedSlot: slot };
@@ -136,19 +144,28 @@ async function confirmSentTransaction(
     throw error;
   }
 
-  const slot = await pollConfirmedSlot(
-    connection,
-    signature,
-    CONFIRMED_SLOT_MAX_ATTEMPTS,
-  );
-  return { signature, confirmedSlot: slot ?? String(contextSlot) };
+  let slot: string | null = null;
+  try {
+    slot = await pollConfirmedSlot(
+      connection,
+      signature,
+      CONFIRMED_SLOT_MAX_ATTEMPTS
+    );
+  } catch (error) {
+    if (error instanceof OnChainTransactionError) throw error;
+    // Transport failure after successful confirmation is missing metadata,
+    // not a failed transfer. Context may exceed the actual landing slot.
+  }
+  return slot
+    ? { signature, confirmedSlot: slot }
+    : { signature, confirmedSlot: String(contextSlot), accountingSlot: null };
 }
 
 // Compiles a hydrated prepared operation into a v0 transaction, prepending a
 // priority fee when it fits within the transaction size limit.
 function compilePreparedOperation(
   operation: HydratedPreparedOperation,
-  blockhash: string,
+  blockhash: string
 ): VersionedTransaction {
   const compile = (withPriorityFee: boolean) =>
     new VersionedTransaction(
@@ -163,7 +180,7 @@ function compilePreparedOperation(
               ...operation.instructions,
             ]
           : [...operation.instructions],
-      }).compileToV0Message([...operation.lookupTableAccounts]),
+      }).compileToV0Message([...operation.lookupTableAccounts])
     );
   const transaction = compile(true);
   if (transaction.serialize().length > MAX_TRANSACTION_BYTES) {
@@ -184,7 +201,7 @@ type InFlightTransaction = {
 // lands. Callers stop the loop on confirmation, on-chain failure, or expiry.
 async function startSendingSignedTransaction(
   connection: Connection,
-  transaction: VersionedTransaction,
+  transaction: VersionedTransaction
 ): Promise<InFlightTransaction> {
   const rawTransaction = transaction.serialize();
   // First send runs preflight so a genuinely invalid tx fails fast; resends skip
@@ -242,7 +259,7 @@ async function sendSignedTransaction(
   connection: Connection,
   transaction: VersionedTransaction,
   blockhash: string,
-  lastValidBlockHeight: number,
+  lastValidBlockHeight: number
 ): Promise<SentTransaction> {
   const inFlight = await startSendingSignedTransaction(connection, transaction);
   try {
@@ -250,7 +267,7 @@ async function sendSignedTransaction(
       connection,
       inFlight.signature,
       blockhash,
-      lastValidBlockHeight,
+      lastValidBlockHeight
     );
   } finally {
     await inFlight.stop();
@@ -279,8 +296,17 @@ export async function signAndSendPreparedOperations(args: {
   signer: Signer;
   operations: HydratedPreparedOperation[];
   sendMode?: SendPreparedMode;
+  // Fires for each landed stage, even if a later stage fails or is declined.
+  onConfirmed?: (transaction: SentTransaction, operationIndex: number) => void;
 }): Promise<SentTransaction[]> {
   const { connection, signer, operations, sendMode = "confirm-each" } = args;
+  const notifyConfirmed = (transaction: SentTransaction, index: number) => {
+    try {
+      args.onConfirmed?.(transaction, index);
+    } catch {
+      console.warn("[earn] confirmed transaction observer failed");
+    }
+  };
   if (operations.length === 0) {
     return [];
   }
@@ -304,6 +330,8 @@ export async function signAndSendPreparedOperations(args: {
           connection,
           signer,
           operations: [operation],
+          onConfirmed: (transaction) =>
+            notifyConfirmed(transaction, sent.length),
         });
         sent.push(confirmed);
       } catch (error) {
@@ -314,7 +342,7 @@ export async function signAndSendPreparedOperations(args: {
         if (sent.length > 0 && error instanceof WalletRejectedError) {
           throw withLandedSignatures(
             error,
-            sent.map((tx) => tx.signature),
+            sent.map((tx) => tx.signature)
           );
         }
         throw error;
@@ -325,7 +353,7 @@ export async function signAndSendPreparedOperations(args: {
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash("confirmed");
   const transactions = operations.map((operation) =>
-    compilePreparedOperation(operation, blockhash),
+    compilePreparedOperation(operation, blockhash)
   );
   await signer.signAllTransactions(transactions);
 
@@ -334,19 +362,19 @@ export async function signAndSendPreparedOperations(args: {
     try {
       for (const transaction of transactions) {
         inFlight.push(
-          await startSendingSignedTransaction(connection, transaction),
+          await startSendingSignedTransaction(connection, transaction)
         );
       }
       const sent: SentTransaction[] = [];
       for (const flight of inFlight) {
-        sent.push(
-          await confirmSentTransaction(
-            connection,
-            flight.signature,
-            blockhash,
-            lastValidBlockHeight,
-          ),
+        const confirmed = await confirmSentTransaction(
+          connection,
+          flight.signature,
+          blockhash,
+          lastValidBlockHeight
         );
+        notifyConfirmed(confirmed, sent.length);
+        sent.push(confirmed);
       }
       return sent;
     } finally {
@@ -360,14 +388,14 @@ export async function signAndSendPreparedOperations(args: {
 
   const sent: SentTransaction[] = [];
   for (const transaction of transactions) {
-    sent.push(
-      await sendSignedTransaction(
-        connection,
-        transaction,
-        blockhash,
-        lastValidBlockHeight,
-      ),
+    const confirmed = await sendSignedTransaction(
+      connection,
+      transaction,
+      blockhash,
+      lastValidBlockHeight
     );
+    notifyConfirmed(confirmed, sent.length);
+    sent.push(confirmed);
   }
   return sent;
 }
@@ -386,11 +414,11 @@ export async function signPreparedOperationsForSponsor(args: {
 }): Promise<string[]> {
   const { blockhash } = await args.connection.getLatestBlockhash("confirmed");
   const transactions = args.operations.map((operation) =>
-    compilePreparedOperation({ ...operation, payer: args.feePayer }, blockhash),
+    compilePreparedOperation({ ...operation, payer: args.feePayer }, blockhash)
   );
   await args.signer.signAllTransactions(transactions);
   return transactions.map((transaction) =>
-    Buffer.from(transaction.serialize()).toString("base64"),
+    Buffer.from(transaction.serialize()).toString("base64")
   );
 }
 

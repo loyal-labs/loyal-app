@@ -37,7 +37,6 @@ import {
   getNextEarnWithdrawReviewStage,
 } from "@/components/wallet-workspace/earn-deposit-review";
 import {
-  applySubmittedEarnWithdrawToPosition,
   buildPostDepositEarnPosition,
   createWithdrawSourceOptions,
   DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL,
@@ -47,6 +46,7 @@ import {
   EARN_POLICY_MUTATION_RESOURCES,
   EARN_SYNC_RESOURCES,
   getEarnWithdrawDraftAmountRaw,
+  getEarnWithdrawStepUpdate,
   isWalletCancellation,
   parseEarnAutodepositExecuteError,
   parseEarnAutodepositExecuteResponse,
@@ -97,7 +97,10 @@ import {
   useRealtimeSync,
   useRealtimeSyncScope,
 } from "@/features/realtime-sync";
-import type { ActiveEarnPosition } from "@/hooks/use-active-earn-position";
+import type {
+  ActiveEarnPosition,
+  useActiveEarnPosition,
+} from "@/hooks/use-active-earn-position";
 import {
   fetchEarnEarningsRangeSet,
   invalidateEarnEarningsCache,
@@ -150,11 +153,6 @@ export type EarnAutodepositOverride = {
     walletAddress: string;
   };
 } | null;
-
-type PositionUpdater =
-  | ActiveEarnPosition
-  | null
-  | ((current: ActiveEarnPosition | null) => ActiveEarnPosition | null);
 
 export type EarnActions = {
   authenticatedWalletAddress: string | null;
@@ -222,13 +220,17 @@ export function useEarnActions(deps: {
     context: RealtimeResourceRefreshContext
   ) => Promise<unknown>;
   setAutodepositOverride: Dispatch<SetStateAction<EarnAutodepositOverride>>;
-  setPosition: (next: PositionUpdater) => void;
+  setPosition: ReturnType<typeof useActiveEarnPosition>["setPosition"];
+  captureAccountingTargets: ReturnType<
+    typeof useActiveEarnPosition
+  >["captureAccountingTargets"];
   smartAccountData: SmartAccountSidebarData;
   suppressPositionRefreshThroughSlot: (slot?: string) => void;
   walletAddress: string | null;
 }): EarnActions {
   const {
     autodepositConfig,
+    captureAccountingTargets,
     hasPosition,
     mainUsdc,
     position,
@@ -957,13 +959,25 @@ export function useEarnActions(deps: {
           signature: commit.result.signature,
         });
         expectEarnTransaction(commit.result.signature);
-        setPosition((current) =>
-          buildPostDepositEarnPosition({
+        setPosition(
+          (current) => buildPostDepositEarnPosition({
             amountRaw: commit.amountRaw,
             confirmedSlot: commit.result.confirmedSlot,
             current,
             preparedDeposit: commit.preparedDeposit,
-          })
+          }),
+          {
+            confirmedSlot: commit.result.confirmedSlot,
+            signature: commit.result.signature,
+            targets: [
+              {
+                kind: "deposit",
+                liquidityMint: commit.preparedDeposit.persistence.liquidityMint,
+                reserve: commit.preparedDeposit.persistence.targetReserve,
+                vaultPubkey: commit.preparedDeposit.persistence.vaultPubkey,
+              },
+            ],
+          }
         );
         if (
           trackedKaminoUsdcMint ===
@@ -1509,6 +1523,10 @@ export function useEarnActions(deps: {
               stageIndex: stepIndex,
             });
             earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
+            const update = getEarnWithdrawStepUpdate(
+              preparedWithdraw, stepIndex, draft
+            );
+            const targets = captureAccountingTargets(update.targets);
             const result = await smartAccountData.executeEarnWithdraw({
               amountRaw,
               mode: draft.mode,
@@ -1520,6 +1538,12 @@ export function useEarnActions(deps: {
             if (!result.success) {
               throw new Error(result.error ?? "Earn withdrawal failed.");
             }
+            setPosition(update.apply, {
+              targets,
+              confirmedSlot: result.confirmedSlot,
+              signature: result.signature,
+            });
+            expectEarnTransaction(result.signature);
             confirmationRecordFailed ||=
               result.status === "confirmation_record_failed";
             latestConfirmedSlot = result.confirmedSlot ?? latestConfirmedSlot;
@@ -1547,10 +1571,6 @@ export function useEarnActions(deps: {
             resources: EARN_BALANCE_MUTATION_RESOURCES,
             signature: latestSignature,
           });
-          expectEarnTransaction(latestSignature);
-          setPosition((current) =>
-            applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
-          );
           if (draft.source.liquidityMint === trackedKaminoUsdcMint) {
             creditMainAccountUsdcBalance(amountRaw);
           }
@@ -1657,6 +1677,10 @@ export function useEarnActions(deps: {
             stageIndex: stepIndex,
           });
           earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
+          const update = getEarnWithdrawStepUpdate(
+            preparedWithdraw, stepIndex, draft
+          );
+          const targets = captureAccountingTargets(update.targets);
           const result = await smartAccountData.executeEarnWithdraw({
             amountRaw,
             observabilityFlowId: tracker.flowId,
@@ -1669,6 +1693,12 @@ export function useEarnActions(deps: {
           if (!result.success) {
             throw new Error(result.error ?? "Earn withdrawal failed.");
           }
+          setPosition(update.apply, {
+            targets,
+            confirmedSlot: result.confirmedSlot,
+            signature: result.signature,
+          });
+          expectEarnTransaction(result.signature);
           confirmationRecordFailed ||=
             result.status === "confirmation_record_failed";
 
@@ -1712,10 +1742,6 @@ export function useEarnActions(deps: {
             resources: EARN_BALANCE_MUTATION_RESOURCES,
             signature: result.signature,
           });
-          expectEarnTransaction(result.signature);
-          setPosition((current) =>
-            applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
-          );
           if (
             draft.mode === "partial" &&
             draft.source.liquidityMint === trackedKaminoUsdcMint
@@ -1809,6 +1835,7 @@ export function useEarnActions(deps: {
       ensureCanSignAccountAction,
       expectEarnTransaction,
       prepareEarnWithdrawInBrowser,
+      captureAccountingTargets,
       registerExpectedEarnMutation,
       requestApproval,
       setAutodepositOverride,

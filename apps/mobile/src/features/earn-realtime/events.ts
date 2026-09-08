@@ -1,3 +1,17 @@
+export type EarnRealtimeScope = {
+  walletAddress: string;
+  settingsPda: string;
+  earnVaultAddress: string;
+  solanaEnv: string;
+};
+let activeScope: EarnRealtimeScope | null = null;
+export function setEarnRealtimeScope(scope: EarnRealtimeScope | null) {
+  activeScope = scope;
+}
+export function getEarnRealtimeScope(wallet: string) {
+  return activeScope?.walletAddress === wallet ? activeScope : null;
+}
+
 export type EarnRealtimeRefresh = {
   earnState: boolean;
   earnings: boolean;
@@ -6,13 +20,13 @@ export type EarnRealtimeRefresh = {
 };
 
 type EarnRealtimeListener = (
-  refresh: EarnRealtimeRefresh,
+  refresh: EarnRealtimeRefresh
 ) => Promise<unknown> | unknown;
 
 const listeners = new Set<EarnRealtimeListener>();
 
 export function subscribeEarnRealtime(
-  listener: EarnRealtimeListener,
+  listener: EarnRealtimeListener
 ): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -20,7 +34,7 @@ export function subscribeEarnRealtime(
 
 export async function emitEarnRealtimeEvent(
   eventType?: string,
-  state?: string,
+  state?: string
 ): Promise<void> {
   const refresh: EarnRealtimeRefresh = {
     earnState: false,
@@ -38,7 +52,11 @@ export async function emitEarnRealtimeEvent(
     refresh.transactions = true;
   } else if (eventType === "earn.autodeposit.execution.changed") {
     refresh.earnState = true;
-    if (state === "pull_confirmed" || state === "completed" || state === "failed") {
+    if (
+      state === "pull_confirmed" ||
+      state === "completed" ||
+      state === "failed"
+    ) {
       refresh.position = true;
       refresh.transactions = true;
     }
