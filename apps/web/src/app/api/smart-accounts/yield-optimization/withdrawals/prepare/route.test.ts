@@ -109,6 +109,8 @@ let currentSnapshot = holdingsSnapshot([
 let prepareCalls: Record<string, unknown>[] = [];
 let policyLookupCount = 0;
 let policyMissesRemaining = 0;
+let inactivePolicy = false;
+let snapshotCalls = 0;
 
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest: async () => currentPrincipal,
@@ -148,7 +150,10 @@ mock.module("@/lib/yield-optimization/deployment-policy-signer.server", () => ({
 }));
 
 mock.module("@/lib/yield-optimization/earn-rpc-holdings.client", () => ({
-  fetchEarnRpcHoldingsSnapshot: async () => currentSnapshot,
+  fetchEarnRpcHoldingsSnapshot: async () => {
+    snapshotCalls += 1;
+    return currentSnapshot;
+  },
 }));
 
 mock.module(
@@ -179,6 +184,7 @@ mock.module(
 );
 
 mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
+  hasInactiveYieldRoutePolicyForVault: async () => inactivePolicy,
   findActiveYieldRoutePolicyPair: async () => {
     policyLookupCount += 1;
     if (policyMissesRemaining > 0) {
@@ -233,6 +239,8 @@ describe("Earn withdrawal prepare route", () => {
     prepareCalls = [];
     policyLookupCount = 0;
     policyMissesRemaining = 0;
+    inactivePolicy = false;
+    snapshotCalls = 0;
   });
 
   test("max drains only the exact selected source", async () => {
@@ -331,11 +339,34 @@ describe("Earn withdrawal prepare route", () => {
     expect(response.headers.get("retry-after")).toBe("1");
     expect(payload.error.code).toBe("earn_policy_projection_pending");
     expect(policyLookupCount).toBe(5);
+    expect(prepareCalls).toHaveLength(0);
+  });
+
+  test("rejects an inactive policy without preparing a transaction or suggesting retry", async () => {
+    const { POST } = await import("./route");
+    currentPolicy = null;
+    inactivePolicy = true;
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "max",
+        sourceId: `reserve:${activePosition.currentReserve}`,
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(payload.error.code).toBe("earn_policy_inactive");
+    expect(snapshotCalls).toBe(0);
+    expect(prepareCalls).toHaveLength(0);
   });
 
   test("recovers when LaserStream projects the policy during the retry window", async () => {
     const { POST } = await import("./route");
     policyMissesRemaining = 1;
+    // A previous closed generation must not override newly projected setup.
+    inactivePolicy = true;
 
     const response = await POST(
       createRequest({
