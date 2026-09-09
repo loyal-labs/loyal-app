@@ -43,6 +43,12 @@ const MIXPANEL_TOKEN = process.env.EXPO_PUBLIC_MIXPANEL_TOKEN ?? "";
 // purpose — OneSignal init is skipped entirely when unset.
 const ONESIGNAL_APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? "";
 
+// Privy identity layer (same Privy app as web, mobile app client). No
+// fallback: when unset the app boots without a PrivyProvider and the legacy
+// signers keep working.
+const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID ?? "";
+const PRIVY_CLIENT_ID = process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID ?? "";
+
 export const env = {
   apiBaseUrl: API_BASE_URL,
   earnApiBaseUrl: EARN_API_BASE_URL,
@@ -54,4 +60,6 @@ export const env = {
   telegramUserId: TELEGRAM_USER_ID,
   mixpanelToken: MIXPANEL_TOKEN,
   oneSignalAppId: ONESIGNAL_APP_ID,
+  privyAppId: PRIVY_APP_ID,
+  privyClientId: PRIVY_CLIENT_ID,
 } as const;
