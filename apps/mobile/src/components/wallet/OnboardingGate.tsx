@@ -138,6 +138,18 @@ function isUserCancel(error: unknown): boolean {
   return error instanceof WalletRejectedError || isPrivyUserDecline(error);
 }
 
+// The wallet app returned an account other than the one this Privy user is
+// linked to. From the menu's Connect Wallet path this reads as a plain error;
+// after an email login the caller turns it into whereWalletIs().
+class WalletMismatchError extends Error {
+  constructor(readonly expected: string) {
+    super(
+      `That wallet does not match this account. Choose the one ending in ${expected.slice(-4)}.`,
+    );
+    this.name = "WalletMismatchError";
+  }
+}
+
 // User-facing explanation for an external wallet we cannot sign with here.
 function whereWalletIs(e: PrivyExternalWalletError): Error {
   const short = `${e.address.slice(0, 4)}…${e.address.slice(-4)}`;
@@ -365,7 +377,15 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         try {
           await connectExternalRef.current(e.address);
         } catch (connectError) {
-          if (isUserCancel(connectError)) throw whereWalletIs(e);
+          // Cancelled, or the phone's wallet app holds a different key
+          // (typical when the linked wallet is a browser extension): both
+          // mean the key is not here.
+          if (
+            isUserCancel(connectError) ||
+            connectError instanceof WalletMismatchError
+          ) {
+            throw whereWalletIs(e);
+          }
           throw connectError;
         }
       }
@@ -453,9 +473,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const assertExpected = useCallback(
     (address: string, expected: string | undefined) => {
       if (expected && address !== expected) {
-        throw new Error(
-          `That wallet does not match this account. Choose the one ending in ${expected.slice(-4)}.`,
-        );
+        throw new WalletMismatchError(expected);
       }
     },
     [],
