@@ -96,6 +96,7 @@ type RpcPositionRead = {
 
 type ConfirmedEarnPositionResponse = {
   position: ActiveEarnPosition | null;
+  closedPositionObservedSlot?: string | null;
 };
 
 export function isActiveEarnPosition(
@@ -161,10 +162,19 @@ function hasRpcObservedHoldings(
   );
 }
 
-function shouldKeepCurrentPositionOverConfirmed(args: {
+export function shouldKeepCurrentPositionOverConfirmed(args: {
   current: ActiveEarnPosition | null;
   confirmed: ActiveEarnPosition | null;
+  closedPositionObservedSlot?: string | null;
 }): boolean {
+  if (args.confirmed === null && args.closedPositionObservedSlot) {
+    const closedSlot = parseEarnRawAmount(args.closedPositionObservedSlot);
+    const currentSlot = parseEarnObservedSlot(args.current);
+    if (closedSlot !== null && closedSlot >= BigInt(0)) {
+      // A closure tombstone supersedes old RPC/cache holdings, not a later deposit.
+      return currentSlot !== null && currentSlot > closedSlot;
+    }
+  }
   if (!(args.current && args.confirmed)) {
     return hasRpcObservedHoldings(args.current);
   }
@@ -410,7 +420,7 @@ function isConfirmedEarnPositionResponse(
   );
 }
 
-async function fetchConfirmedEarnPosition(): Promise<ActiveEarnPosition | null> {
+async function fetchConfirmedEarnPosition(): Promise<ConfirmedEarnPositionResponse> {
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/position",
     {
@@ -427,7 +437,7 @@ async function fetchConfirmedEarnPosition(): Promise<ActiveEarnPosition | null> 
     throw new Error("Invalid confirmed Earn position response.");
   }
 
-  return data.position;
+  return data;
 }
 
 export function useActiveEarnPosition({
@@ -495,6 +505,8 @@ export function useActiveEarnPosition({
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
+      // A local confirmed/optimistic mutation supersedes outstanding reads.
+      refreshGenerationRef.current += 1;
       setHasResolved(true);
       setIsLoading(false);
       setPositionState((current) => {
@@ -564,7 +576,10 @@ export function useActiveEarnPosition({
   );
 
   const commitConfirmedPosition = useCallback(
-    (nextPosition: ActiveEarnPosition | null) => {
+    ({
+      position: nextPosition,
+      closedPositionObservedSlot,
+    }: ConfirmedEarnPositionResponse) => {
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
@@ -572,6 +587,7 @@ export function useActiveEarnPosition({
         shouldKeepCurrentPositionOverConfirmed({
           current: positionRef.current,
           confirmed: nextPosition,
+          closedPositionObservedSlot,
         })
       ) {
         setHasResolved(true);
@@ -586,6 +602,9 @@ export function useActiveEarnPosition({
           settingsPda,
           position: nextPosition,
         });
+      }
+      if (nextPosition === null && closedPositionObservedSlot) {
+        refreshGenerationRef.current += 1;
       }
       positionRef.current = nextPosition;
       setWatchedAccounts([]);
@@ -629,7 +648,14 @@ export function useActiveEarnPosition({
               commitRpcPosition(next);
               result = next.position;
             } else {
-              setHasResolved(true);
+              const confirmed = await fetchConfirmedEarnPosition();
+              if (
+                generation !== refreshGenerationRef.current ||
+                activePositionScopeRef.current !== positionScope
+              ) {
+                return positionRef.current;
+              }
+              commitConfirmedPosition(confirmed);
               result = positionRef.current;
             }
           } catch (error) {
@@ -670,7 +696,12 @@ export function useActiveEarnPosition({
     refreshInFlightRef.current = promise;
     refreshInFlightScopeRef.current = positionScope;
     return promise;
-  }, [commitRpcPosition, positionScope, readRpcPosition]);
+  }, [
+    commitConfirmedPosition,
+    commitRpcPosition,
+    positionScope,
+    readRpcPosition,
+  ]);
 
   const suppressSubscriptionRefreshThroughSlot = useCallback(
     (slot: bigint | number | string | null | undefined) => {
@@ -739,6 +770,11 @@ export function useActiveEarnPosition({
 
     let cancelled = false;
     const loadLivePosition = async () => {
+      const generation = refreshGenerationRef.current;
+      const isStale = () =>
+        cancelled ||
+        activePositionScopeRef.current !== positionScope ||
+        generation !== refreshGenerationRef.current;
       const confirmedPositionPromise = fetchConfirmedEarnPosition().catch(
         (error) => {
           console.warn(
@@ -750,17 +786,23 @@ export function useActiveEarnPosition({
       );
       const rpcBasePosition = cached ?? positionRef.current;
       const next = await readRpcPosition(rpcBasePosition);
-      if (cancelled || activePositionScopeRef.current !== positionScope) {
+      if (isStale()) {
         return;
       }
       if (next) {
         commitRpcPosition(next);
         const confirmedPosition = await confirmedPositionPromise;
-        if (cancelled || activePositionScopeRef.current !== positionScope) {
+        if (isStale()) {
+          return;
+        }
+        if (confirmedPosition?.closedPositionObservedSlot) {
+          commitConfirmedPosition(confirmedPosition);
           return;
         }
         const basePosition =
-          confirmedPosition === undefined ? rpcBasePosition : confirmedPosition;
+          confirmedPosition === undefined
+            ? rpcBasePosition
+            : confirmedPosition.position;
         if (
           shouldRequestPositionReconciliation({
             base: basePosition,
@@ -787,7 +829,7 @@ export function useActiveEarnPosition({
       }
 
       const confirmedPosition = await confirmedPositionPromise;
-      if (cancelled || activePositionScopeRef.current !== positionScope) {
+      if (isStale()) {
         return;
       }
       if (confirmedPosition !== undefined) {

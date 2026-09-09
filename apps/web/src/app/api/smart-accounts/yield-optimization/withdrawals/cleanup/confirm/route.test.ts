@@ -25,6 +25,7 @@ const persistence = {
 
 let proofStatus: "full_exit_incomplete" | "policy_close_required";
 let proofError: Error | null;
+let proofObservedSlot: string;
 let policyAccountStillOpen: boolean;
 let callOrder: string[];
 let cleanupRecordCount: number;
@@ -78,6 +79,7 @@ mock.module(
         throw proofError;
       }
       return {
+        observedSlot: proofObservedSlot,
         status: proofStatus,
       };
     },
@@ -126,6 +128,7 @@ describe("Earn cleanup confirm route", () => {
   beforeEach(() => {
     proofStatus = "policy_close_required";
     proofError = null;
+    proofObservedSlot = "600";
     policyAccountStillOpen = false;
     callOrder = [];
     cleanupRecordCount = 0;
@@ -195,6 +198,14 @@ describe("Earn cleanup confirm route", () => {
     expect(response.status).toBe(503);
     expect(cleanupRecordCount).toBe(0);
     expect(callOrder).toEqual(["verify-zero", "verify-policy-accounts"]);
+  });
+
+  test("rejects policy closure observed before the zero-holdings proof", async () => {
+    const { POST } = await import("./route");
+    proofObservedSlot = "601";
+    const response = await POST(createRequest());
+    expect(response.status).toBe(503);
+    expect(cleanupRecordCount).toBe(0);
   });
 
   test("acknowledges verified cleanup without writing projected state", async () => {

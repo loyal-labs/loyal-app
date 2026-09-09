@@ -123,7 +123,7 @@ export async function assertEarnFullExitProven(args: {
   policyAccounts: string[];
   programId: PublicKey;
   settingsPda: PublicKey;
-}): Promise<void> {
+}): Promise<bigint> {
   try {
     const proof = await verifyEarnFullExitZeroBalances({
       cluster: args.cluster,
@@ -147,8 +147,9 @@ export async function assertEarnFullExitProven(args: {
     await verifyPolicyAccountsClosed({
       accounts: args.policyAccounts,
       connection: args.connection,
-      minContextSlot: args.minContextSlot,
+      minContextSlot: Number(proof.observedSlot),
     });
+    return BigInt(proof.observedSlot);
   } catch (error) {
     if (error instanceof EarnCleanupConfirmError) {
       throw error;

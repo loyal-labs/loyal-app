@@ -12,13 +12,13 @@ import {
   type TimescaleReserveUpdateRow,
 } from "@/lib/kamino/timescale-reserve-client.server";
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
+import { findUserFacingEarnPosition } from "@/lib/yield-optimization/earn-position-read.server";
 import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
 import {
   type CurrentYieldVaultIdleTokenBalanceRecord,
   type CurrentYieldVaultReservePositionRecord,
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
-  findReconciledActiveYieldPositionForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -273,12 +273,13 @@ export async function GET(request: Request) {
   }
 
   const cluster = resolveConfiguredCluster();
-  const position = await findReconciledActiveYieldPositionForVault({
-    cluster,
-    settings: principal.settingsPda,
-    vaultIndex: EARN_VAULT_INDEX,
-    walletAddress: principal.walletAddress,
-  });
+  const { position, closedPositionObservedSlot } =
+    await findUserFacingEarnPosition({
+      cluster,
+      settings: principal.settingsPda,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress: principal.walletAddress,
+    });
   const timescaleReserve = position
     ? resolveTimescaleReserveForPosition(position)
     : null;
@@ -320,6 +321,7 @@ export async function GET(request: Request) {
     : [[], []];
 
   return NextResponse.json({
+    closedPositionObservedSlot,
     position: position
       ? serializePosition(
           position,
