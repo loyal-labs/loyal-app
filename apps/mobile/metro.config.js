@@ -61,6 +61,11 @@ config.resolver.extraNodeModules = {
   "@loyal-labs/solana-instruction-decoder": solanaInstructionDecoderRoot,
 };
 
+// Privy pulls in `jose`, which exports a Node build under "import" and a
+// WebCrypto build under "browser". Metro's default conditions skip "browser"
+// and bundle the Node build, which imports "crypto" and fails on device.
+config.resolver.unstable_conditionNames = ["browser", "require", "react-native"];
+
 // SVG transformer
 config.transformer.babelTransformerPath = require.resolve(
   "react-native-svg-transformer",
