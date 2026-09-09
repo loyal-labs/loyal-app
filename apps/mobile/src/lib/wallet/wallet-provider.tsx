@@ -1,3 +1,10 @@
+import {
+  useEmbeddedSolanaWallet,
+  useIdentityToken,
+  useLoginWithSiws,
+  usePrivy,
+} from "@privy-io/expo";
+import type { User as PrivyUser } from "@privy-io/expo";
 import { Keypair } from "@solana/web3.js";
 import * as SeedVault from "expo-seed-vault";
 import type { VaultAccount } from "expo-seed-vault";
@@ -13,12 +20,14 @@ import {
 import type { ReactNode } from "react";
 import { AppState } from "react-native";
 
+import { isPrivyConfigured } from "@/components/wallet/PrivyProviderRoot";
 import {
   identifyWallet,
   resetAnalytics,
   track,
 } from "@/lib/analytics/analytics";
 import { WALLET_SETUP_EVENTS } from "@/lib/analytics/wallet-setup-events";
+import { mmkv } from "@/lib/storage";
 import {
   clearWalletSignerCache,
   setWalletSigner,
@@ -60,6 +69,13 @@ import {
   type StoredMwaAccount,
 } from "./mwa-account-storage";
 import { deauthorizeMwaWallet, MwaSigner } from "./mwa-signer";
+import {
+  migrateSignerToPrivy,
+  PRIVY_MIGRATION_DONE_KEY,
+  type PrivyMigrationResult,
+} from "./privy-migration";
+import { exchangePrivySession } from "./privy-session";
+import { PrivyEmbeddedSigner } from "./privy-signer";
 import { SeedVaultSigner } from "./seed-vault-signer";
 import { LocalKeypairSigner, Signer } from "./signer";
 import {
@@ -100,6 +116,10 @@ interface WalletContextValue {
   finalizeMwaSigner: (account: StoredMwaAccount) => Promise<void>;
   finalizeDeeplinkSigner: (session: StoredDeeplinkSession) => Promise<void>;
   finalizeVaultSigner: (account: VaultAccount) => Promise<void>;
+  /** Privy email/OAuth sign-in: create the embedded wallet if needed, then unlock. */
+  finalizePrivySigner: () => Promise<void>;
+  /** Legacy signer → Privy SIWS link. "idle" until the first attempt settles. */
+  privyMigrationStatus: "idle" | PrivyMigrationResult;
 
   // Lock / unlock
   unlock: (pin: string) => Promise<void>;
@@ -128,8 +148,47 @@ export function useWallet(): WalletContextValue {
   return ctx;
 }
 
+// Everything WalletProviderCore needs from Privy, gathered by hooks that only
+// exist under a configured <PrivyProvider>. Null when Privy is not configured.
+type PrivyBindings = {
+  isReady: boolean;
+  user: PrivyUser | null;
+  logout: () => Promise<void>;
+  wallet: ReturnType<typeof useEmbeddedSolanaWallet>;
+  siws: ReturnType<typeof useLoginWithSiws>;
+  getIdentityToken: () => Promise<string | null>;
+};
+
 export function WalletProvider({ children }: { children: ReactNode }) {
+  if (!isPrivyConfigured()) {
+    return <WalletProviderCore privy={null}>{children}</WalletProviderCore>;
+  }
+  return <WalletProviderWithPrivy>{children}</WalletProviderWithPrivy>;
+}
+
+function WalletProviderWithPrivy({ children }: { children: ReactNode }) {
+  const { isReady, user, logout } = usePrivy();
+  const wallet = useEmbeddedSolanaWallet();
+  const siws = useLoginWithSiws();
+  const { getIdentityToken } = useIdentityToken();
+  const privy = useMemo<PrivyBindings>(
+    () => ({ isReady, user, logout, wallet, siws, getIdentityToken }),
+    [isReady, user, logout, wallet, siws, getIdentityToken],
+  );
+  return <WalletProviderCore privy={privy}>{children}</WalletProviderCore>;
+}
+
+function WalletProviderCore({
+  children,
+  privy,
+}: {
+  children: ReactNode;
+  privy: PrivyBindings | null;
+}) {
   const [state, setState] = useState<WalletState>("loading");
+  const [privyMigrationStatus, setPrivyMigrationStatus] = useState<
+    "idle" | PrivyMigrationResult
+  >("idle");
   const [signer, setSigner] = useState<Signer | null>(null);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [biometricEnabled, setBiometricEnabledState] = useState(false);
@@ -138,7 +197,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // Initialize — check if a wallet exists (external-wallet metadata wins over
   // local encrypted storage; they are mutually exclusive on disk because
   // resetWallet clears all of them).
+  // Privy-only users have no on-device wallet metadata, so wait for the SDK
+  // before deciding "noWallet". Legacy metadata wins when both exist: that
+  // is the address the user holds funds on.
+  const privyReady = privy === null || privy.isReady;
+  const privyEmbedded = privy?.wallet.wallets?.[0] ?? null;
+  const privyHasUser = privy?.user != null;
+  const initialized = useRef(false);
   useEffect(() => {
+    if (!privyReady || initialized.current) return;
+    initialized.current = true;
     (async () => {
       const mwa = await loadMwaAccount();
       if (mwa) {
@@ -189,11 +257,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         // device — land on the lock screen and let the PIN unlock it.
         setPublicKey(await getStoredPublicKey());
         setState("locked");
+      } else if (privyHasUser && privyEmbedded) {
+        const provider = await privyEmbedded.getProvider();
+        const next = new PrivyEmbeddedSigner(provider, privyEmbedded.address);
+        setSigner(next);
+        setPublicKey(privyEmbedded.address);
+        setWalletSigner(next);
+        setState("vault-unlocked");
       } else {
         setState("noWallet");
       }
     })();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once, after Privy is ready
+  }, [privyReady]);
 
   // Auto-lock with 30s grace period — local signers only.
   // Vault-backed signers do not auto-lock; the vault prompts for each signature
@@ -330,6 +406,84 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     track(WALLET_SETUP_EVENTS.walletCreated, { source: "vault" });
   }, []);
 
+  // Best-effort Loyal session from the Privy identity token. Earn routes still
+  // accept per-request wallet signatures, so a failure here is not fatal.
+  const exchangeSession = useCallback(
+    async (address: string) => {
+      if (!privy) return;
+      try {
+        const token = await privy.getIdentityToken();
+        if (token) await exchangePrivySession(token, address);
+      } catch (error) {
+        console.warn("[privy] session exchange failed", error);
+      }
+    },
+    [privy],
+  );
+
+  // Email / OAuth sign-in landed on a Privy user. Use the embedded wallet
+  // (creating it on first sign-up) as the signer. No PIN or biometrics: Privy
+  // owns key custody and its own prompts.
+  const finalizePrivySigner = useCallback(async () => {
+    if (!privy?.user) throw new Error("Privy user is not signed in.");
+    let wallet = privy.wallet.wallets?.[0];
+    if (!wallet) {
+      const { status } = privy.wallet;
+      if (status !== "not-created" && status !== "connected") {
+        throw new Error(`Embedded wallet is ${status}.`);
+      }
+      const created = await privy.wallet.create?.();
+      // create() can resolve null on Android (Google Drive recovery); the
+      // hook's wallets list is the source of truth either way.
+      wallet = privy.wallet.wallets?.[0];
+      if (!wallet && created) {
+        wallet = {
+          address: created._publicKey,
+          publicKey: created._publicKey,
+          walletIndex: 0,
+          getProvider: async () => created,
+        };
+      }
+      if (!wallet) throw new Error("Embedded wallet creation returned no wallet.");
+    }
+    const provider = await wallet.getProvider();
+    const next = new PrivyEmbeddedSigner(provider, wallet.address);
+    void exchangeSession(wallet.address);
+    setSigner(next);
+    setPublicKey(wallet.address);
+    setWalletSigner(next);
+    setState("vault-unlocked");
+    identifyWallet(wallet.address, "privy");
+    track(WALLET_SETUP_EVENTS.walletCreated, { source: "privy" });
+  }, [privy, exchangeSession]);
+
+  // Link an existing (legacy) signer to a Privy user via SIWS. Runs once per
+  // app session, only while no Privy user is signed in. Local signers reach
+  // here after unlock, so the user has just proven presence; hardware
+  // signers get one approval prompt. Never blocks: see migrateSignerToPrivy.
+  const migrationAttempted = useRef(false);
+  useEffect(() => {
+    if (
+      !privy ||
+      !privy.isReady ||
+      privy.user ||
+      !signer ||
+      signer.kind === "privy" ||
+      migrationAttempted.current
+    ) {
+      return;
+    }
+    migrationAttempted.current = true;
+    void (async () => {
+      const result = await migrateSignerToPrivy(signer, privy.siws);
+      setPrivyMigrationStatus(result);
+      if (result === "done") {
+        void exchangeSession(signer.publicKey.toBase58());
+        track(WALLET_SETUP_EVENTS.walletCreated, { source: "privy_migration" });
+      }
+    })();
+  }, [privy, signer, exchangeSession]);
+
   // After a restore path wrote the encrypted keypair directly to storage,
   // transition noWallet -> locked so the normal PIN flow takes over.
   const refreshFromStorage = useCallback(async () => {
@@ -439,6 +593,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      if (privy) {
+        try {
+          await privy.logout();
+        } catch (error) {
+          console.warn("[wallet] Privy logout failed", error);
+        }
+      }
+      mmkv.setBoolean(PRIVY_MIGRATION_DONE_KEY, false);
+
       await clearMwaAccount();
       await clearDeeplinkSession();
       await clearVaultAccount();
@@ -460,7 +623,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       });
       resetAnalytics();
     },
-    [signer],
+    [signer, privy],
   );
 
   const getSecretKeyHex = useCallback(() => {
@@ -488,6 +651,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       finalizeMwaSigner,
       finalizeDeeplinkSigner,
       finalizeVaultSigner,
+      finalizePrivySigner,
+      privyMigrationStatus,
       unlock,
       unlockWithBiometrics,
       lock,
@@ -511,6 +676,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       finalizeMwaSigner,
       finalizeDeeplinkSigner,
       finalizeVaultSigner,
+      finalizePrivySigner,
+      privyMigrationStatus,
       unlock,
       unlockWithBiometrics,
       lock,
