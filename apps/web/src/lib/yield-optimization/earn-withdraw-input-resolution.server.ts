@@ -22,6 +22,7 @@ import type {
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import {
   findActiveYieldRoutePolicyPair,
+  hasInactiveYieldRoutePolicyForVault,
   type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -434,6 +435,23 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     }
   }
   if (!policyResult?.routePolicy) {
+    // A completed cleanup is not projection lag. Keep the retry window above
+    // for new setups, but never tell a stale client to retry an inactive vault.
+    if (
+      await hasInactiveYieldRoutePolicyForVault({
+        authority: walletAddress,
+        cluster,
+        settings: settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
+      })
+    ) {
+      throw new EarnWithdrawResolveError(
+        409,
+        "earn_policy_inactive",
+        "This Earn policy is no longer active. Refresh Earn before withdrawing."
+      );
+    }
     console.warn(`[${logTag}] Earn policy projection still pending`, {
       cluster,
       settings: settingsPda,

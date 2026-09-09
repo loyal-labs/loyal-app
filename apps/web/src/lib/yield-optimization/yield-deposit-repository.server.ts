@@ -9,7 +9,7 @@ import {
   type YieldRouteSetupPolicyPlan,
 } from "@loyal-labs/actions";
 import { PublicKey } from "@solana/web3.js";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 
 import {
   earnDepositOnboardingAttempts,
@@ -3324,6 +3324,42 @@ export async function findActiveYieldRoutePolicyPair(
     routePolicy,
     setupPolicy: setupPolicy ?? null,
   };
+}
+
+// Only inspect the vault's current policy pointer, not historical policy
+// generations: an old closed policy must not classify a new setup as inactive.
+export async function hasInactiveYieldRoutePolicyForVault(
+  input: {
+    authority: string;
+    cluster: string;
+    settings: string;
+    vaultIndex: number;
+    vaultPubkey: string;
+  },
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<boolean> {
+  const rows = await dependencies.client.db
+    .select({ id: managedVaults.id })
+    .from(managedVaults)
+    .innerJoin(routePolicies, eq(routePolicies.id, managedVaults.activePolicyId))
+    .where(
+      and(
+        eq(managedVaults.settings, input.settings),
+        eq(managedVaults.vaultIndex, input.vaultIndex),
+        eq(managedVaults.vaultPubkey, input.vaultPubkey),
+        eq(routePolicies.authority, input.authority),
+        // The yield-owned cluster column is not in the app's partial model.
+        sql`${routePolicies}.cluster = ${normalizeLoyalCluster(input.cluster)}`,
+        eq(routePolicies.settings, input.settings),
+        eq(routePolicies.vaultIndex, input.vaultIndex),
+        eq(routePolicies.vaultPubkey, input.vaultPubkey),
+        or(eq(managedVaults.active, false), eq(routePolicies.active, false))
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 export async function findEarnCleanupVaultState(

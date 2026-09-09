@@ -1703,6 +1703,13 @@ export function useEarnActions(deps: {
           });
         } else if (error instanceof EarnPrepareRequestError) {
           tracker.fail("prepare", getEarnPrepareLifecycleDiagnostics(error));
+          if (error.code === "earn_policy_inactive") {
+            // Another tab/device may have completed full-exit cleanup. Re-read
+            // authoritative state; don't optimistically erase a newer deposit.
+            void refreshAllEarnResources().catch(() => {
+              console.warn("[earn-sync] inactive policy refresh failed");
+            });
+          }
         } else {
           tracker.fail("wallet_submit_confirm", {
             errorCode: "unexpected_error",
@@ -1743,6 +1750,7 @@ export function useEarnActions(deps: {
       ensureCanSignAccountAction,
       expectEarnTransaction,
       prepareEarnWithdrawInBrowser,
+      refreshAllEarnResources,
       registerExpectedEarnMutation,
       requestApproval,
       setAutodepositOverride,
