@@ -576,7 +576,15 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
       />
     );
   } else if (step === "import") {
-    content = <ImportWalletScreen onComplete={handleImportComplete} />;
+    content = (
+      <ImportWalletScreen
+        onComplete={handleImportComplete}
+        onBack={() => {
+          authFlowRef.current?.cancel("intent");
+          navigateToStep("setup-onboarding", "backward");
+        }}
+      />
+    );
   } else {
     content = (
       <BiometricSetupScreen
