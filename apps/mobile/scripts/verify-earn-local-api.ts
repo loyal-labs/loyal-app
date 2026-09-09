@@ -51,6 +51,12 @@ for (const key of ["state", "rpc-url", "transactions", "port", "amount-raw"]) {
 }
 
 const state = JSON.parse(readFileSync(args.state!, "utf8")) as LocalState;
+function assertLoopback(raw: string): void {
+  if (!["127.0.0.1", "localhost"].includes(new URL(raw).hostname)) {
+    throw new Error("Local Earn verifier refuses non-loopback endpoints.");
+  }
+}
+assertLoopback(args["rpc-url"]!);
 const connection = new Connection(args["rpc-url"]!, "confirmed");
 const policySigner = Keypair.fromSeed(new Uint8Array(32).fill(9)).publicKey;
 const useRealLoyalApi = process.env.MOBILE_EARN_REAL_API === "1";
@@ -81,8 +87,68 @@ async function prepareRealLoyalApi(): Promise<void> {
     `postgresql://${encodeURIComponent(
       userInfo().username
     )}@127.0.0.1:8959/ask_2212_client_earn_local_e2e`;
+  const database = new URL(databaseUrl);
+  if (
+    !["postgres:", "postgresql:"].includes(database.protocol) ||
+    database.hostname !== "127.0.0.1" ||
+    database.pathname !== "/ask_2212_client_earn_local_e2e" ||
+    database.password ||
+    database.search ||
+    database.hash
+  ) {
+    throw new Error("Refusing a database outside the isolated Earn fixture.");
+  }
   const sql = postgres(databaseUrl, { max: 1 });
   try {
+    // Routing does not own this historical app policy foreign key. Apply the
+    // app schema, but not its obsolete lifecycle_status backfill, to EMPTY
+    // fixture targets only. This is not production migration validation.
+    const targets =
+      await sql`SELECT count(*) AS count FROM loyal_yield.balance_sweep_targets`;
+    if (Number(targets[0]?.count) !== 0)
+      throw new Error("App schema fixture requires empty sweep targets.");
+    const policyMigration = readFileSync(
+      resolve(
+        webRoot,
+        "src/lib/yield-optimization/migrations/0006_add_balance_sweep_policies.sql"
+      ),
+      "utf8"
+    );
+    const backfillStart = policyMigration.indexOf(
+      "INSERT INTO loyal_yield.balance_sweep_policies ("
+    );
+    const backfillEnd = policyMigration.indexOf("\nDO $$", backfillStart);
+    if (backfillStart < 0 || backfillEnd <= backfillStart)
+      throw new Error("App policy schema fixture markers changed.");
+    await sql.unsafe(
+      policyMigration.slice(0, backfillStart) +
+        policyMigration.slice(backfillEnd)
+    );
+    console.info(
+      "FIXTURE ONLY: app policy schema applied to empty targets; historical backfill is not validated."
+    );
+    // Local market-read fixture, not a write to the production Timescale surface.
+    await sql`CREATE SCHEMA IF NOT EXISTS kamino`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS kamino.latest_verified_reserve_updates (
+        observed_at timestamptz NOT NULL, slot bigint NOT NULL, source text NOT NULL,
+        reserve text PRIMARY KEY, market text, market_name text, symbol text,
+        liquidity_mint text NOT NULL, supply_apy double precision NOT NULL,
+        borrow_apy double precision NOT NULL, utilization double precision NOT NULL,
+        total_supply_usd_estimate double precision NOT NULL,
+        total_borrow_usd_estimate double precision NOT NULL,
+        reserve_last_update_stale boolean NOT NULL, diff_changed boolean NOT NULL,
+        changed_fields text[] NOT NULL, diff_summary text NOT NULL,
+        verified_at timestamptz NOT NULL
+      )
+    `;
+    await sql`
+      INSERT INTO kamino.latest_verified_reserve_updates VALUES (
+        now(), 1, 'local-fixture', ${state.reserve}, ${state.market}, 'Local Kamino',
+        'USDC', ${state.usdcMint}, 0.03, 0.04, 0.5, 10000000, 5000000,
+        false, false, ARRAY[]::text[], 'local fixture', now()
+      ) ON CONFLICT (reserve) DO UPDATE SET verified_at = now()
+    `;
     await sql.file(
       resolve(
         webRoot,
@@ -114,6 +180,7 @@ async function prepareRealLoyalApi(): Promise<void> {
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
         wallet_address text NOT NULL UNIQUE,
+        evm_deposit_address text,
         verified_at timestamptz NOT NULL DEFAULT now(),
         last_used_at timestamptz NOT NULL DEFAULT now(),
         created_at timestamptz NOT NULL DEFAULT now(),
@@ -194,7 +261,9 @@ async function prepareRealLoyalApi(): Promise<void> {
       env: {
         ...process.env,
         APP_LOCAL_DATABASE_URL: databaseUrl,
+        AUTH_JWT_SECRET: "local-e2e-only-session-signing-not-production",
         DATABASE_URL: databaseUrl,
+        TIMESCALEDB_URL: databaseUrl,
         EARN_YIELD_ROUTER_PUBLIC_KEY: policySigner.toBase58(),
         NEON_DATABASE_URL: databaseUrl,
         NEXT_PUBLIC_APP_ENVIRONMENT: "local",
@@ -443,6 +512,7 @@ const server = Bun.serve({
     const url = new URL(request.url);
     const path = url.pathname;
     try {
+      Object.assign(state, JSON.parse(readFileSync(args.state!, "utf8")));
       if (
         request.method === "POST" &&
         (path.endsWith("/klend/deposit-instructions") ||
@@ -584,7 +654,7 @@ const server = Bun.serve({
         const body = (await request.json()) as { withdrawalSignature?: string };
         if (!body.withdrawalSignature)
           return json({ error: { code: "invalid_request" } }, 400);
-        const slot = await assertFinalized(body.withdrawalSignature);
+        const slot = await assertConfirmed(body.withdrawalSignature);
         appendFileSync(
           args.transactions!,
           `${JSON.stringify({

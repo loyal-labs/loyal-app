@@ -42,6 +42,10 @@ export type SerializedEarnTransaction = {
   // Mint of the position the event belongs to; null for autodeposit action
   // rows (USDC-only flows). Lets the client render per-mint coin icons.
   liquidityMint: string | null;
+  // Immutable accounting identity; not a mint/venue guessed from live holdings.
+  positionId: string | null;
+  // Exact deposit/withdrawal landing slot; legacy confirmedSlot is observation.
+  transactionSlot: string | null;
   rawAmount: string;
   signature: string;
   sortTimestamp: string;
@@ -197,6 +201,8 @@ function serializeAutodepositActionEvent(
     id: event.id,
     kind: isBalanceSweep ? "balance_sweep" : "autodeposit_action",
     liquidityMint: null,
+    positionId: null,
+    transactionSlot: null,
     rawAmount: formatExactUsdcAmount(transactionAmountRaw),
     signature: event.signature,
     sortTimestamp: event.confirmedAt.toISOString(),
@@ -271,6 +277,8 @@ export function serializeEarnTransactionEvent(
     id: `${event.signature}:${event.id.toString()}`,
     kind,
     liquidityMint: event.liquidityMint,
+    positionId: event.positionId.toString(),
+    transactionSlot: event.transactionSlot?.toString() ?? null,
     rawAmount: formatExactUsdcAmount(transactionAmountRaw),
     signature: event.signature,
     sortTimestamp: event.confirmedAt.toISOString(),

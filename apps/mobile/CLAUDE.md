@@ -106,6 +106,24 @@ EXPO_PUBLIC_SOLANA_ENV=mainnet
   - **SVG transformer**: `.svg` files treated as source (React components), not assets
   - **NativeWind**: `withNativewind()` wrapper for Tailwind CSS processing
 
+### Earn transactions and realtime
+
+Earn transaction preparation and submission run on-device through the shared
+smart-account SDK. Backend context endpoints provide authenticated inputs; current
+clients do not call transaction prepare/confirm or reconciliation endpoints.
+Render/LaserStream owns canonical accounting. Existing prepare/confirm routes are
+server-side compatibility for installed releases, not current-client fallbacks.
+
+After confirmed submission, retain scoped transaction identities/amount overlays
+until the corresponding projected accounting slots cover the mutation. Never
+assume `/state` is immediately current or overwrite a confirmed withdrawal with a
+stale response. Use `minContextSlot` for post-confirm holdings reads. Replay
+cursors may advance only after every affected resource refresh succeeds. Both
+local unlocked wallets and external unlocked wallets must receive realtime
+updates; external-wallet authentication must not prompt silently on app launch.
+
+See `../../docs/workers/earn-client-release.md` for local E2E and OTA rollout gates.
+
 ### Testing
 
 - Jest with `ts-jest` preset, `node` test environment

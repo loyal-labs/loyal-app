@@ -7,6 +7,7 @@ import type {
   EarnDepositOnboardingAttemptRecord,
   EarnDepositOnboardingNextStep,
   RoutePolicyRecord,
+  UserYieldPositionRecord,
 } from "./yield-deposit-repository.server";
 
 export type CurrentEarnAutodepositStateWithProgress =
@@ -14,6 +15,43 @@ export type CurrentEarnAutodepositStateWithProgress =
     depositedThisPeriodRaw: bigint;
     scheduledSweeps: PendingEarnAutodepositScheduledSweepRecord[];
   };
+
+// Amounts and slot coverage must describe the same set of mint-scoped rows.
+// A newer sibling's slot is not evidence that the other rows caught up.
+export function serializeEarnPositionAccounting(
+  rows: UserYieldPositionRecord[]
+) {
+  const totals = rows.reduce(
+    (sum, row) => ({
+      amount: sum.amount + row.currentAmountRaw,
+      principal: sum.principal + row.principalAmountRaw,
+      slot:
+        sum.slot === null || row.lastConfirmedSlot < sum.slot
+          ? row.lastConfirmedSlot
+          : sum.slot,
+    }),
+    { amount: BigInt(0), principal: BigInt(0), slot: null as bigint | null }
+  );
+  return {
+    currentAmountRaw: totals.amount.toString(),
+    lastConfirmedSlot: totals.slot?.toString() ?? null,
+    principalAmountRaw: totals.principal.toString(),
+  };
+}
+
+// Additive row evidence for precise client mutation coverage, including exits.
+export function serializeEarnProjectedPositions(rows: UserYieldPositionRecord[]) {
+  return rows.map((row) => ({
+    id: row.id.toString(),
+    initialLiquidityMint: row.initialLiquidityMint,
+    initialReserve: row.initialReserve,
+    currentLiquidityMint: row.currentLiquidityMint,
+    currentReserve: row.currentReserve,
+    lastConfirmedSlot: row.lastConfirmedSlot.toString(),
+    status: row.status,
+    vaultPubkey: row.vaultPubkey,
+  }));
+}
 
 function serializeScheduledSweep(
   sweep: PendingEarnAutodepositScheduledSweepRecord

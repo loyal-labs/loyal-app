@@ -5,7 +5,9 @@ import type {
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
+import type { ConfirmedOnchainMutation } from "@loyal-labs/shared";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
 import {
   type Dispatch,
   type SetStateAction,
@@ -35,7 +37,6 @@ import {
   getNextEarnWithdrawReviewStage,
 } from "@/components/wallet-workspace/earn-deposit-review";
 import {
-  applySubmittedEarnWithdrawToPosition,
   buildPostDepositEarnPosition,
   createWithdrawSourceOptions,
   DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL,
@@ -45,12 +46,16 @@ import {
   EARN_POLICY_MUTATION_RESOURCES,
   EARN_SYNC_RESOURCES,
   getEarnWithdrawDraftAmountRaw,
+  getEarnWithdrawStepUpdate,
   isWalletCancellation,
   parseEarnAutodepositExecuteError,
   parseEarnAutodepositExecuteResponse,
   parseTokenAmountLabelToRaw,
   resolveEarnMutationSmartAccountPlan,
   resolveEarnRealtimeResources,
+  selectFullExitWithdrawTargets,
+  toEarnWithdrawReserveTarget,
+  toEarnWithdrawVaultsSource,
 } from "@/components/wallet-workspace/facelift/earn-actions-support";
 import {
   CONFIRM_IN_WALLET_MESSAGE,
@@ -92,7 +97,10 @@ import {
   useRealtimeSync,
   useRealtimeSyncScope,
 } from "@/features/realtime-sync";
-import type { ActiveEarnPosition } from "@/hooks/use-active-earn-position";
+import type {
+  ActiveEarnPosition,
+  useActiveEarnPosition,
+} from "@/hooks/use-active-earn-position";
 import {
   fetchEarnEarningsRangeSet,
   invalidateEarnEarningsCache,
@@ -104,9 +112,6 @@ import {
   EarnPolicyUpdateRequiredClientError,
   getEarnDepositUserErrorMessage,
   isConfirmedSlotUnavailableError,
-  prepareEarnCleanupOnServer,
-  prepareEarnDepositOnServer,
-  prepareEarnWithdrawOnServer,
   type SmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useAuthCapability } from "@/lib/auth/capability";
@@ -144,12 +149,10 @@ export type EarnAutodepositConfigView = Omit<
 // state catches up.
 export type EarnAutodepositOverride = {
   config: EarnAutodepositConfigView | null;
+  confirmedMutation?: ConfirmedOnchainMutation & {
+    walletAddress: string;
+  };
 } | null;
-
-type PositionUpdater =
-  | ActiveEarnPosition
-  | null
-  | ((current: ActiveEarnPosition | null) => ActiveEarnPosition | null);
 
 export type EarnActions = {
   authenticatedWalletAddress: string | null;
@@ -217,13 +220,17 @@ export function useEarnActions(deps: {
     context: RealtimeResourceRefreshContext
   ) => Promise<unknown>;
   setAutodepositOverride: Dispatch<SetStateAction<EarnAutodepositOverride>>;
-  setPosition: (next: PositionUpdater) => void;
+  setPosition: ReturnType<typeof useActiveEarnPosition>["setPosition"];
+  captureAccountingTargets: ReturnType<
+    typeof useActiveEarnPosition
+  >["captureAccountingTargets"];
   smartAccountData: SmartAccountSidebarData;
   suppressPositionRefreshThroughSlot: (slot?: string) => void;
   walletAddress: string | null;
 }): EarnActions {
   const {
     autodepositConfig,
+    captureAccountingTargets,
     hasPosition,
     mainUsdc,
     position,
@@ -513,11 +520,15 @@ export function useEarnActions(deps: {
   activeEarnRealtimeScopeRef.current = earnRealtimeScope;
   const registerExpectedEarnMutation = useCallback(
     ({
+      onCovered,
+      onExpired,
       operation,
       resources,
       signature,
       targetId,
     }: {
+      onCovered?: () => void;
+      onExpired?: () => void;
       operation: EarnExpectedMutationOperation;
       resources: readonly string[];
       signature?: string;
@@ -543,6 +554,8 @@ export function useEarnActions(deps: {
             targetId ?? signature ?? "unidentified",
             earnMutationSequenceRef.current,
           ].join(":"),
+          onCovered,
+          onExpired,
           operation,
           reconcileRelated: relatedPlan
             ? () => refreshSmartAccountMutationPlan(relatedPlan)
@@ -794,17 +807,37 @@ export function useEarnActions(deps: {
 
   const prepareEarnWithdrawInBrowser = useCallback(
     async (
-      draft: EarnWithdrawDraft,
-      observabilityFlowId?: string
+      draft: EarnWithdrawDraft
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
       const requestedAmountRaw = getEarnWithdrawDraftAmountRaw(draft);
-      return prepareEarnWithdrawOnServer({
-        amountRaw: draft.mode === "full" ? "max" : requestedAmountRaw,
-        observabilityFlowId,
-        sourceId: draft.source.sourceId,
+      const fullExit = selectFullExitWithdrawTargets(draft);
+      const autodeposit = smartAccountData.earnAutodeposit;
+      return smartAccountData.prepareEarnWithdraw({
+        amountRaw: requestedAmountRaw,
+        mode: draft.mode,
+        source: toEarnWithdrawVaultsSource(draft.source),
+        target:
+          draft.source.type === "reserve"
+            ? toEarnWithdrawReserveTarget(draft.source)
+            : undefined,
+        ...(draft.mode === "full"
+          ? {
+              fullWithdrawalTargets: fullExit.fullWithdrawalTargets,
+              ...(autodeposit?.recurringDelegation
+                ? {
+                    autodepositClose: {
+                      policy: new PublicKey(autodeposit.policyAccount),
+                      recurringDelegation: new PublicKey(
+                        autodeposit.recurringDelegation
+                      ),
+                    },
+                  }
+                : {}),
+            }
+          : {}),
       });
     },
-    []
+    [smartAccountData]
   );
 
   // ---- Deposit (app-wallet-workspace.tsx:5165-5332 + 5508-5843) ----
@@ -907,24 +940,44 @@ export function useEarnActions(deps: {
         tracker.observe("slot_resolve", { chainState: "confirmed" });
         tracker.observe("backend_confirm", {
           chainState: "confirmed",
-          persistenceState:
-            commit.result.status === "confirmation_record_failed"
-              ? "failed"
-              : "recorded",
+          persistenceState: "pending",
         });
         registerExpectedEarnMutation({
+          onCovered: () =>
+            tracker.complete("ui_commit", {
+              chainState: "confirmed",
+              persistenceState: "recorded",
+            }),
+          onExpired: () =>
+            tracker.fail("ui_commit", {
+              chainState: "confirmed",
+              errorCode: "realtime_unresolved",
+              persistenceState: "failed",
+            }),
           operation: "deposit",
           resources: EARN_BALANCE_MUTATION_RESOURCES,
           signature: commit.result.signature,
         });
         expectEarnTransaction(commit.result.signature);
-        setPosition((current) =>
-          buildPostDepositEarnPosition({
+        setPosition(
+          (current) => buildPostDepositEarnPosition({
             amountRaw: commit.amountRaw,
             confirmedSlot: commit.result.confirmedSlot,
             current,
             preparedDeposit: commit.preparedDeposit,
-          })
+          }),
+          {
+            confirmedSlot: commit.result.confirmedSlot,
+            signature: commit.result.signature,
+            targets: [
+              {
+                kind: "deposit",
+                liquidityMint: commit.preparedDeposit.persistence.liquidityMint,
+                reserve: commit.preparedDeposit.persistence.targetReserve,
+                vaultPubkey: commit.preparedDeposit.persistence.vaultPubkey,
+              },
+            ],
+          }
         );
         if (
           trackedKaminoUsdcMint ===
@@ -941,12 +994,9 @@ export function useEarnActions(deps: {
             startedAtMs: walletSubmittedAtMs,
           });
         }
-        tracker.complete("ui_commit", {
+        tracker.observe("ui_commit", {
           chainState: "confirmed",
-          persistenceState:
-            commit.result.status === "confirmation_record_failed"
-              ? "failed"
-              : "recorded",
+          persistenceState: "pending",
         });
         earnToast.success("Deposited");
         lifecycleOnboarding.depositConfirmed();
@@ -966,10 +1016,9 @@ export function useEarnActions(deps: {
             operation: "earn.deposit",
             rpcEndpoint: connection.rpcEndpoint,
             run: () =>
-              prepareEarnDepositOnServer({
+              smartAccountData.prepareEarnDeposit({
                 amountRaw,
                 mint: args.mint,
-                observabilityFlowId: tracker.flowId,
               }),
           });
         // The reserve verification feed can flap a mint out of eligibility
@@ -1406,7 +1455,7 @@ export function useEarnActions(deps: {
           flowId: tracker.flowId,
           operation: "earn.withdrawal",
           rpcEndpoint: connection.rpcEndpoint,
-          run: () => prepareEarnWithdrawInBrowser(draft, tracker.flowId),
+          run: () => prepareEarnWithdrawInBrowser(draft),
         });
         const shouldBypassWithdrawPreview =
           draft.mode === "partial" &&
@@ -1474,6 +1523,10 @@ export function useEarnActions(deps: {
               stageIndex: stepIndex,
             });
             earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
+            const update = getEarnWithdrawStepUpdate(
+              preparedWithdraw, stepIndex, draft
+            );
+            const targets = captureAccountingTargets(update.targets);
             const result = await smartAccountData.executeEarnWithdraw({
               amountRaw,
               mode: draft.mode,
@@ -1485,6 +1538,12 @@ export function useEarnActions(deps: {
             if (!result.success) {
               throw new Error(result.error ?? "Earn withdrawal failed.");
             }
+            setPosition(update.apply, {
+              targets,
+              confirmedSlot: result.confirmedSlot,
+              signature: result.signature,
+            });
+            expectEarnTransaction(result.signature);
             confirmationRecordFailed ||=
               result.status === "confirmation_record_failed";
             latestConfirmedSlot = result.confirmedSlot ?? latestConfirmedSlot;
@@ -1494,17 +1553,24 @@ export function useEarnActions(deps: {
           tracker.observe("slot_resolve", { chainState: "confirmed" });
           tracker.observe("backend_confirm", {
             chainState: "confirmed",
-            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
+            persistenceState: "pending",
           });
           registerExpectedEarnMutation({
+            onCovered: () =>
+              tracker.complete("ui_commit", {
+                chainState: "confirmed",
+                persistenceState: "recorded",
+              }),
+            onExpired: () =>
+              tracker.fail("ui_commit", {
+                chainState: "confirmed",
+                errorCode: "realtime_unresolved",
+                persistenceState: "failed",
+              }),
             operation: "withdraw_partial",
             resources: EARN_BALANCE_MUTATION_RESOURCES,
             signature: latestSignature,
           });
-          expectEarnTransaction(latestSignature);
-          setPosition((current) =>
-            applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
-          );
           if (draft.source.liquidityMint === trackedKaminoUsdcMint) {
             creditMainAccountUsdcBalance(amountRaw);
           }
@@ -1517,9 +1583,9 @@ export function useEarnActions(deps: {
               startedAtMs: walletSubmittedAtMs,
             });
           }
-          tracker.complete("ui_commit", {
+          tracker.observe("ui_commit", {
             chainState: "confirmed",
-            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
+            persistenceState: "pending",
           });
           if (confirmationRecordFailed) {
             setWithdrawError(EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE);
@@ -1573,7 +1639,14 @@ export function useEarnActions(deps: {
               }
               throw new Error(result.error ?? "Autodeposit close failed.");
             }
-            setAutodepositOverride({ config: null });
+            setAutodepositOverride({
+              config: null,
+              confirmedMutation: {
+                identities: [preparedClose.policy.account.toBase58()],
+                operation: "remove",
+                walletAddress: authenticatedWalletAddress!,
+              },
+            });
             registerExpectedEarnMutation({
               operation: "autodeposit_close",
               resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
@@ -1581,8 +1654,7 @@ export function useEarnActions(deps: {
               targetId: result.targetId,
             });
             const nextPreparedWithdraw = await prepareEarnWithdrawInBrowser(
-              draft,
-              tracker.flowId
+              draft
             );
             if (nextPreparedWithdraw.autodepositClosePrepared) {
               throw new Error(
@@ -1605,6 +1677,10 @@ export function useEarnActions(deps: {
             stageIndex: stepIndex,
           });
           earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
+          const update = getEarnWithdrawStepUpdate(
+            preparedWithdraw, stepIndex, draft
+          );
+          const targets = captureAccountingTargets(update.targets);
           const result = await smartAccountData.executeEarnWithdraw({
             amountRaw,
             observabilityFlowId: tracker.flowId,
@@ -1617,6 +1693,12 @@ export function useEarnActions(deps: {
           if (!result.success) {
             throw new Error(result.error ?? "Earn withdrawal failed.");
           }
+          setPosition(update.apply, {
+            targets,
+            confirmedSlot: result.confirmedSlot,
+            signature: result.signature,
+          });
+          expectEarnTransaction(result.signature);
           confirmationRecordFailed ||=
             result.status === "confirmation_record_failed";
 
@@ -1635,18 +1717,31 @@ export function useEarnActions(deps: {
           tracker.observe("slot_resolve", { chainState: "confirmed" });
           tracker.observe("backend_confirm", {
             chainState: "confirmed",
-            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
+            persistenceState: "pending",
           });
           registerExpectedEarnMutation({
+            onCovered: () => {
+              const diagnostics = {
+                chainState: "confirmed" as const,
+                persistenceState: "recorded" as const,
+              };
+              if (draft.mode === "partial") {
+                tracker.complete("ui_commit", diagnostics);
+              } else {
+                tracker.observe("full_exit_verify", diagnostics);
+              }
+            },
+            onExpired: () =>
+              tracker.fail("ui_commit", {
+                chainState: "confirmed",
+                errorCode: "realtime_unresolved",
+                persistenceState: "failed",
+              }),
             operation:
               draft.mode === "partial" ? "withdraw_partial" : "withdraw_full",
             resources: EARN_BALANCE_MUTATION_RESOURCES,
             signature: result.signature,
           });
-          expectEarnTransaction(result.signature);
-          setPosition((current) =>
-            applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
-          );
           if (
             draft.mode === "partial" &&
             draft.source.liquidityMint === trackedKaminoUsdcMint
@@ -1669,16 +1764,12 @@ export function useEarnActions(deps: {
             tracker.observe("full_exit_verify", {
               chainState: "confirmed",
               cleanupRequired: true,
-              persistenceState: confirmationRecordFailed
-                ? "failed"
-                : "recorded",
+              persistenceState: "pending",
             });
           } else {
-            tracker.complete("ui_commit", {
+            tracker.observe("ui_commit", {
               chainState: "confirmed",
-              persistenceState: confirmationRecordFailed
-                ? "failed"
-                : "recorded",
+              persistenceState: "pending",
             });
             if (confirmationRecordFailed) {
               tracker.recovery({ errorCode: "record_failed" });
@@ -1738,11 +1829,13 @@ export function useEarnActions(deps: {
       }
     },
     [
+      authenticatedWalletAddress,
       creditMainAccountUsdcBalance,
       connection.rpcEndpoint,
       ensureCanSignAccountAction,
       expectEarnTransaction,
       prepareEarnWithdrawInBrowser,
+      captureAccountingTargets,
       registerExpectedEarnMutation,
       requestApproval,
       setAutodepositOverride,
@@ -1792,12 +1885,7 @@ export function useEarnActions(deps: {
           flowId: tracker.flowId,
           operation: "earn.close",
           rpcEndpoint: connection.rpcEndpoint,
-          run: () =>
-            prepareEarnCleanupOnServer({
-              minContextSlot:
-                fullWithdrawalConfirmedSlotRef.current ?? undefined,
-              observabilityFlowId: tracker.flowId,
-            }),
+          run: () => smartAccountData.prepareEarnCleanup(),
         });
       } catch (error) {
         tracker.fail("full_exit_verify", {
@@ -1848,6 +1936,19 @@ export function useEarnActions(deps: {
       setPosition(null);
       setAutodepositOverride({ config: null });
       registerExpectedEarnMutation({
+        onCovered: () =>
+          tracker.complete("ui_commit", {
+            chainState: "confirmed",
+            cleanupRequired: true,
+            persistenceState: "recorded",
+          }),
+        onExpired: () =>
+          tracker.fail("ui_commit", {
+            chainState: "confirmed",
+            cleanupRequired: true,
+            errorCode: "realtime_unresolved",
+            persistenceState: "failed",
+          }),
         operation: "cleanup",
         resources: EARN_CLEANUP_MUTATION_RESOURCES,
         signature: result.signature,
@@ -1860,10 +1961,10 @@ export function useEarnActions(deps: {
           startedAtMs: walletSubmittedAtMs,
         });
       }
-      tracker.complete("ui_commit", {
+      tracker.observe("ui_commit", {
         chainState: "confirmed",
         cleanupRequired: true,
-        persistenceState: "recorded",
+        persistenceState: "pending",
       });
       withdrawTrackerRef.current = null;
       fullWithdrawalConfirmedSlotRef.current = null;
@@ -2200,19 +2301,12 @@ export function useEarnActions(deps: {
           });
 
           if (!(result.success && result.preparedSetup)) {
-            if (result.status === "confirmation_record_failed") {
-              tracker.fail("backend_confirm", {
-                chainState: "confirmed",
-                errorCode: "record_failed",
-                persistenceState: "failed",
-              });
-            }
             throw new Error(result.error ?? "Autodeposit setup failed.");
           }
 
-          tracker.observe("backend_confirm", {
+          tracker.observe("chain_confirm", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: "pending",
           });
 
           if (result.preparedSetup.stage !== "create_recurring_delegation") {
@@ -2229,10 +2323,6 @@ export function useEarnActions(deps: {
           if (!policyAccount) {
             throw new Error("Autodeposit policy account was not returned.");
           }
-          if (result.bootstrapSweep) {
-            tracker.observe("bootstrap", { persistenceState: "recorded" });
-          }
-
           setAutodepositOverride({
             config: {
               amount: amountLabel,
@@ -2256,12 +2346,27 @@ export function useEarnActions(deps: {
               startTimestamp: result.preparedSetup.persistence.startTimestamp,
               state: "created",
             },
+            confirmedMutation: {
+              identities: [policyAccount],
+              operation: "install",
+              walletAddress: authenticatedWalletAddress!,
+            },
           });
           registerExpectedEarnMutation({
+            onCovered: () =>
+              tracker.complete("ui_commit", {
+                chainState: "confirmed",
+                persistenceState: "recorded",
+              }),
+            onExpired: () =>
+              tracker.fail("ui_commit", {
+                chainState: "confirmed",
+                errorCode: "realtime_unresolved",
+                persistenceState: "failed",
+              }),
             operation: "autodeposit_setup",
             resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
             signature: result.signature,
-            targetId: result.targetId,
           });
           if (walletSubmittedAtMs !== null) {
             captureBrowserLoadingMetricAfterPaint({
@@ -2271,9 +2376,9 @@ export function useEarnActions(deps: {
               startedAtMs: walletSubmittedAtMs,
             });
           }
-          tracker.complete("ui_commit", {
+          tracker.observe("ui_commit", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: "pending",
           });
           earnToast.success(
             previousConfig ? "Autodeposit updated" : "Autodeposit created"
@@ -2303,7 +2408,7 @@ export function useEarnActions(deps: {
           });
           earnToast.error("Couldn't save Autodeposit");
         } else {
-          tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+          tracker.fail("chain_confirm", { errorCode: "unexpected_error" });
           earnToast.error("Couldn't save Autodeposit");
         }
         const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
@@ -2333,6 +2438,7 @@ export function useEarnActions(deps: {
       }
     },
     [
+      authenticatedWalletAddress,
       autodepositConfig,
       canMutateAccount,
       connection.rpcEndpoint,
@@ -2534,26 +2640,36 @@ export function useEarnActions(deps: {
         recurringDelegation: config.recurringDelegation,
       });
       if (!result.success) {
-        if (result.status === "confirmation_record_failed") {
-          tracker.fail("backend_confirm", {
-            chainState: "confirmed",
-            errorCode: "record_failed",
-            persistenceState: "failed",
-          });
-        }
         throw new Error(result.error ?? "Autodeposit close failed.");
       }
-      tracker.observe("backend_confirm", {
+      tracker.observe("chain_confirm", {
         chainState: "confirmed",
-        persistenceState: "recorded",
+        persistenceState: "pending",
       });
-      setAutodepositOverride({ config: null });
+      setAutodepositOverride({
+        config: null,
+        confirmedMutation: {
+          identities: [config.policyAccount],
+          operation: "remove",
+          walletAddress: authenticatedWalletAddress!,
+        },
+      });
       autodepositClosePreparedRef.current = null;
       registerExpectedEarnMutation({
+        onCovered: () =>
+          tracker.complete("ui_commit", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          }),
+        onExpired: () =>
+          tracker.fail("ui_commit", {
+            chainState: "confirmed",
+            errorCode: "realtime_unresolved",
+            persistenceState: "failed",
+          }),
         operation: "autodeposit_close",
         resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
         signature: result.signature,
-        targetId: result.targetId,
       });
       if (walletSubmittedAtMs !== null) {
         captureBrowserLoadingMetricAfterPaint({
@@ -2563,9 +2679,9 @@ export function useEarnActions(deps: {
           startedAtMs: walletSubmittedAtMs,
         });
       }
-      tracker.complete("ui_commit", {
+      tracker.observe("ui_commit", {
         chainState: "confirmed",
-        persistenceState: "recorded",
+        persistenceState: "pending",
       });
       earnToast.success("Autodeposit deleted");
       return true;
@@ -2579,7 +2695,7 @@ export function useEarnActions(deps: {
       if (isWalletCancellation(error)) {
         tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
       } else {
-        tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+        tracker.fail("chain_confirm", { errorCode: "unexpected_error" });
         earnToast.error("Couldn't delete Autodeposit");
       }
       const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
@@ -2614,6 +2730,7 @@ export function useEarnActions(deps: {
       earnToast.settle();
     }
   }, [
+    authenticatedWalletAddress,
     autodepositConfig,
     ensureCanSignAccountAction,
     registerExpectedEarnMutation,

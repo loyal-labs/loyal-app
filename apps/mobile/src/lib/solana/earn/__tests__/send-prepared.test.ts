@@ -1,8 +1,4 @@
-import {
-  type Connection,
-  Keypair,
-  SystemProgram,
-} from "@solana/web3.js";
+import { type Connection, Keypair, SystemProgram } from "@solana/web3.js";
 
 import { LocalKeypairSigner } from "@/lib/wallet/signer";
 
@@ -41,9 +37,9 @@ function makeConnection(overrides: Partial<Connection> = {}) {
         new Promise((_, reject) => {
           setTimeout(
             () => reject(new Error("Signature has expired")),
-            REBROADCAST_INTERVAL_MS * (REBROADCAST_MAX_RESENDS + 5),
+            REBROADCAST_INTERVAL_MS * (REBROADCAST_MAX_RESENDS + 5)
           );
-        }),
+        })
     ),
     getSignatureStatuses: jest.fn().mockResolvedValue({ value: [null] }),
     ...overrides,
@@ -62,11 +58,63 @@ afterEach(() => {
 async function settle<T>(promise: Promise<T>) {
   const outcome = promise.then(
     (value) => ({ ok: true as const, value }),
-    (error: unknown) => ({ ok: false as const, error }),
+    (error: unknown) => ({ ok: false as const, error })
   );
   await jest.runAllTimersAsync();
   return outcome;
 }
+
+test("WS-confirmed money movement remains successful when status RPC transport fails", async () => {
+  const connection = makeConnection({
+    confirmTransaction: jest
+      .fn()
+      .mockResolvedValue({ context: { slot: 20 }, value: { err: null } }),
+    getSignatureStatuses: jest
+      .fn()
+      .mockRejectedValue(new Error("RPC unavailable")),
+  } as Partial<Connection>);
+  const onConfirmed = jest.fn();
+  const result = await settle(
+    signAndSendPreparedOperations({
+      connection,
+      signer,
+      operations: [operation],
+      onConfirmed,
+    })
+  );
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(result.value[0].confirmedSlot).toBe("20");
+    expect(result.value[0].accountingSlot).toBeNull();
+  }
+  expect(onConfirmed).toHaveBeenCalledTimes(1);
+  expect(connection.sendRawTransaction).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test("a real on-chain status failure is not hidden by the confirmation context fallback", async () => {
+  const connection = makeConnection({
+    confirmTransaction: jest
+      .fn()
+      .mockResolvedValue({ context: { slot: 20 }, value: { err: null } }),
+    getSignatureStatuses: jest.fn().mockResolvedValue({
+      value: [{ slot: 19, err: { InstructionError: [0, "failed"] } }],
+    }),
+  } as Partial<Connection>);
+  const onConfirmed = jest.fn();
+  const result = await settle(
+    signAndSendPreparedOperations({
+      connection,
+      signer,
+      operations: [operation],
+      onConfirmed,
+    })
+  );
+  expect(result.ok).toBe(false);
+  expect(onConfirmed).not.toHaveBeenCalled();
+  expect(connection.sendRawTransaction).toHaveBeenCalledTimes(1);
+  expect(jest.getTimerCount()).toBe(0);
+});
 
 describe("signAndSendPreparedOperations rebroadcast bounds", () => {
   test("a pending tx sends at most 1 + REBROADCAST_MAX_RESENDS times", async () => {
@@ -76,11 +124,11 @@ describe("signAndSendPreparedOperations rebroadcast bounds", () => {
         connection,
         signer,
         operations: [operation],
-      }),
+      })
     );
     expect(result.ok).toBe(false);
     expect(connection.sendRawTransaction).toHaveBeenCalledTimes(
-      1 + REBROADCAST_MAX_RESENDS,
+      1 + REBROADCAST_MAX_RESENDS
     );
   });
 
@@ -96,7 +144,7 @@ describe("signAndSendPreparedOperations rebroadcast bounds", () => {
         signer,
         operations: [operation, operation],
         sendMode: "send-all-before-confirm",
-      }),
+      })
     );
     expect(result.ok).toBe(false);
     // Two first-sends; the stop() in `finally` must win before any timer fires.
@@ -111,9 +159,9 @@ describe("signAndSendPreparedOperations rebroadcast bounds", () => {
           new Promise((resolve) => {
             setTimeout(
               () => resolve({ context: { slot: 7 }, value: { err: null } }),
-              REBROADCAST_INTERVAL_MS * 2 + 1,
+              REBROADCAST_INTERVAL_MS * 2 + 1
             );
-          }),
+          })
       ),
       getSignatureStatuses: jest.fn().mockResolvedValue({
         value: [{ slot: 7, err: null, confirmationStatus: "confirmed" }],
@@ -124,7 +172,7 @@ describe("signAndSendPreparedOperations rebroadcast bounds", () => {
         connection,
         signer,
         operations: [operation],
-      }),
+      })
     );
     expect(result.ok).toBe(true);
     expect(connection.sendRawTransaction).toHaveBeenCalledTimes(3);

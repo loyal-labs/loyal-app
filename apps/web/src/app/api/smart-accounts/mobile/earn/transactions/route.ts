@@ -9,7 +9,6 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   findYieldPositionHistoryEventsForVault,
-  syncConfirmedRebalanceHoldingEventsForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
   collapseDuplicateEarnRebalanceTransactions,
@@ -21,8 +20,8 @@ import {
 // Earn tab lists Earn vault history passively, with no signer held (a wallet
 // signature would force a Seed Vault biometric prompt on every view), so this
 // lookup is keyed by a supplied wallet address rather than a signed request.
-// The only write here is an idempotent server-side projection from confirmed
-// optimizer decisions into history rows; it never provisions a smart account.
+// Render owns history projection. This route never repairs history or
+// provisions a smart account.
 const EARN_VAULT_INDEX = 1;
 
 function jsonError(status: number, code: string, message: string): NextResponse {
@@ -96,13 +95,6 @@ export async function GET(request: Request) {
     }
 
     const cluster = resolveConfiguredCluster();
-    await syncConfirmedRebalanceHoldingEventsForVault({
-      cluster,
-      settings: account.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress,
-    });
-
     const [positionEvents, autodepositEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({
         cluster,

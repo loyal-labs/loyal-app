@@ -3,7 +3,11 @@ import type { SmartAccountPreparedEarnUsdcDeposit } from "@loyal-labs/smart-acco
 import { PublicKey } from "@solana/web3.js";
 
 import {
+  EARN_DEPOSIT_POLICY_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE,
+  EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE,
   getEarnDepositReviewStages,
+  getEarnDepositSubmittedTransactionMessage,
+  resolveEarnDepositConfirmedSlot,
   resolveEarnDepositConfirmPolicySignature,
 } from "./earn-deposit-flow.shared";
 
@@ -28,6 +32,47 @@ function createPreparedDeposit(args: {
 }
 
 describe("Earn deposit flow helpers", () => {
+  test("uses the wallet confirmation slot without another RPC lookup", async () => {
+    let fallbackCalls = 0;
+
+    const slot = await resolveEarnDepositConfirmedSlot({
+      fallback: async () => {
+        fallbackCalls += 1;
+        throw new Error("duplicate RPC lookup");
+      },
+      transportSlot: 123,
+    });
+
+    expect(slot).toBe("123");
+    expect(fallbackCalls).toBe(0);
+  });
+
+  test("falls back when the wallet transport omits its confirmation slot", async () => {
+    let fallbackCalls = 0;
+
+    const slot = await resolveEarnDepositConfirmedSlot({
+      fallback: async () => {
+        fallbackCalls += 1;
+        return "456";
+      },
+    });
+
+    expect(slot).toBe("456");
+    expect(fallbackCalls).toBe(1);
+  });
+
+  test("distinguishes ambiguous setup from an ambiguous money movement", () => {
+    expect(getEarnDepositSubmittedTransactionMessage("policy")).toBe(
+      EARN_DEPOSIT_POLICY_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE
+    );
+    expect(getEarnDepositSubmittedTransactionMessage("policy-finalize")).toBe(
+      EARN_DEPOSIT_POLICY_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE
+    );
+    expect(getEarnDepositSubmittedTransactionMessage("deposit")).toBe(
+      EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE
+    );
+  });
+
   test("first deposit without finalize requires setup then deposit", () => {
     const preparedDeposit = createPreparedDeposit({
       policyInitialization: "create",

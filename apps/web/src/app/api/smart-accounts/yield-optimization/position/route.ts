@@ -14,11 +14,15 @@ import {
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
 import {
+  serializeEarnPositionAccounting,
+  serializeEarnProjectedPositions,
+} from "@/lib/yield-optimization/earn-state-serializers.server";
+import {
   type CurrentYieldVaultIdleTokenBalanceRecord,
   type CurrentYieldVaultReservePositionRecord,
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
-  findReconciledActiveYieldPositionForVault,
+  findYieldPositionsForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -60,10 +64,12 @@ function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
 
 function serializePosition(
   position: UserYieldPositionRecord,
+  positions: UserYieldPositionRecord[],
   currentReserve: TimescaleReserveUpdateRow | null = null,
   holdings: ReturnType<typeof serializeHoldings> = []
 ) {
   const currentTotalNominalUsdMicros = sumSerializedHoldingsAmountRaw(holdings);
+  const accounting = serializeEarnPositionAccounting(positions);
   return {
     currentHolding: {
       amountRaw: position.currentAmountRaw.toString(),
@@ -97,7 +103,8 @@ function serializePosition(
     // never a balance denominated in any one mint.
     currentTotalAmountRaw: currentTotalNominalUsdMicros.toString(),
     currentTotalNominalUsdMicros: currentTotalNominalUsdMicros.toString(),
-    principalAmountRaw: position.principalAmountRaw.toString(),
+    lastConfirmedSlot: accounting.lastConfirmedSlot,
+    principalAmountRaw: accounting.principalAmountRaw,
     status: position.status,
   };
 }
@@ -273,12 +280,14 @@ export async function GET(request: Request) {
   }
 
   const cluster = resolveConfiguredCluster();
-  const position = await findReconciledActiveYieldPositionForVault({
+  const projectedPositions = await findYieldPositionsForVault({
     cluster,
     settings: principal.settingsPda,
     vaultIndex: EARN_VAULT_INDEX,
     walletAddress: principal.walletAddress,
   });
+  const positions = projectedPositions.filter((row) => row.status === "active");
+  const position = positions[0] ?? null;
   const timescaleReserve = position
     ? resolveTimescaleReserveForPosition(position)
     : null;
@@ -320,9 +329,11 @@ export async function GET(request: Request) {
     : [[], []];
 
   return NextResponse.json({
+    projectedPositions: serializeEarnProjectedPositions(projectedPositions),
     position: position
       ? serializePosition(
           position,
+          positions,
           currentReserveByReserve.get(
             timescaleReserve ?? position.currentReserve
           ) ?? null,

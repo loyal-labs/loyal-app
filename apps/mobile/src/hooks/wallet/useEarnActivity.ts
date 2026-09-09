@@ -5,16 +5,18 @@ import {
   type EarnTransactionItem,
 } from "@/lib/solana/earn/earn-api";
 import { mmkv } from "@/lib/storage";
+import { subscribeEarnRealtime } from "@/features/earn-realtime/events";
 
 // Earn transactions are cached to disk per wallet so a returning user sees their
 // last-known history the instant the Earn activity tab opens, instead of a
 // skeleton while the (slow) backend responds. The fetch still runs to refresh —
 // classic stale-while-revalidate. Keyed by wallet so switching accounts never
 // shows the wrong history.
-const cacheKey = (walletAddress: string): string => `earn:txns:${walletAddress}`;
+const cacheKey = (walletAddress: string): string =>
+  `earn:txns:${walletAddress}`;
 
 function readCachedEarnTransactions(
-  walletAddress: string,
+  walletAddress: string
 ): EarnTransactionItem[] | null {
   const raw = mmkv.getString(cacheKey(walletAddress));
   if (!raw) return null;
@@ -28,7 +30,7 @@ function readCachedEarnTransactions(
 
 function writeCachedEarnTransactions(
   walletAddress: string,
-  transactions: EarnTransactionItem[],
+  transactions: EarnTransactionItem[]
 ): void {
   mmkv.setString(cacheKey(walletAddress), JSON.stringify(transactions));
 }
@@ -49,30 +51,41 @@ export function useEarnActivity(walletAddress: string | null) {
   // background polls.
   const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
+  const walletRef = useRef(walletAddress);
+  walletRef.current = walletAddress;
 
-  const refresh = useCallback(async () => {
-    if (!walletAddress) return;
-    const fetchId = ++fetchIdRef.current;
-    setIsLoading(true);
-    try {
-      const res = await fetchEarnTransactions(walletAddress);
-      if (fetchId === fetchIdRef.current) {
+  const refresh = useCallback(
+    async (options?: { throwOnError?: boolean }) => {
+      if (!walletAddress) return;
+      const fetchId = ++fetchIdRef.current;
+      setIsLoading(true);
+      try {
+        const res = await fetchEarnTransactions(walletAddress);
+        if (
+          fetchId !== fetchIdRef.current ||
+          walletRef.current !== walletAddress
+        ) {
+          throw new Error("Earn activity refresh was superseded.");
+        }
         setEarnTransactions(res.transactions);
         writeCachedEarnTransactions(walletAddress, res.transactions);
+      } catch (error) {
+        // Keep whatever is already shown (cache or prior fetch) — a transient
+        // failure must not blank a populated feed.
+        console.warn("Failed to fetch Earn transactions", error);
+        if (options?.throwOnError) throw error;
+      } finally {
+        if (fetchId === fetchIdRef.current) {
+          setIsLoading(false);
+          setHasLoaded(true);
+        }
       }
-    } catch (error) {
-      // Keep whatever is already shown (cache or prior fetch) — a transient
-      // failure must not blank a populated feed.
-      console.warn("Failed to fetch Earn transactions", error);
-    } finally {
-      if (fetchId === fetchIdRef.current) {
-        setIsLoading(false);
-        setHasLoaded(true);
-      }
-    }
-  }, [walletAddress]);
+    },
+    [walletAddress]
+  );
 
   useEffect(() => {
+    ++fetchIdRef.current;
     if (!walletAddress) {
       setEarnTransactions([]);
       setHasLoaded(false);
@@ -85,7 +98,20 @@ export function useEarnActivity(walletAddress: string | null) {
     setEarnTransactions(cached ?? []);
     setHasLoaded(cached !== null);
     void refresh();
+    const requestIds = fetchIdRef;
+    return () => {
+      ++requestIds.current;
+    };
   }, [walletAddress, refresh]);
 
-  return { earnTransactions, isLoading, hasLoaded, refresh };
+  useEffect(
+    () =>
+      subscribeEarnRealtime(async (invalidation) => {
+        if (invalidation.transactions) await refresh({ throwOnError: true });
+      }),
+    [refresh]
+  );
+
+  const refreshActivity = useCallback(() => refresh(), [refresh]);
+  return { earnTransactions, isLoading, hasLoaded, refresh: refreshActivity };
 }

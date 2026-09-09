@@ -6,7 +6,6 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   findYieldPositionHistoryEventsForVault,
-  syncConfirmedRebalanceHoldingEventsForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
   collapseDuplicateEarnRebalanceTransactions,
@@ -61,13 +60,6 @@ export async function GET(request: Request) {
   const cluster = resolveConfiguredCluster();
 
   try {
-    await syncConfirmedRebalanceHoldingEventsForVault({
-      cluster,
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress: principal.walletAddress,
-    });
-
     const [positionEvents, autodepositEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({
         cluster,

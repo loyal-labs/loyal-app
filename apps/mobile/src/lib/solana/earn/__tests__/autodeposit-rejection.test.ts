@@ -1,18 +1,19 @@
 // Protects the Autodeposit lifecycle boundary behind ASK-1859. A wallet
-// decline before any chain write is a clean cancellation, while a second
-// auth-prompt decline after a close transaction lands is a real
-// confirmed-but-unrecorded failure that must keep paging.
+// decline before any chain write is a clean cancellation. Setup and close are
+// projected from chain, so neither may request a second backend-confirm auth.
 
 const mockTrack = jest.fn();
 const mockFetchState = jest.fn();
 const mockToggleAutodeposit = jest.fn();
-const mockConfirmClose = jest.fn();
 const mockSignEarnAuth = jest.fn();
 const mockWithEarnAuth = jest.fn();
 const mockGetSessionToken = jest.fn();
 const mockClearSession = jest.fn();
 const mockPrepareClose = jest.fn();
+const mockPrepareSetupBatch = jest.fn();
 const mockSendPreparedOperation = jest.fn();
+const mockSendPreparedOperations = jest.fn();
+const mockUpdateFloor = jest.fn();
 
 jest.mock("expo-updates", () => ({
   channel: "production",
@@ -35,6 +36,8 @@ jest.mock(
     createSmartAccountVaultsClient: () => ({
       prepareEarnUsdcAutodepositClose: (...args: unknown[]) =>
         mockPrepareClose(...args),
+      prepareEarnUsdcAutodepositSetupBatch: (...args: unknown[]) =>
+        mockPrepareSetupBatch(...args),
     }),
   }),
   { virtual: true },
@@ -67,14 +70,12 @@ jest.mock("../earn-api", () => {
   }
   return {
     EarnApiError,
-    confirmEarnAutodepositClose: (...args: unknown[]) =>
-      mockConfirmClose(...args),
-    confirmEarnAutodepositSetup: jest.fn(),
     fetchEarnAutodepositState: (...args: unknown[]) => mockFetchState(...args),
     requestEarnAutodepositSweepExecute: jest.fn(),
     toggleEarnAutodeposit: (...args: unknown[]) =>
       mockToggleAutodeposit(...args),
-    updateEarnAutodepositFloor: jest.fn(),
+    updateEarnAutodepositFloor: (...args: unknown[]) =>
+      mockUpdateFloor(...args),
   };
 });
 jest.mock("../earn-auth", () => ({
@@ -88,7 +89,8 @@ jest.mock("../earn-session", () => ({
 jest.mock("../send-prepared", () => ({
   signAndSendPreparedOperation: (...args: unknown[]) =>
     mockSendPreparedOperation(...args),
-  signAndSendPreparedOperations: jest.fn(),
+  signAndSendPreparedOperations: (...args: unknown[]) =>
+    mockSendPreparedOperations(...args),
 }));
 jest.mock("../wire", () => ({
   serializePreparedEarnAutodepositClose: () => ({ serialized: true }),
@@ -98,6 +100,7 @@ jest.mock("../wire", () => ({
 // eslint-disable-next-line import/first
 import {
   executeEarnAutodepositClose,
+  executeEarnAutodepositSetup,
   setEarnAutodepositActive,
 } from "../autodeposit";
 // eslint-disable-next-line import/first
@@ -151,6 +154,54 @@ beforeEach(() => {
     confirmedSlot: "42",
     signature: "landed-close-signature",
   });
+  mockSendPreparedOperations.mockResolvedValue([
+    { confirmedSlot: "41", signature: "policy-signature" },
+    { confirmedSlot: "42", signature: "delegation-signature" },
+  ]);
+  mockSignEarnAuth.mockResolvedValue({ walletAddress });
+  mockUpdateFloor.mockResolvedValue(undefined);
+});
+
+describe("Autodeposit transaction ordering", () => {
+  it("confirms policy creation before broadcasting its dependent delegation", async () => {
+    mockPrepareSetupBatch.mockResolvedValue([
+      {
+        nativeSolRequirement: { requiredLamports: "0" },
+        persistence: { policySeed: "3" },
+        policy: { seed: BigInt(3) },
+        prepared: { instructions: ["create-policy"] },
+        stage: "create_policy",
+      },
+      {
+        nativeSolRequirement: { requiredLamports: "0" },
+        persistence: {
+          policyAccount: "policy-3",
+          policySeed: "3",
+          recurringDelegation: "delegation-3",
+        },
+        policy: { seed: BigInt(3) },
+        prepared: { instructions: ["create-delegation"] },
+        stage: "create_recurring_delegation",
+      },
+    ]);
+
+    await expect(
+      executeEarnAutodepositSetup({ signer, thresholdUsd: 10 }),
+    ).resolves.toMatchObject({
+      policyAccount: "policy-3",
+      recurringDelegation: "delegation-3",
+    });
+
+    expect(mockSendPreparedOperations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operations: [
+          { instructions: ["create-policy"] },
+          { instructions: ["create-delegation"] },
+        ],
+        sendMode: "confirm-each",
+      }),
+    );
+  });
 });
 
 describe("Autodeposit wallet rejection lifecycle", () => {
@@ -195,7 +246,6 @@ describe("Autodeposit wallet rejection lifecycle", () => {
     ).rejects.toBe(rejection);
 
     expect(mockSignEarnAuth).not.toHaveBeenCalled();
-    expect(mockConfirmClose).not.toHaveBeenCalled();
     expect(terminal(envelopes)).toEqual([
       expect.objectContaining({
         errorCode: "wallet_rejected",
@@ -207,57 +257,69 @@ describe("Autodeposit wallet rejection lifecycle", () => {
     ]);
   });
 
-  it("keeps a post-submit close auth rejection failed at backend_confirm", async () => {
+  it("finishes a confirmed close without requesting backend-confirm auth", async () => {
     const envelopes = captureEnvelopes();
-    mockSignEarnAuth.mockRejectedValueOnce(new WalletRejectedError());
+    await executeEarnAutodepositClose({
+      policy: "policy",
+      recurringDelegation: "delegation",
+      signer,
+    });
 
-    let thrown: unknown;
-    try {
-      await executeEarnAutodepositClose({
-        policy: "policy",
-        recurringDelegation: "delegation",
-        signer,
-      });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(WalletRejectedError);
-    expect((thrown as WalletRejectedError).landedSignatures).toEqual([
-      "landed-close-signature",
-    ]);
-    expect(mockConfirmClose).not.toHaveBeenCalled();
-    expect(terminal(envelopes)).toEqual([
+    expect(mockSignEarnAuth).not.toHaveBeenCalled();
+    expect(terminal(envelopes)).toEqual([]);
+    expect(envelopes).toContainEqual(
       expect.objectContaining({
-        errorCode: "wallet_rejected",
         flowName: "earn.autodeposit.configuration",
         flowVariant: "close",
-        outcome: "failed",
-        stage: "backend_confirm",
+        outcome: "observed",
+        stage: "chain_confirm",
       }),
-    ]);
+    );
   });
 
-  it("carries post-submit close progress into a parent withdrawal flow", async () => {
-    captureEnvelopes();
-    mockSignEarnAuth.mockRejectedValueOnce(new WalletRejectedError());
+  it("polls through each stale closed row before closing a duplicate", async () => {
+    jest.useFakeTimers();
+    mockFetchState
+      .mockReset()
+      .mockResolvedValueOnce({
+        prepareContext: {
+          cluster: "mainnet",
+          policySigner: "policy-signer",
+          programId: "program-id",
+        },
+        settingsPda: "settings-pda",
+      })
+      .mockResolvedValueOnce({
+        autodeposit: {
+          policyAccount: "policy",
+          recurringDelegation: "delegation",
+        },
+      })
+      .mockResolvedValueOnce({
+        autodeposit: {
+          policyAccount: "duplicate-policy",
+          recurringDelegation: "duplicate-delegation",
+        },
+      })
+      .mockResolvedValueOnce({
+        autodeposit: {
+          policyAccount: "duplicate-policy",
+          recurringDelegation: "duplicate-delegation",
+        },
+      })
+      .mockResolvedValueOnce({ autodeposit: null });
 
-    let thrown: unknown;
-    try {
-      await executeEarnAutodepositClose({
-        policy: "policy",
-        recurringDelegation: "delegation",
-        signer,
-        source: "withdraw",
-      });
-    } catch (error) {
-      thrown = error;
-    }
+    const closePromise = executeEarnAutodepositClose({
+      policy: "policy",
+      recurringDelegation: "delegation",
+      signer,
+    });
+    await jest.runAllTimersAsync();
+    const result = await closePromise;
+    jest.useRealTimers();
 
-    expect(thrown).toBeInstanceOf(WalletRejectedError);
-    expect((thrown as WalletRejectedError).landedSignatures).toEqual([
-      "landed-close-signature",
-    ]);
-    expect(mockConfirmClose).not.toHaveBeenCalled();
+    expect(result.policyAccounts).toEqual(["policy", "duplicate-policy"]);
+    expect(mockPrepareClose).toHaveBeenCalledTimes(2);
+    expect(mockSendPreparedOperation).toHaveBeenCalledTimes(2);
   });
 });

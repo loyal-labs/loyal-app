@@ -1,152 +1,339 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { env } from "@/config/env";
+import {
+  getEarnRealtimeScope,
+  subscribeEarnRealtime,
+} from "@/features/earn-realtime/events";
 import {
   fetchEarnHoldings,
   fetchEarnState,
+  fetchEarnTransactions,
   type EarnHoldingItem,
   type EarnPosition,
 } from "@/lib/solana/earn/earn-api";
+import {
+  applyConfirmedEarnMutation,
+  normalizeEarnCluster,
+  reconcileEarnProjection,
+  resolveEarnMutationAccounting,
+  type ConfirmedEarnMutation,
+  type EarnPositionOverlay,
+} from "@/lib/solana/earn/position-overlay";
+import {
+  readEarnOverlay,
+  subscribeEarnOverlay,
+  writeEarnOverlay,
+} from "@/lib/solana/earn/position-store";
 
-// After a local deposit/withdraw, the backend read-model (`/state`
-// `currentAmountRaw`) is written synchronously by the confirm call, so it's the
-// correct intended balance immediately. The live `/holdings` read, by contrast,
-// LAGS the chain mid-sweep — it dips below the deposit right after a deposit
-// (funds still moving idle→Kamino) and reads high right after a withdraw. So for
-// a short window after a mutation we trust the read-model; outside it we trust
-// the live holdings total, which tracks market drift the read-model misses (the
-// reason the live override exists at all). This mirrors the web showing the
-// correct value the moment a deposit lands instead of a transient dip.
-const MUTATION_TRUST_MS = 20_000;
-
-// Picks the balance the headline shows. `preferReadModel` (set briefly after a
-// local mutation) keeps the confirm-written read-model; otherwise the live total
-// overrides it. APY/principal/status always come from the read-model. When the
-// live read is unavailable (null) we keep the read-model rather than zeroing a
-// real balance.
-function reconcileBalance(
-  position: EarnPosition | null,
-  liveTotalRaw: string | null,
-  preferReadModel: boolean,
-): EarnPosition | null {
-  if (position === null || liveTotalRaw === null || preferReadModel) {
-    return position;
-  }
-  return { ...position, currentAmountRaw: liveTotalRaw };
-}
-
-// Reads the wallet's current Earn position (balance + APY) from the backend
-// read-model. Like useTokenHoldings, it takes a read-only wallet address and
-// never signs — the lookup is unauthenticated by design so opening the Earn tab
-// doesn't prompt for a Seed Vault approval.
+// Confirmed local amounts survive projection lag and app restarts. REST is
+// authoritative only once its accounting slot covers the landed transaction.
 export function useEarnPosition(walletAddress: string | null) {
   const [position, setPosition] = useState<EarnPosition | null>(null);
-  // Live per-venue holdings (Kamino obligation(s) + idle USDC) — the same data
-  // the web shows for its per-position breakdown. Exposed alongside `position`
-  // so the positions sheet can render the live split instead of the stale DB
-  // withdraw-sources read.
   const [holdings, setHoldings] = useState<EarnHoldingItem[]>([]);
-  // True when the last holdings read hit the server's no-active-policy branch
-  // (observedAt === null): the route-policy pair is missing — never created,
-  // or torn down by a full exit — so the next deposit re-runs first-time setup
-  // and needs the setup SOL even if a position balance exists. Stays false on
-  // fetch failures (fail-open, like the SOL gate itself).
   const [policyMissing, setPolicyMissing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  // Flips true once a fetch settles for the current wallet. Lets the UI tell
-  // "not loaded yet" (skeleton) apart from "loaded, genuinely empty" ($0) — the
-  // position read can legitimately resolve to null for a wallet with no Earn.
   const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
-  // Timestamp of the last local deposit/withdraw. Within MUTATION_TRUST_MS of it
-  // we trust the read-model over the lagging live read (see reconcileBalance).
-  const mutatedAtRef = useRef(0);
+  const walletRef = useRef(walletAddress);
+  const sessionKey = `${env.earnApiBaseUrl}:${normalizeEarnCluster(
+    env.solanaEnv
+  )}:${walletAddress}`;
+  const sessionRef = useRef(sessionKey);
+  const loadedWalletRef = useRef(sessionKey);
+  walletRef.current = walletAddress;
+  sessionRef.current = sessionKey;
+  const overlayRef = useRef<EarnPositionOverlay | null>(null);
+  const positionRef = useRef<EarnPosition | null>(null);
 
-  // Called by the Earn screen right before/after a deposit or withdraw so the
-  // next reads prefer the freshly-written read-model instead of the mid-sweep
-  // live total.
-  const markEarnMutation = useCallback(() => {
-    mutatedAtRef.current = Date.now();
-  }, []);
+  const commit = useCallback(
+    (overlay: EarnPositionOverlay | null, next: EarnPosition | null) => {
+      overlayRef.current = overlay;
+      positionRef.current = next;
+      if (walletAddress) writeEarnOverlay(walletAddress, overlay);
+      setPosition(next);
+    },
+    [walletAddress]
+  );
+
+  const confirmEarnMutation = useCallback(
+    (mutation: ConfirmedEarnMutation) => {
+      if (
+        !walletAddress ||
+        mutation.walletAddress !== walletAddress ||
+        normalizeEarnCluster(mutation.cluster) !==
+          normalizeEarnCluster(env.solanaEnv)
+      )
+        return;
+      const currentWallet =
+        walletRef.current === walletAddress &&
+        sessionRef.current === sessionKey;
+      if (currentWallet) ++fetchIdRef.current; // In-flight pre-confirm reads cannot acknowledge SSE.
+      const overlay = applyConfirmedEarnMutation(
+        readEarnOverlay(walletAddress),
+        currentWallet ? positionRef.current : null,
+        mutation
+      );
+      // A wallet switch cannot undo a landed transfer: retain it under its own
+      // wallet key, but never update the newly selected wallet's UI.
+      writeEarnOverlay(walletAddress, overlay, true);
+      if (!currentWallet) return;
+      setHoldings([]); // Do not display a pre-withdraw venue breakdown beside the new total.
+      setHasLoaded(true);
+      setIsLoading(false);
+    },
+    [walletAddress, sessionKey]
+  );
 
   const refreshEarnPosition = useCallback(
     async (options?: { throwOnError?: boolean }) => {
-      if (!walletAddress) {
-        return;
-      }
+      if (!walletAddress) return;
       const fetchId = ++fetchIdRef.current;
+      const current = () =>
+        fetchId === fetchIdRef.current &&
+        walletRef.current === walletAddress &&
+        sessionRef.current === sessionKey;
+      const before = overlayRef.current;
+      const readFence = [
+        before?.confirmedSlot,
+        before?.projectedSlot,
+        before?.amountObservedSlot,
+      ].reduce<string>(
+        (latest, slot) =>
+          slot && BigInt(slot) > BigInt(latest) ? slot : latest,
+        "0"
+      );
       setIsLoading(true);
       try {
-        // Fetch both concurrently: `state` for APY/principal/status (+ the
-        // post-mutation balance), `holdings` for the live balance once settled. A
-        // holdings failure must not drop the position, so each settles independently.
-        const [stateResult, holdingsResult] = await Promise.allSettled([
-          fetchEarnState(walletAddress),
-          fetchEarnHoldings(walletAddress),
-        ]);
-        if (fetchId !== fetchIdRef.current) {
-          if (options?.throwOnError) {
-            throw new Error("Earn position refresh was superseded.");
-          }
-          return;
+        const [stateResult, holdingsResult, historyResult] =
+          await Promise.allSettled([
+            fetchEarnState(walletAddress),
+            fetchEarnHoldings(
+              walletAddress,
+              readFence !== "0" &&
+                (before?.pending || before?.position.currentAmountRaw !== "0")
+                ? { minContextSlot: readFence }
+                : undefined
+            ),
+            before?.pending
+              ? fetchEarnTransactions(walletAddress)
+              : Promise.resolve(null),
+          ]);
+        if (!current())
+          throw new Error("Earn position refresh was superseded.");
+        if (stateResult.status === "rejected") throw stateResult.reason;
+        const state = stateResult.value;
+        const scope = getEarnRealtimeScope(walletAddress);
+        const latest = readEarnOverlay(walletAddress);
+        if (
+          (state.settingsPda &&
+            normalizeEarnCluster(state.cluster ?? "") !==
+              normalizeEarnCluster(env.solanaEnv)) ||
+          (scope &&
+            (state.settingsPda !== scope.settingsPda ||
+              normalizeEarnCluster(scope.solanaEnv) !==
+                normalizeEarnCluster(env.solanaEnv))) ||
+          (!scope && latest && state.settingsPda !== latest.settingsPda)
+        ) {
+          throw new Error(
+            "Earn position refresh belongs to a stale settings scope."
+          );
         }
-        if (stateResult.status === "rejected") {
-          console.error("Failed to fetch Earn position", stateResult.reason);
-          if (options?.throwOnError) {
-            throw stateResult.reason;
-          }
-          return;
-        }
-        let liveTotalRaw: string | null = null;
-        if (holdingsResult.status === "fulfilled") {
-          // observedAt is null only when the server skipped the chain read (no
-          // active Earn policy row yet) and returned a placeholder "0" — treat
-          // that as "live read unavailable" so it can't zero a real read-model
-          // balance. A genuine snapshot always carries observedAt, even at $0.
-          if (holdingsResult.value.observedAt !== null) {
-            liveTotalRaw = holdingsResult.value.currentTotalAmountRaw;
-          }
-          setPolicyMissing(holdingsResult.value.observedAt === null);
-          setHoldings(holdingsResult.value.holdings);
-        } else {
-          console.error("Failed to fetch Earn holdings", holdingsResult.reason);
-        }
-        const preferReadModel =
-          Date.now() - mutatedAtRef.current < MUTATION_TRUST_MS;
-        setPosition(
-          reconcileBalance(
-            stateResult.value.position,
-            liveTotalRaw,
-            preferReadModel,
+        if (
+          state.settingsPda &&
+          (!Array.isArray(state.projectedPositions) ||
+            (scope &&
+              state.projectedPositions.some(
+                (row) => row.vaultPubkey !== scope.earnVaultAddress
+              )))
+        )
+          throw new Error(
+            "Earn accounting refresh is missing scoped row evidence."
+          );
+        const projectedSlot =
+          state.projectedSlot ?? state.position?.lastConfirmedSlot ?? null;
+        // The immutable ledger maps the actual signature to accounting row IDs
+        // even after a rebalance/idle debit, and supplies an exact landing slot
+        // when WS success only provided a conservative RPC context fence.
+        const history =
+          historyResult.status === "fulfilled"
+            ? historyResult.value?.transactions ?? []
+            : [];
+        const previous = latest && {
+          ...latest,
+          mutations: (latest.mutations ?? []).map((mutation) =>
+            resolveEarnMutationAccounting(
+              mutation,
+              state.projectedPositions ?? [],
+              history
+            )
           ),
-        );
+        };
+        let overlay = state.settingsPda
+          ? reconcileEarnProjection({
+              previous,
+              settingsPda: state.settingsPda,
+              position: state.position,
+              projectedSlot,
+              projectedPositions: state.projectedPositions,
+            })
+          : latest; // A missing projection is not proof of a confirmed full exit.
+        let next = overlay?.position ?? state.position;
+        if (holdingsResult.status === "fulfilled") {
+          const live = holdingsResult.value;
+          const sameScope =
+            live.settingsPda === (overlay?.settingsPda ?? state.settingsPda) &&
+            live.smartAccountAddress === state.smartAccountAddress;
+          const minimumSlot = [
+            overlay?.confirmedSlot,
+            overlay?.projectedSlot,
+            overlay?.amountObservedSlot,
+          ].reduce<string>(
+            (high, slot) => (slot && BigInt(slot) > BigInt(high) ? slot : high),
+            "0"
+          );
+          const fresh =
+            sameScope &&
+            live.observedAt !== null &&
+            (!minimumSlot ||
+              (live.observedSlot !== null &&
+                BigInt(live.observedSlot) >= BigInt(minimumSlot)));
+          const closedProof =
+            live.observedAt === null &&
+            live.currentTotalAmountRaw === "0" &&
+            live.holdings.length === 0 &&
+            !overlay?.pending &&
+            next?.currentAmountRaw === "0" &&
+            state.projectedPositions &&
+            state.projectedPositions.length > 0 &&
+            state.projectedPositions.every(
+              (row) => row.status === "closed" && row.currentAmountRaw === "0"
+            );
+          const emptyAccount =
+            !state.settingsPda &&
+            !latest &&
+            !scope &&
+            !state.position &&
+            live.settingsPda === null &&
+            live.currentTotalAmountRaw === "0" &&
+            live.holdings.length === 0;
+          if (!sameScope || (!fresh && !closedProof && !emptyAccount)) {
+            throw new Error(
+              "Earn holdings refresh is behind the accepted slot or scope."
+            );
+          }
+          if (fresh) {
+            if (next)
+              next = { ...next, currentAmountRaw: live.currentTotalAmountRaw };
+            if (overlay)
+              overlay = { ...overlay, amountObservedSlot: live.observedSlot };
+            setHoldings(live.holdings);
+          }
+          setPolicyMissing(!overlay?.pending && live.observedAt === null);
+          if (
+            !overlay?.pending &&
+            live.observedAt === null &&
+            (!next || next.currentAmountRaw === "0")
+          ) {
+            setHoldings([]);
+          }
+        }
+        if (overlay && next) overlay = { ...overlay, position: next };
+        commit(overlay, next);
+        if (holdingsResult.status === "rejected") {
+          // A closed projection covering the withdrawal is the complete zero
+          // proof. Cleanup may already have removed the policy needed by the RPC
+          // inventory endpoint; that is not a missing positive-balance refresh.
+          const closedProof =
+            !overlay?.pending &&
+            next?.currentAmountRaw === "0" &&
+            state.projectedPositions &&
+            state.projectedPositions.length > 0 &&
+            state.projectedPositions.every(
+              (row) => row.status === "closed" && row.currentAmountRaw === "0"
+            );
+          if (!closedProof) throw holdingsResult.reason;
+          setHoldings([]);
+        }
+      } catch (error) {
+        if (options?.throwOnError) throw error;
+        console.warn("Failed to refresh Earn position", error);
       } finally {
-        if (fetchId === fetchIdRef.current) {
+        if (current()) {
           setIsLoading(false);
           setHasLoaded(true);
         }
       }
     },
-    [walletAddress],
+    [walletAddress, commit, sessionKey]
   );
 
   useEffect(() => {
-    if (walletAddress) {
-      refreshEarnPosition();
-    } else {
-      setPosition(null);
-      setHoldings([]);
-      setPolicyMissing(false);
-      setHasLoaded(false);
-    }
+    ++fetchIdRef.current;
+    loadedWalletRef.current = sessionKey;
+    const stored = walletAddress ? readEarnOverlay(walletAddress) : null;
+    overlayRef.current = stored;
+    positionRef.current = stored?.position ?? null;
+    setPosition(stored?.position ?? null);
+    setHoldings([]);
+    setPolicyMissing(false);
+    setHasLoaded(stored !== null);
+    const unsubscribe = subscribeEarnOverlay((wallet, confirmed) => {
+      if (wallet !== walletAddress || walletRef.current !== walletAddress)
+        return;
+      const overlay = readEarnOverlay(wallet);
+      overlayRef.current = overlay;
+      positionRef.current = overlay?.position ?? null;
+      setPosition(overlay?.position ?? null);
+      if (confirmed) {
+        ++fetchIdRef.current;
+        setHoldings([]);
+        setHasLoaded(true);
+        setIsLoading(false);
+      }
+    });
+    if (walletAddress) void refreshEarnPosition();
+    const requestIds = fetchIdRef;
+    return () => {
+      unsubscribe();
+      ++requestIds.current;
+    };
+  }, [walletAddress, refreshEarnPosition, sessionKey]);
+
+  // Missing accounting identities or a projection racing the last SSE frame
+  // must converge even when no later event arrives. This retries evidence only;
+  // elapsed time never releases a money overlay.
+  useEffect(() => {
+    if (!walletAddress) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const retry = async () => {
+      if (readEarnOverlay(walletAddress)?.pending) await refreshEarnPosition();
+      if (!stopped) timer = setTimeout(() => void retry(), 5_000);
+    };
+    timer = setTimeout(() => void retry(), 5_000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [walletAddress, refreshEarnPosition]);
 
+  useEffect(
+    () =>
+      subscribeEarnRealtime(async (refresh) => {
+        if (refresh.position) await refreshEarnPosition({ throwOnError: true });
+      }),
+    [refreshEarnPosition]
+  );
+
+  const scopeMatches = loadedWalletRef.current === sessionKey;
   return {
-    position,
-    holdings,
-    policyMissing,
+    position: scopeMatches ? position : null,
+    holdings: scopeMatches ? holdings : [],
+    policyMissing: scopeMatches && policyMissing,
     isLoading,
-    hasLoaded,
+    hasLoaded: scopeMatches && hasLoaded,
     refreshEarnPosition,
-    markEarnMutation,
+    confirmEarnMutation,
   };
 }

@@ -4,7 +4,7 @@ import { Buffer } from "buffer";
 import type { Signer } from "@/lib/wallet/signer";
 
 import { EarnApiError, type EarnAuthFields } from "./earn-api";
-import { maybeMintEarnSession } from "./earn-session";
+import { getEarnSessionToken, maybeMintEarnSession } from "./earn-session";
 
 export type EarnAuthPurpose =
   | "earn-deposit-prepare"
@@ -40,7 +40,7 @@ function buildEarnAuthMessage(args: {
 // can authenticate the request without a session (Turnstile-free).
 export async function signEarnAuth(
   signer: Signer,
-  purpose: EarnAuthPurpose,
+  purpose: EarnAuthPurpose
 ): Promise<EarnAuthFields> {
   const walletAddress = signer.publicKey.toBase58();
   const issuedAt = new Date().toISOString();
@@ -52,6 +52,26 @@ export async function signEarnAuth(
   // wallet prompt entirely.
   maybeMintEarnSession(fields);
   return fields;
+}
+
+// Passive bootstrap may sign ONLY with an unlocked local signer. External
+// wallets need an explicit user gesture; a cached session never needs one.
+export async function ensureEarnRealtimeSession(
+  walletAddress: string,
+  signer: Signer | null,
+  allowExternalPrompt = false
+): Promise<string | null> {
+  const existing = await getEarnSessionToken(walletAddress);
+  if (existing) return existing;
+  if (
+    !signer ||
+    signer.publicKey.toBase58() !== walletAddress ||
+    (signer.kind !== "local" && !allowExternalPrompt)
+  )
+    return null;
+  const auth = await signEarnAuth(signer, "earn-deposit-prepare");
+  await maybeMintEarnSession(auth);
+  return getEarnSessionToken(walletAddress);
 }
 
 // Auth-failure codes worth one retry with a freshly signed message: the reused
@@ -70,7 +90,7 @@ export async function withEarnAuth<T>(
   signer: Signer,
   flowAuth: EarnAuthFields,
   purpose: EarnAuthPurpose,
-  call: (auth: EarnAuthFields) => Promise<T>,
+  call: (auth: EarnAuthFields) => Promise<T>
 ): Promise<T> {
   try {
     return await call(flowAuth);

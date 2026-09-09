@@ -36,4 +36,20 @@ describe("lifecycle recovery events", () => {
     expect(parsed.recoveryRequired).toBe(true);
     expect(parsed.persistenceState).toBe("failed");
   });
+
+  test("accepts confirmed chain state with pending routing projection", () => {
+    const parsed = parseBrowserLifecycleEnvelope(
+      {
+        ...cleanupRecoveryEnvelope(),
+        errorCode: undefined,
+        persistenceState: "pending",
+        recoveryRequired: undefined,
+        stage: "ui_commit",
+      },
+      NOW
+    );
+
+    expect(parsed.chainState).toBe("confirmed");
+    expect(parsed.persistenceState).toBe("pending");
+  });
 });

@@ -1,14 +1,20 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts-core";
-import type { Connection, Transaction, VersionedTransaction } from "@solana/web3.js";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import type { Connection, Transaction } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  VersionedTransaction,
+} from "@solana/web3.js";
 
 import type { WalletAdapterLike } from "./types";
 import { sendPreparedBatchWithWallet, sendPreparedWithWallet } from "./wallet";
 
 const programId = new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
 const settingsPda = new PublicKey("11111111111111111111111111111112");
-const feePayer = new PublicKey("11111111111111111111111111111113");
+const feePayerSigner = Keypair.fromSeed(new Uint8Array(32).fill(7));
+const feePayer = feePayerSigner.publicKey;
 const recipient = new PublicKey("11111111111111111111111111111114");
 const recentBlockhash = "11111111111111111111111111111111";
 
@@ -42,16 +48,27 @@ function createRejectingWallet(error = new Error("wallet rejected")) {
   } as unknown as WalletAdapterLike;
 }
 
+function signTestTransaction<T extends Transaction | VersionedTransaction>(
+  transaction: T
+): T {
+  if (transaction instanceof VersionedTransaction) {
+    transaction.sign([feePayerSigner]);
+  } else {
+    transaction.partialSign(feePayerSigner);
+  }
+  return transaction;
+}
+
 function createSignAllTransactionsMock() {
-  return mock(
-    async (transactions: (Transaction | VersionedTransaction)[]) =>
-      transactions
+  return mock(async (transactions: (Transaction | VersionedTransaction)[]) =>
+    transactions.map(signTestTransaction)
   ) as unknown as NonNullable<WalletAdapterLike["signAllTransactions"]>;
 }
 
 function createConnection(args: {
   confirmTransaction?: ReturnType<typeof mock>;
   getAccountInfo?: ReturnType<typeof mock>;
+  getSignatureStatuses?: ReturnType<typeof mock>;
   logs?: string[];
   sendRawTransaction?: ReturnType<typeof mock>;
   simulateTransaction?: ReturnType<typeof mock>;
@@ -68,9 +85,9 @@ function createConnection(args: {
 
   return {
     confirmTransaction:
-      args.confirmTransaction ??
-      mock(async () => ({ value: { err: null } })),
+      args.confirmTransaction ?? mock(async () => ({ value: { err: null } })),
     getAccountInfo: args.getAccountInfo,
+    getSignatureStatuses: args.getSignatureStatuses,
     getLatestBlockhash: mock(async () => ({
       blockhash: recentBlockhash,
       lastValidBlockHeight: 123,
@@ -84,6 +101,148 @@ function createConnection(args: {
 }
 
 describe("wallet prepared sends", () => {
+  test("simulates once when an accepted signature never appears on chain", async () => {
+    const sendTransaction = mock(async () => "missing-signature");
+    const connection = createConnection({
+      confirmTransaction: mock(async () => {
+        throw new Error("block height exceeded");
+      }),
+      getSignatureStatuses: mock(async () => ({ value: [null] })),
+      logs: [
+        "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG invoke [1]",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Transfer: insufficient lamports 236920, need 2268960",
+        "Program 11111111111111111111111111111111 failed: custom program error: 0x1",
+      ],
+    });
+
+    await expect(
+      sendPreparedWithWallet({
+        connection,
+        prepared: createPrepared(),
+        wallet: {
+          publicKey: feePayer,
+          sendTransaction,
+          signTransaction: mock(
+            async <T extends VersionedTransaction>(transaction: T) =>
+              transaction
+          ),
+        },
+      })
+    ).rejects.toThrow("Top up at least 0.00203204 SOL");
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  test("rebroadcasts identical signed bytes after a transient send failure", async () => {
+    const sentPayloads: number[][] = [];
+    const sendRawTransaction = mock(async (payload: Uint8Array) => {
+      sentPayloads.push(Array.from(payload));
+      if (sentPayloads.length === 1) {
+        throw new TypeError("Failed to fetch");
+      }
+      return "raw-signature";
+    });
+    const getSignatureStatuses = mock(async () => ({ value: [null] }));
+    const connection = createConnection({
+      getSignatureStatuses,
+      sendRawTransaction,
+    });
+
+    const signature = await sendPreparedWithWallet({
+      connection,
+      confirm: false,
+      prepared: createPrepared(),
+      wallet: {
+        publicKey: feePayer,
+        signTransaction: mock(
+          async <T extends VersionedTransaction>(transaction: T) =>
+            signTestTransaction(transaction)
+        ),
+      },
+    });
+
+    expect(signature).toBe("raw-signature");
+    expect(sendRawTransaction).toHaveBeenCalledTimes(2);
+    expect(getSignatureStatuses).toHaveBeenCalledTimes(1);
+    expect(sentPayloads[1]).toEqual(sentPayloads[0]);
+  });
+
+  test("does not rebroadcast when the first send is already visible", async () => {
+    const sendRawTransaction = mock(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const getSignatureStatuses = mock(async () => ({
+      value: [
+        {
+          confirmationStatus: "processed",
+          confirmations: 1,
+          err: null,
+          slot: 321,
+        },
+      ],
+    }));
+    const connection = createConnection({
+      getSignatureStatuses,
+      sendRawTransaction,
+    });
+
+    const signature = await sendPreparedWithWallet({
+      connection,
+      confirm: false,
+      prepared: createPrepared(),
+      wallet: {
+        publicKey: feePayer,
+        signTransaction: mock(
+          async <T extends VersionedTransaction>(transaction: T) =>
+            signTestTransaction(transaction)
+        ),
+      },
+    });
+
+    expect(signature.length).toBeGreaterThan(0);
+    expect(sendRawTransaction).toHaveBeenCalledTimes(1);
+    expect(getSignatureStatuses).toHaveBeenCalledTimes(1);
+  });
+
+  test("polls a temporarily absent signature before declaring confirmation unresolved", async () => {
+    const getSignatureStatuses = mock()
+      .mockResolvedValueOnce({ value: [null] })
+      .mockResolvedValueOnce({
+        value: [
+          {
+            confirmationStatus: "finalized",
+            confirmations: null,
+            err: null,
+            slot: 321,
+          },
+        ],
+      });
+    const connection = createConnection({
+      confirmTransaction: mock(async () => {
+        throw new Error("confirmation transport failed");
+      }),
+      getSignatureStatuses,
+    });
+
+    const signature = await sendPreparedWithWallet({
+      connection,
+      confirm: true,
+      prepared: createPrepared(),
+      wallet: {
+        publicKey: feePayer,
+        sendTransaction: mock(async () => "delayed-signature"),
+        signTransaction: mock(
+          async <T extends VersionedTransaction>(transaction: T) => transaction
+        ),
+      },
+    });
+
+    expect(signature).toBe("delayed-signature");
+    expect(getSignatureStatuses).toHaveBeenCalledTimes(2);
+  });
+
   test("simulates after wallet send failure and surfaces insufficient SOL top-up", async () => {
     const connection = createConnection({
       logs: [
@@ -234,7 +393,7 @@ describe("wallet prepared sends", () => {
     });
     const confirmTransaction = mock(async (strategy: { signature: string }) => {
       events.push(`confirm:${strategy.signature}`);
-      return { value: { err: null } };
+      return { context: { slot: 1 }, value: { err: null } };
     });
     const connection = createConnection({
       confirmTransaction,
@@ -253,14 +412,16 @@ describe("wallet prepared sends", () => {
         publicKey: feePayer,
         signAllTransactions: createSignAllTransactionsMock(),
         signTransaction: mock(
-          async <T extends VersionedTransaction>(transaction: T) =>
-            transaction
+          async <T extends VersionedTransaction>(transaction: T) => transaction
         ),
       },
     });
 
     expect(signatures).toEqual(["signature-1", "signature-2"]);
-    expect(events.slice(0, 2)).toEqual(["send:signature-1", "send:signature-2"]);
+    expect(events.slice(0, 2)).toEqual([
+      "send:signature-1",
+      "send:signature-2",
+    ]);
     expect(events.indexOf("confirm:signature-1")).toBeGreaterThan(1);
     expect(events.indexOf("confirm:signature-2")).toBeGreaterThan(1);
     expect(events).toContain("callback:signature-1");
@@ -269,7 +430,9 @@ describe("wallet prepared sends", () => {
 
   test("confirms already-sent batch transactions when a later send fails", async () => {
     const events: string[] = [];
-    const sendError = new Error("second send failed");
+    const sendError = new Error(
+      "Transaction simulation failed: second send failed"
+    );
     let sendCount = 0;
     const sendRawTransaction = mock(async () => {
       sendCount += 1;
@@ -282,7 +445,7 @@ describe("wallet prepared sends", () => {
     });
     const confirmTransaction = mock(async (strategy: { signature: string }) => {
       events.push(`confirm:${strategy.signature}`);
-      return { value: { err: null } };
+      return { context: { slot: 1 }, value: { err: null } };
     });
     const connection = createConnection({
       confirmTransaction,

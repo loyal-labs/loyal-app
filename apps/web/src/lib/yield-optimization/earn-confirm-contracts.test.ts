@@ -58,10 +58,8 @@ describe("Earn deposit confirmation contracts", () => {
 });
 
 describe("Earn withdrawal confirmation contracts", () => {
-  test("preserves bundled autodeposit close metadata through build and parse", () => {
+  test("does not send bundled autodeposit close metadata to backend confirmation", () => {
     const body = buildEarnWithdrawalConfirmRequestBody({
-      autodepositCloseConfirmedSlot: "122",
-      autodepositCloseSignature: "autodeposit-close-signature",
       confirmedSlot: "123",
       preparedWithdraw: {
         persistence: {
@@ -95,18 +93,9 @@ describe("Earn withdrawal confirmation contracts", () => {
       smartAccountAddress: "smart-account",
     });
 
-    expect(body.autodepositClose?.closeSignature).toBe(
-      "autodeposit-close-signature"
-    );
-    expect(body.autodepositClose?.recurringDelegation).toBe(
-      "recurring-delegation"
-    );
+    expect(body.autodepositClose).toBeUndefined();
     const parsed = parseEarnWithdrawalConfirmRequestBody(body);
-    expect(parsed.autodepositClose?.closeSignature).toBe(
-      "autodeposit-close-signature"
-    );
-    expect(parsed.autodepositClose?.confirmedSlot).toBe(BigInt(122));
-    expect(parsed.autodepositClose?.policyAccount).toBe("autodeposit-policy");
+    expect(parsed.autodepositClose).toBeUndefined();
     expect(parsed.confirmedSlot).toBe(BigInt(123));
     expect(parsed.mode).toBe("full");
     expect(parsed.withdrawalSignature).toBe("withdrawal-signature");

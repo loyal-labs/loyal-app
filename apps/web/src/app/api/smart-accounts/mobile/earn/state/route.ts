@@ -11,9 +11,9 @@ import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-sign
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getCurrentReserveUpdatesByReserve } from "@/lib/kamino/timescale-reserve-client.server";
+import { serializeEarnPositionAccounting } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
-  findActiveYieldPositionsForVault,
-  findReconciledActiveYieldPositionForVault,
+  findYieldPositionsForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -68,43 +68,6 @@ function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
   return position.currentReserve;
 }
 
-// The wallet can hold one active position row per product mint (ASK-1355), so
-// the headline balance is the sum of every ACTIVE position row — exactly what
-// the deposit/withdraw confirms write synchronously, which is the value the
-// mobile client trusts in its short post-mutation window before live holdings
-// catch up. The vault snapshot tables are deliberately NOT used here: the
-// routing worker records reserve rows in collateral-unit semantics
-// (`kamino_obligation_collateral_deposited_amount`), which the user-facing
-// filter drops wholesale, collapsing that "total" to idle dust — the $0.00
-// balance regression right after a USDG deposit (2026-08-14). Falls back to
-// the reconciled single row's amount when the plural read is empty or fails.
-async function loadCurrentTotalAmountRaw(args: {
-  cluster: ReturnType<typeof resolveConfiguredCluster>;
-  position: UserYieldPositionRecord;
-  settings: string;
-  walletAddress: string;
-}): Promise<bigint> {
-  try {
-    const rows = await findActiveYieldPositionsForVault({
-      cluster: args.cluster,
-      settings: args.settings,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress: args.walletAddress,
-    });
-    const total = rows.reduce(
-      (sum, row) => sum + row.currentAmountRaw,
-      BigInt(0)
-    );
-    return total > BigInt(0) ? total : args.position.currentAmountRaw;
-  } catch (error) {
-    console.warn(
-      "[mobile-earn-state] failed to sum active position rows",
-      error
-    );
-    return args.position.currentAmountRaw;
-  }
-}
-
 // Best-effort: the funded balance is the headline number; APY is supplementary,
 // so a missing/empty Timescale read just yields null rather than failing.
 async function loadCurrentSupplyApyBps(
@@ -141,6 +104,8 @@ export async function GET(request: Request) {
 
   const emptyState = {
     position: null,
+    projectedSlot: null,
+    projectedPositions: [],
     settingsPda: null,
     smartAccountAddress: null,
   };
@@ -165,37 +130,42 @@ export async function GET(request: Request) {
     }
 
     const cluster = resolveConfiguredCluster();
-    const position = await findReconciledActiveYieldPositionForVault({
+    const rows = await findYieldPositionsForVault({
       cluster,
       settings: account.settingsPda,
       vaultIndex: EARN_VAULT_INDEX,
       walletAddress,
     });
-    if (!position) {
-      return NextResponse.json({
-        position: null,
-        settingsPda: account.settingsPda,
-        smartAccountAddress: account.smartAccountAddress,
-      });
-    }
-
-    const [currentSupplyApyBps, currentTotalAmountRaw] = await Promise.all([
-      loadCurrentSupplyApyBps(position),
-      loadCurrentTotalAmountRaw({
-        cluster,
-        position,
-        settings: account.settingsPda,
-        walletAddress,
-      }),
-    ]);
+    const activeRows = rows.filter((row) => row.status === "active");
+    const position = activeRows[0] ?? null;
+    const currentSupplyApyBps = position
+      ? await loadCurrentSupplyApyBps(position)
+      : null;
 
     return NextResponse.json({
-      position: {
-        currentAmountRaw: currentTotalAmountRaw.toString(),
-        currentSupplyApyBps,
-        principalAmountRaw: position.principalAmountRaw.toString(),
-        status: position.status,
-      },
+      cluster,
+      projectedSlot: serializeEarnPositionAccounting(rows).lastConfirmedSlot,
+      projectedPositions: rows.map((row) => ({
+        id: row.id.toString(),
+        liquidityMint: row.initialLiquidityMint,
+        initialReserveAddress: row.initialReserve,
+        currentLiquidityMint: row.currentLiquidityMint,
+        currentReserveAddress: row.currentReserve,
+        currentAmountRaw: row.currentAmountRaw.toString(),
+        currentObservedSlot: row.currentObservedSlot.toString(),
+        lastConfirmedSlot: row.lastConfirmedSlot.toString(),
+        principalAmountRaw: row.principalAmountRaw.toString(),
+        status: row.status,
+        vaultPubkey: row.vaultPubkey,
+      })),
+      position: position
+        ? {
+            ...serializeEarnPositionAccounting(activeRows),
+            currentObservedSlot: position.currentObservedSlot.toString(),
+            currentSupplyApyBps,
+            status: position.status,
+          }
+        : null,
       settingsPda: account.settingsPda,
       smartAccountAddress: account.smartAccountAddress,
     });

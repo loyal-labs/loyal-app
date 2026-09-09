@@ -23,13 +23,10 @@ import {
 } from "@/lib/yield-optimization/earn-reserve-target.server";
 import { type ConfirmedYieldDepositInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
-// Shared core of the Earn deposit "confirm" step. Both the session-authed web
-// route (`yield-optimization/deposits/confirm`) and the wallet-signed mobile
-// route (`mobile/earn/deposit/confirm`) call `verifyConfirmedEarnDeposit` so the
-// security-critical canonicalization + on-chain slot verification can never
-// drift between surfaces. Finalized LaserStream projection is the sole writer of
-// Earn policy, deposit, holding, and position state. This compatibility endpoint
-// verifies and acknowledges released-client requests without racing that writer.
+// Legacy mobile deposit confirmation core. The retired web wrapper is no
+// longer routable; current clients prepare locally and rely on Render's
+// confirmed LaserStream projection. Keep canonicalization and on-chain slot
+// verification for pre-OTA mobile requests without racing that writer.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 const connectionCache = new Map<SolanaEnv, Connection>();

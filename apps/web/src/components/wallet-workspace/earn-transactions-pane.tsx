@@ -1,8 +1,21 @@
 "use client";
 
-import { sendPreparedWithWallet } from "@loyal-labs/smart-account-vaults";
+import {
+  normalizeLoyalCluster,
+  SUBSCRIPTIONS_PROGRAM_ID,
+  subscriptionRevokeDelegationData,
+} from "@loyal-labs/actions";
+import {
+  createSmartAccountVaultsClient,
+  sendPreparedWithWallet,
+} from "@loyal-labs/smart-account-vaults";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  TransactionInstruction,
+} from "@solana/web3.js";
+import { Buffer } from "buffer";
 import { ReceiptText } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -31,12 +44,10 @@ import {
   type LoadedEarnAutodepositScheduledSweep,
 } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
-  hydratePreparedEarnRecurringDelegationRefund,
-  hydratePreparedEarnPolicyRefund,
   type EarnPolicyRefundRecurringDelegation,
-  type EarnPolicyRefundPrepareResponse,
   type EarnPolicyRefundScanPolicy,
   type EarnPolicyRefundScanResponse,
+  type EarnPolicyRefundVaultEntry,
 } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 import {
   fetchEarnTransactions,
@@ -1062,15 +1073,22 @@ function formatRecurringDelegationUsage(
 
 function PolicyRefundRow({
   isRefunding = false,
+  label = "Policy rent",
   onRefund,
   policy,
+  refundLamports,
+  subtitleOverride,
 }: {
   isRefunding?: boolean;
+  label?: string;
   onRefund?: () => void;
   policy: EarnPolicyRefundScanPolicy;
+  refundLamports?: number | null;
+  subtitleOverride?: string;
 }) {
   const isButtonDisabled = isRefunding || !policy.canRefund || !onRefund;
-  const subtitle = policy.blockedReason ?? `Policy #${policy.seed}`;
+  const subtitle =
+    subtitleOverride ?? policy.blockedReason ?? `Policy #${policy.seed}`;
 
   return (
     <div
@@ -1119,7 +1137,7 @@ function PolicyRefundRow({
                 lineHeight: "20px",
               }}
             >
-              Policy rent
+              {label}
             </span>
             <span
               style={{
@@ -1156,7 +1174,9 @@ function PolicyRefundRow({
                 whiteSpace: "nowrap",
               }}
             >
-              {formatPolicyRefundLamports(policy.lamports)}
+              {formatPolicyRefundLamports(
+                refundLamports === undefined ? policy.lamports : refundLamports
+              )}
             </span>
             <span
               style={{
@@ -1657,6 +1677,13 @@ export function EarnTransactionsPane({
   const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
     EarnPolicyRefundScanPolicy[] | null
   >(null);
+  const [policyRefundVault, setPolicyRefundVault] =
+    useState<EarnPolicyRefundVaultEntry | null>(null);
+  const [policyRefundContext, setPolicyRefundContext] = useState<{
+    cluster: string;
+    programId: string;
+    settingsPda: string;
+  } | null>(null);
   const [
     policyRefundRecurringDelegations,
     setPolicyRefundRecurringDelegations,
@@ -1665,6 +1692,7 @@ export function EarnTransactionsPane({
   const [refundingPolicyAccount, setRefundingPolicyAccount] = useState<
     string | null
   >(null);
+  const [isRefundingVault, setIsRefundingVault] = useState(false);
   const [
     refundingRecurringDelegationAccount,
     setRefundingRecurringDelegationAccount,
@@ -1897,12 +1925,23 @@ export function EarnTransactionsPane({
         );
       }
       const payload = (await response.json()) as EarnPolicyRefundScanResponse;
+      if (!(payload.cluster && payload.programId)) {
+        throw new Error("Refund scan is missing client preparation context.");
+      }
       setPolicyRefundPolicies(payload.policies);
       setPolicyRefundRecurringDelegations(payload.recurringDelegations);
+      setPolicyRefundVault(payload.vault);
+      setPolicyRefundContext({
+        cluster: payload.cluster,
+        programId: payload.programId,
+        settingsPda: payload.settingsPda,
+      });
     } catch (error) {
       console.warn("[earn-policy-refunds] scan failed", error);
       setPolicyRefundPolicies([]);
       setPolicyRefundRecurringDelegations([]);
+      setPolicyRefundVault(null);
+      setPolicyRefundContext(null);
       setPolicyRefundError(
         error instanceof Error ? error.message : "Failed to scan policies."
       );
@@ -1912,7 +1951,7 @@ export function EarnTransactionsPane({
   };
 
   const handleRefundPolicy = async (policy: EarnPolicyRefundScanPolicy) => {
-    if (!wallet.publicKey || !wallet.signTransaction) {
+    if (!wallet.publicKey || !wallet.signTransaction || !policyRefundContext) {
       setPolicyRefundError("Connect a wallet before refunding policy rent.");
       return;
     }
@@ -1920,31 +1959,20 @@ export function EarnTransactionsPane({
     setRefundingPolicyAccount(policy.account);
     setPolicyRefundError(null);
     try {
-      const response = await fetch(
-        "/api/smart-accounts/yield-optimization/policy-refunds/prepare",
-        {
-          body: JSON.stringify({ policyAccount: policy.account }),
-          headers: { "content-type": "application/json" },
-          method: "POST",
-        }
-      );
-      if (!response.ok) {
-        throw new Error(
-          await readApiError(response, "Failed to prepare policy refund.")
-        );
-      }
-      const payload =
-        (await response.json()) as EarnPolicyRefundPrepareResponse;
-      if (!payload.preparedRefund) {
-        throw new Error("Policy refund preparation returned no transaction.");
-      }
-      const preparedRefund = hydratePreparedEarnPolicyRefund(
-        payload.preparedRefund
-      );
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(policyRefundContext.programId),
+      });
+      const preparedRefund = await client.prepareClosePoliciesSync({
+        feePayer: wallet.publicKey,
+        policies: [new PublicKey(policy.account)],
+        settingsPda: new PublicKey(policyRefundContext.settingsPda),
+        signers: [wallet.publicKey],
+      });
       await sendPreparedWithWallet({
         confirm: true,
         connection,
-        prepared: preparedRefund.prepared,
+        prepared: preparedRefund,
         wallet: {
           publicKey: wallet.publicKey,
           signTransaction: wallet.signTransaction,
@@ -1974,36 +2002,32 @@ export function EarnTransactionsPane({
     setRefundingRecurringDelegationAccount(delegation.account);
     setPolicyRefundError(null);
     try {
-      const response = await fetch(
-        "/api/smart-accounts/yield-optimization/policy-refunds/prepare",
-        {
-          body: JSON.stringify({
-            kind: "recurring_delegation",
-            recurringDelegation: delegation.account,
+      const recurringDelegation = new PublicKey(delegation.account);
+      const preparedRefund = {
+        instructions: [
+          new TransactionInstruction({
+            data: Buffer.from(subscriptionRevokeDelegationData()),
+            keys: [
+              { isSigner: true, isWritable: true, pubkey: wallet.publicKey },
+              {
+                isSigner: false,
+                isWritable: true,
+                pubkey: recurringDelegation,
+              },
+            ],
+            programId: SUBSCRIPTIONS_PROGRAM_ID,
           }),
-          headers: { "content-type": "application/json" },
-          method: "POST",
-        }
-      );
-      if (!response.ok) {
-        throw new Error(
-          await readApiError(response, "Failed to prepare delegation refund.")
-        );
-      }
-      const payload =
-        (await response.json()) as EarnPolicyRefundPrepareResponse;
-      if (!payload.preparedRecurringDelegationRefund) {
-        throw new Error(
-          "Delegation refund preparation returned no transaction."
-        );
-      }
-      const preparedRefund = hydratePreparedEarnRecurringDelegationRefund(
-        payload.preparedRecurringDelegationRefund
-      );
+        ],
+        lookupTableAccounts: [],
+        operation: "earnRecurringDelegationRentRefund",
+        payer: wallet.publicKey,
+        programId: SUBSCRIPTIONS_PROGRAM_ID,
+        requiresConfirmation: true,
+      };
       await sendPreparedWithWallet({
         confirm: true,
         connection,
-        prepared: preparedRefund.prepared,
+        prepared: preparedRefund,
         wallet: {
           publicKey: wallet.publicKey,
           signTransaction: wallet.signTransaction,
@@ -2019,6 +2043,44 @@ export function EarnTransactionsPane({
       );
     } finally {
       setRefundingRecurringDelegationAccount(null);
+    }
+  };
+
+  const handleRefundVault = async () => {
+    if (!wallet.publicKey || !wallet.signTransaction || !policyRefundContext) {
+      setPolicyRefundError("Connect a wallet before refunding vault rent.");
+      return;
+    }
+    setIsRefundingVault(true);
+    setPolicyRefundError(null);
+    try {
+      const client = createSmartAccountVaultsClient({
+        connection,
+        programId: new PublicKey(policyRefundContext.programId),
+      });
+      const preparedRefund = await client.prepareEarnVaultAccountsRefund({
+        cluster: normalizeLoyalCluster(policyRefundContext.cluster),
+        feePayer: wallet.publicKey,
+        settingsPda: new PublicKey(policyRefundContext.settingsPda),
+        walletAddress: wallet.publicKey,
+      });
+      await sendPreparedWithWallet({
+        confirm: true,
+        connection,
+        prepared: preparedRefund.prepared,
+        wallet: {
+          publicKey: wallet.publicKey,
+          signTransaction: wallet.signTransaction,
+        },
+      });
+      await handleScanPolicies();
+    } catch (error) {
+      console.warn("[earn-policy-refunds] vault refund failed", error);
+      setPolicyRefundError(
+        error instanceof Error ? error.message : "Failed to refund vault rent."
+      );
+    } finally {
+      setIsRefundingVault(false);
     }
   };
 
@@ -2189,7 +2251,8 @@ export function EarnTransactionsPane({
                 >
                   <TransactionsSectionHeader label="Policies" />
                   {(policyRefundPolicies ?? []).length === 0 &&
-                  (policyRefundRecurringDelegations ?? []).length === 0 ? (
+                  (policyRefundRecurringDelegations ?? []).length === 0 &&
+                  !policyRefundVault ? (
                     <p
                       style={{
                         color: secondary,
@@ -2239,6 +2302,42 @@ export function EarnTransactionsPane({
                           />
                         )
                       )}
+                    </>
+                  ) : null}
+                  {policyRefundVault ? (
+                    <>
+                      <TransactionsSectionHeader label="Vault" />
+                      <PolicyRefundRow
+                        isRefunding={isRefundingVault}
+                        label="Vault account rent"
+                        onRefund={
+                          policyRefundVault.canRefund
+                            ? () => void handleRefundVault()
+                            : undefined
+                        }
+                        policy={{
+                          account: policyRefundVault.account,
+                          accountIndex: 1,
+                          activeAutodeposit: false,
+                          activeManagedVault: false,
+                          blockedReason: policyRefundVault.blockedReason,
+                          canRefund: policyRefundVault.canRefund,
+                          dbPresent: false,
+                          lamports: policyRefundVault.lamports,
+                          recurringDelegations: [],
+                          referencedByActivePosition: false,
+                          seed: "1",
+                          state: policyRefundVault.canRefund
+                            ? "refundable"
+                            : "protected",
+                        }}
+                        refundLamports={
+                          policyRefundVault.totalRefundableLamports
+                        }
+                        subtitleOverride={formatPolicyRefundAddress(
+                          policyRefundVault.account
+                        )}
+                      />
                     </>
                   ) : null}
                   {policyRefundError ? (

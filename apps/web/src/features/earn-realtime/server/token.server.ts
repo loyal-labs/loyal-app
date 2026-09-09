@@ -25,7 +25,7 @@ export type EarnRealtimeTokenClaims = {
   earnVaultAddress: string;
   solanaEnv: "devnet" | "mainnet-beta";
   scopes: ["autodeposit", "earn"];
-  clientKind: "web";
+  clientKind: "web" | "mobile";
 };
 
 export type IssuedEarnRealtimeToken = {
@@ -52,12 +52,14 @@ function resolveRealtimeSolanaEnv(
 
 export function issueEarnRealtimeToken({
   authSecret,
+  clientKind = "web",
   now = new Date(),
   principal,
   programId,
   solanaEnv,
 }: {
   authSecret: string;
+  clientKind?: EarnRealtimeTokenClaims["clientKind"];
   now?: Date;
   principal: AuthenticatedPrincipal;
   programId: string;
@@ -81,7 +83,7 @@ export function issueEarnRealtimeToken({
   const issuedAt = Math.floor(now.getTime() / 1000);
   const claims: EarnRealtimeTokenClaims = {
     aud: TOKEN_AUDIENCE,
-    clientKind: "web",
+    clientKind,
     earnVaultAddress: earnVaultPda.toBase58(),
     exp: issuedAt + TOKEN_LIFETIME_SECONDS,
     iat: issuedAt,

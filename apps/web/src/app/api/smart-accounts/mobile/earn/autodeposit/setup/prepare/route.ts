@@ -30,12 +30,10 @@ import {
   hasActiveEarnRoutePolicyPair,
 } from "@/lib/yield-optimization/earn-position-gate.server";
 
-// Mobile twin of `yield-optimization/autodeposit/setup/prepare`. Wallet-sig auth
-// + self-resolved smart account; the SDK returns the next setup stage's prepared
-// op (initialize_subscription_authority -> create_policy ->
-// create_recurring_delegation, or approve_token_delegate repair) for the device
-// to sign. The orchestrator threads the returned nonce/policySeed back into
-// subsequent stages. Keep in sync with the session route.
+// Compatibility endpoint for released mobile clients that still ask the server
+// to prepare each Autodeposit setup stage. New clients build these transactions
+// on-device, but this contract must remain available until those releases age
+// out.
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
@@ -190,10 +188,9 @@ export async function POST(request: Request) {
       // An already-active Autodeposit must be deleted, not set up over: a
       // fresh prepare mints a second policy seed and stands up a duplicate
       // on-chain policy that delete/withdraw flows then trip over. A stale
-      // "active" row heals through the `/state` reconcile before retry.
-      // A position-paused row is the same fully-built autodeposit (it
-      // auto-resumes on the next state read after a deposit), so it guards
-      // identically.
+      // "active" row must wait for Render's chain projection before retry.
+      // A position-paused row is the same fully-built autodeposit (Render
+      // resumes it after a projected deposit), so it guards identically.
       if (
         target?.lifecycleStatus === "active" ||
         target?.lifecycleStatus === EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION

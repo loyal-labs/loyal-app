@@ -1,44 +1,111 @@
+import {
+  normalizeLoyalCluster,
+  SUBSCRIPTIONS_PROGRAM_ID,
+  subscriptionRevokeDelegationData,
+} from "@loyal-labs/actions";
+import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { Buffer } from "buffer";
+
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 
-import { prepareEarnRefund, type EarnRefundPrepareRequest } from "./earn-api";
-import { signEarnAuth, withEarnAuth } from "./earn-auth";
+import { fetchEarnRefundScan, type EarnRefundPrepareRequest } from "./earn-api";
 import { signAndSendPreparedOperations } from "./send-prepared";
-import { hydratePreparedOperation } from "./wire";
 
 export type EarnRefundResult = {
   signature: string;
 };
 
-// Execute one rent refund (a dead policy, a revoked recurring delegation, or
-// the closed vault's leftover SOL + token-account rents). The backend
-// re-verifies that the target is not in active use before preparing; the
-// device wallet is the fee payer and the refund destination, so it signs and
-// sends. Nothing is recorded server-side — the refund lands as plain SOL in
-// the wallet, and the caller rescans to drop the row.
+// Build and execute one rent refund on-device. The passive scan is only an
+// authenticated product/read-model guard; the SDK re-reads the public chain
+// accounts that determine the actual close/refund transaction.
 export async function executeEarnRefund(args: {
   signer: Signer;
   request: EarnRefundPrepareRequest;
 }): Promise<EarnRefundResult> {
-  const prepareAuth = await signEarnAuth(args.signer, "earn-refund-prepare");
-  const response = await withEarnAuth(
-    args.signer,
-    prepareAuth,
-    "earn-refund-prepare",
-    (auth) => prepareEarnRefund({ auth, request: args.request }),
+  const { cluster, programId, scan } = await fetchEarnRefundScan(
+    args.signer.publicKey.toBase58()
   );
-  const wire =
-    response.preparedVaultRefund ??
-    response.preparedRefund ??
-    response.preparedRecurringDelegationRefund;
-  if (!wire) {
-    throw new Error("Refund preparation returned no transaction.");
+  if (!(scan && cluster && programId)) {
+    throw new Error("Refund context is unavailable. Refresh and try again.");
+  }
+  const client = createSmartAccountVaultsClient({
+    connection: getConnection(),
+    programId: new PublicKey(programId),
+  });
+  const settingsPda = new PublicKey(scan.settingsPda);
+  const request = args.request;
+  let prepared;
+  if (request.kind === "vault") {
+    if (!scan.vault?.canRefund) {
+      throw new Error(
+        scan.vault?.blockedReason ?? "Earn vault is not refundable."
+      );
+    }
+    prepared = (
+      await client.prepareEarnVaultAccountsRefund({
+        cluster: normalizeLoyalCluster(cluster),
+        feePayer: args.signer.publicKey,
+        settingsPda,
+        walletAddress: args.signer.publicKey,
+      })
+    ).prepared;
+  } else if (request.kind === "policy") {
+    const policy = scan.policies.find(
+      (candidate) => candidate.account === request.policyAccount
+    );
+    if (!policy?.canRefund) {
+      throw new Error(
+        policy?.blockedReason ?? "Earn policy is not refundable."
+      );
+    }
+    prepared = await client.prepareClosePoliciesSync({
+      feePayer: args.signer.publicKey,
+      policies: [new PublicKey(policy.account)],
+      settingsPda,
+      signers: [args.signer.publicKey],
+    });
+  } else {
+    const delegation = scan.recurringDelegations.find(
+      (candidate) => candidate.account === request.recurringDelegation
+    );
+    if (!delegation?.canRefund) {
+      throw new Error(
+        delegation?.blockedReason ?? "Recurring delegation is not refundable."
+      );
+    }
+    prepared = {
+      instructions: [
+        new TransactionInstruction({
+          data: Buffer.from(subscriptionRevokeDelegationData()),
+          keys: [
+            {
+              isSigner: true,
+              isWritable: true,
+              pubkey: args.signer.publicKey,
+            },
+            {
+              isSigner: false,
+              isWritable: true,
+              pubkey: new PublicKey(delegation.account),
+            },
+          ],
+          programId: SUBSCRIPTIONS_PROGRAM_ID,
+        }),
+      ],
+      lookupTableAccounts: [],
+      operation: "earnRecurringDelegationRentRefund",
+      payer: args.signer.publicKey,
+      programId: SUBSCRIPTIONS_PROGRAM_ID,
+      requiresConfirmation: true,
+    };
   }
 
   const [sent] = await signAndSendPreparedOperations({
     connection: getConnection(),
     signer: args.signer,
-    operations: [hydratePreparedOperation(wire.prepared)],
+    operations: [prepared],
   });
   return { signature: sent.signature };
 }

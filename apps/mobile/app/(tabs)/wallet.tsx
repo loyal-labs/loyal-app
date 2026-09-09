@@ -9,7 +9,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { ActivityIndicator, RefreshControl, View as MeasureView } from "react-native";
+import {
+  ActivityIndicator,
+  RefreshControl,
+  View as MeasureView,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
@@ -93,12 +97,12 @@ export default function WalletScreen() {
     isLoading: isEarnLoading,
     hasLoaded: earnLoaded,
     refreshEarnPosition,
+    confirmEarnMutation,
   } = useEarnPosition(walletAddress);
   // The Earn balance reads from a lagging read-model, so skeleton the card's
   // figure until a read settles (and again while one is in flight) instead of
   // flashing $0. Only while a wallet is connected.
-  const earnLoading =
-    walletAddress != null && (isEarnLoading || !earnLoaded);
+  const earnLoading = walletAddress != null && (isEarnLoading || !earnLoaded);
   // Loyal APY forecast — the Earn card shows the same headline rate as the Earn
   // screen / APY chart / web, not the position's raw reserve supply APY.
   const forecastSummary = useEarnForecast();
@@ -124,7 +128,7 @@ export default function WalletScreen() {
         refreshEarnPosition(),
       ]);
     },
-    [refreshBalance, refreshTokenHoldings, refreshEarnPosition],
+    [refreshBalance, refreshTokenHoldings, refreshEarnPosition]
   );
 
   const { requestRefresh } = useWalletAutoRefresh({
@@ -152,7 +156,7 @@ export default function WalletScreen() {
     mints.add(
       getSolanaEnv() === "mainnet"
         ? SOLANA_USDC_MINT_MAINNET
-        : SOLANA_USDC_MINT_DEVNET,
+        : SOLANA_USDC_MINT_DEVNET
     );
     for (const holding of tokenHoldings) mints.add(holding.mint);
     for (const balance of shieldedBalances) mints.add(balance.tokenMint);
@@ -160,7 +164,7 @@ export default function WalletScreen() {
   }, [tokenHoldings, shieldedBalances]);
   const tokenDetailsByMint = useTokenDetails(
     tokenDetailMints,
-    tokenMarketRefreshKey,
+    tokenMarketRefreshKey
   );
 
   useEffect(() => {
@@ -171,7 +175,7 @@ export default function WalletScreen() {
       setTokenMarketRefreshKey((k) => k + 1);
 
       Promise.resolve(requestRefresh("network-switch")).finally(() =>
-        setNetworkLoading(false),
+        setNetworkLoading(false)
       );
     });
   }, [requestRefresh]);
@@ -182,7 +186,10 @@ export default function WalletScreen() {
     let hasValuation = false;
 
     for (const holding of tokenHoldings) {
-      if (typeof holding.valueUsd === "number" && Number.isFinite(holding.valueUsd)) {
+      if (
+        typeof holding.valueUsd === "number" &&
+        Number.isFinite(holding.valueUsd)
+      ) {
         total += holding.valueUsd;
         hasValuation = true;
         continue;
@@ -212,12 +219,13 @@ export default function WalletScreen() {
 
   // Portfolio split into the three overview buckets (Figma 141:5888).
   const stablecoinsUsd = useMemo(
-    () => sumHoldingsUsd(filterHoldingsByCategory(tokenHoldings, "stablecoins")),
-    [tokenHoldings],
+    () =>
+      sumHoldingsUsd(filterHoldingsByCategory(tokenHoldings, "stablecoins")),
+    [tokenHoldings]
   );
   const cryptoUsd = useMemo(
     () => sumHoldingsUsd(filterHoldingsByCategory(tokenHoldings, "crypto")),
-    [tokenHoldings],
+    [tokenHoldings]
   );
   const earnUsd = useMemo(() => {
     const raw = Number(earnPosition?.currentAmountRaw);
@@ -243,7 +251,7 @@ export default function WalletScreen() {
     // first-time setup with its SOL cost — gate on the policy read too.
     if (!earnLoaded || (earnUsd > 0 && !earnPolicyMissing)) return null;
     return computeFirstDepositSolShortfall(
-      solBalanceLamports != null ? solBalanceLamports / 1e9 : null,
+      solBalanceLamports != null ? solBalanceLamports / 1e9 : null
     );
   }, [earnLoaded, earnUsd, earnPolicyMissing, solBalanceLamports]);
 
@@ -305,7 +313,7 @@ export default function WalletScreen() {
     const REFRESH_DEADLINE_MS = 15_000;
     const work = requestRefresh("manual");
     const deadline = new Promise<"deadline">((resolve) =>
-      setTimeout(() => resolve("deadline"), REFRESH_DEADLINE_MS),
+      setTimeout(() => resolve("deadline"), REFRESH_DEADLINE_MS)
     );
 
     try {
@@ -315,7 +323,7 @@ export default function WalletScreen() {
       ]);
       if (outcome === "deadline") {
         console.warn(
-          "[wallet-refresh] deadline hit; some requests still pending",
+          "[wallet-refresh] deadline hit; some requests still pending"
         );
       }
     } finally {
@@ -343,13 +351,17 @@ export default function WalletScreen() {
       if (!signer || !isWalletUnlocked(state)) {
         throw new Error("Unlock your wallet to deposit.");
       }
-      await executeEarnDeposit({ signer, amountUsd, mint });
+      await executeEarnDeposit({
+        signer,
+        amountUsd,
+        mint,
+        onConfirmed: confirmEarnMutation,
+      });
       void refreshEarnPosition();
-      // The confirm also records quest progress — check now so a completion
-      // celebrates immediately instead of on the watcher's next poll tick.
+      // Render projects quest progress after the confirmed account update.
       nudgeQuestProgressCheck();
     },
-    [signer, state, refreshEarnPosition],
+    [signer, state, refreshEarnPosition, confirmEarnMutation]
   );
 
   const showTopUpAction = useMemo(
@@ -361,7 +373,7 @@ export default function WalletScreen() {
         networkLoading,
         walletError,
       }),
-    [totalSolLamports, tokenHoldings, isLoading, networkLoading, walletError],
+    [totalSolLamports, tokenHoldings, isLoading, networkLoading, walletError]
   );
 
   if (isLoading && !walletAddress) {
@@ -475,7 +487,7 @@ export default function WalletScreen() {
                     (x, y, width, height) => {
                       setMoreAnchor({ x, y, width, height });
                       setIsMoreOpen(true);
-                    },
+                    }
                   );
                 }}
               />

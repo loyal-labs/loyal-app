@@ -32,7 +32,7 @@ import {
 } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
-  findReconciledActiveYieldPositionForVault,
+  findActiveYieldPositionForVault,
   type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
         vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
         vaultPubkey: earnVaultPda.toBase58(),
       }),
-      findReconciledActiveYieldPositionForVault({
+      findActiveYieldPositionForVault({
         cluster,
         liquidityMint: mint,
         settings: settingsPda,

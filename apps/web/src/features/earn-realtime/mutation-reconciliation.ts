@@ -14,6 +14,8 @@ export type EarnExpectedMutationOperation =
 
 export type ExpectedEarnMutation = {
   key: string;
+  onCovered?: () => void;
+  onExpired?: () => void;
   operation: EarnExpectedMutationOperation;
   reconcileRelated?: () => Promise<void>;
   resources: readonly string[];
@@ -187,13 +189,18 @@ export class EarnMutationReconciliationRegistry {
       if (claimed) recent.claimedBy = entry.key;
     }
     if (isCovered(entry)) {
+      entry.onCovered?.();
       return () => undefined;
     }
 
     const schedule = this.options.schedule ?? defaultSchedule;
     const retentionMs = this.options.retentionMs ?? 15_000;
     this.entries.set(entry.key, entry);
-    entry.cancelExpiry = schedule(() => this.remove(entry.key), retentionMs);
+    entry.cancelExpiry = schedule(() => {
+      if (this.entries.get(entry.key) !== entry) return;
+      entry.onExpired?.();
+      this.remove(entry.key);
+    }, retentionMs);
     entry.cancelFallback = schedule(() => {
       const current = this.entries.get(entry.key);
       if (current !== entry) return;
@@ -212,10 +219,9 @@ export class EarnMutationReconciliationRegistry {
       ])
         .then(() => {
           if (this.entries.get(entry.key) !== entry) return;
-          // This was the one missed-event fallback. Remove correlation state so
-          // any event arriving later owns a fresh causal read instead of being
-          // suppressed by a request that may have started before that event.
-          this.remove(entry.key);
+          // Keep correlation until the retention deadline. A late durable event
+          // still owns its canonical read and can prove projection coverage;
+          // the fallback read by itself cannot prove this mutation was recorded.
         })
         .catch((error) => {
           if (this.entries.get(entry.key) !== entry) return;
@@ -317,7 +323,10 @@ export class EarnMutationReconciliationRegistry {
             entry.pending.delete(resource);
             if (accepted) entry.covered.add(resource);
           }
-          if (accepted && isCovered(entry)) this.remove(entry.key);
+          if (accepted && isCovered(entry)) {
+            entry.onCovered?.();
+            this.remove(entry.key);
+          }
         }
         if (accepted) {
           // A mutation can finish registering while its already-received SSE
@@ -345,7 +354,10 @@ export class EarnMutationReconciliationRegistry {
                 entry.covered.add(resource);
               }
             }
-            if (isCovered(entry)) this.remove(entry.key);
+            if (isCovered(entry)) {
+              entry.onCovered?.();
+              this.remove(entry.key);
+            }
           }
         }
         this.pruneRecent();

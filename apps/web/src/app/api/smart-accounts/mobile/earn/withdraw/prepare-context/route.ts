@@ -24,7 +24,7 @@ import {
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 
 // Context twin of `../prepare` for ON-DEVICE withdraw prepare: same auth and
-// source-selection/reconcile logic (shared via
+// read-only source-selection logic (shared via
 // `earn-withdraw-input-resolution.server.ts`), but instead of building the
 // withdrawal here it returns the resolved SDK input so the device runs
 // `prepareEarnUsdcWithdraw` on its own RPC/IP allowance — mirroring the

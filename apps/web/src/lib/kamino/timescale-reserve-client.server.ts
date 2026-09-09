@@ -119,7 +119,11 @@ export type TimescaleSupportedReserveRow =
   typeof timescaleSupportedReserves.$inferSelect;
 export type TimescaleReservePresenceRow = Pick<
   TimescaleReserveUpdateRow,
-  "observedAt" | "reserve" | "totalSupplyUsdEstimate"
+  | "liquidityMint"
+  | "market"
+  | "observedAt"
+  | "reserve"
+  | "totalSupplyUsdEstimate"
 >;
 
 export type TimescaleReserveApySample = Pick<
@@ -715,6 +719,8 @@ export class TimescaleReserveClient {
     // picker.
     const rows = await this.db
       .select({
+        liquidityMint: latestVerifiedReserveUpdates.liquidityMint,
+        market: latestVerifiedReserveUpdates.market,
         observedAt: latestVerifiedReserveUpdates.observedAt,
         reserve: latestVerifiedReserveUpdates.reserve,
         totalSupplyUsdEstimate:

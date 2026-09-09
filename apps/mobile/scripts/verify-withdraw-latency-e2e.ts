@@ -27,6 +27,7 @@ import {
 } from "@solana/spl-token";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
+import { parseMobileLifecycleEnvelope } from "../../web/src/features/observability/lifecycle-contract";
 import { buildOtlpLifecyclePayload } from "../../web/src/features/observability/otlp";
 
 const APP_PACKAGE = "com.loyal.app.dev";
@@ -477,26 +478,11 @@ function openDepositSheetInVerifierBundle(): void {
     1,
     "The seed verifier could not locate the selected balance state."
   );
-  let boundedSheetSource = initializedAndResetSheetSource.replace(
+  const boundedSheetSource = initializedAndResetSheetSource.replace(
     availableMarker,
     `  const available = ${seededAmount};`
   );
-  if (mode === "insufficient-sol") {
-    const topUpMarker =
-      "const needsSolTopUp = (firstDepositSolShortfall ?? 0) > 0;";
-    assert.equal(
-      boundedSheetSource.split(topUpMarker).length - 1,
-      1,
-      "The insufficient-SOL verifier could not locate the generic SOL preflight."
-    );
-    // Exercise the SDK's exact dynamic rent requirement instead of the UI's
-    // coarse first-deposit estimate. This mutation exists only in the Metro
-    // verifier bundle and is restored in finally.
-    boundedSheetSource = boundedSheetSource.replace(
-      topUpMarker,
-      "const needsSolTopUp = false;"
-    );
-  }
+
   const handlerMarker =
     "  }, [amount, available, onDeposit, selectedSource.mint]);";
   assert.equal(
@@ -1100,16 +1086,24 @@ async function proxyRequest(request: Request): Promise<Response> {
 }
 
 function lifecycleSeverity(event: LifecycleEvent): string | undefined {
-  const payload = buildOtlpLifecyclePayload({
-    deploymentEnvironment: "prod",
+  const normalized = parseMobileLifecycleEnvelope({
+    ...event,
+    environment: "prod",
     pathname: "/",
     release: "android-e2e",
     runtime: "mobile",
-    serviceName: "loyal-mobile",
     source: "mobile_app",
-    ...event,
   });
-  return payload.resourceLogs[0]?.scopeLogs[0]?.logRecords[0]?.severityText;
+  const payload = buildOtlpLifecyclePayload({
+    ...normalized,
+    deploymentEnvironment: normalized.environment,
+    serviceName: "loyal-mobile",
+  });
+  assert.ok(payload && typeof payload === "object" && "resourceLogs" in payload);
+  assert.ok(Array.isArray(payload.resourceLogs));
+  const severity: unknown = payload.resourceLogs[0]?.scopeLogs[0]?.logRecords[0]?.severityText;
+  assert.ok(severity === undefined || typeof severity === "string");
+  return severity;
 }
 
 function lifecycleStageDurations(flowName: string): Record<string, number> {

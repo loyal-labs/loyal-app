@@ -44,8 +44,8 @@ const pushListeners = new Set<() => void>();
 // screen's coordinator ticks every 15s but the recorded bars move slowly.
 const BACKGROUND_MAX_AGE_MS = 60_000;
 
-function fetchIntoCache(walletAddress: string): Promise<void> {
-  if (inFlight?.address === walletAddress) {
+function fetchIntoCache(walletAddress: string, force = false): Promise<void> {
+  if (!force && inFlight?.address === walletAddress) {
     return inFlight.promise;
   }
   const entry: { address: string; promise: Promise<void> } = {
@@ -55,13 +55,18 @@ function fetchIntoCache(walletAddress: string): Promise<void> {
   entry.promise = (async () => {
     try {
       const res = await fetchEarnEarnings(walletAddress);
+      if (inFlight !== entry)
+        throw new Error("Earn earnings refresh was superseded.");
       cacheAddress = walletAddress;
       cached = { earnings: res, fetchedAtMs: Date.now(), status: "ready" };
     } catch (error) {
       console.error("Failed to fetch Earn earnings", error);
       // A failed refresh never clobbers a good snapshot — a blip shouldn't wipe
       // a drawn chart. Only surface "unavailable" when we have nothing to show.
-      if (cacheAddress !== walletAddress || cached?.status !== "ready") {
+      if (
+        inFlight === entry &&
+        (cacheAddress !== walletAddress || cached?.status !== "ready")
+      ) {
         cacheAddress = walletAddress;
         cached = {
           earnings: null,
@@ -69,6 +74,7 @@ function fetchIntoCache(walletAddress: string): Promise<void> {
           status: "unavailable",
         };
       }
+      throw error;
     } finally {
       if (inFlight === entry) {
         inFlight = null;
@@ -84,16 +90,24 @@ function fetchIntoCache(walletAddress: string): Promise<void> {
 // when the earn balance explicitly changed.
 export async function refreshEarnEarningsCache(
   walletAddress: string,
-  { notify = false }: { notify?: boolean } = {},
+  {
+    notify = false,
+    throwOnError = false,
+  }: { notify?: boolean; throwOnError?: boolean } = {}
 ): Promise<void> {
   const fresh =
     cacheAddress === walletAddress &&
     cached !== null &&
     Date.now() - cached.fetchedAtMs < BACKGROUND_MAX_AGE_MS;
-  if (!notify && fresh) {
+  if (!notify && !throwOnError && fresh) {
     return;
   }
-  await fetchIntoCache(walletAddress);
+  try {
+    await fetchIntoCache(walletAddress, throwOnError);
+  } catch (error) {
+    if (throwOnError) throw error;
+    return;
+  }
   if (notify) {
     for (const listener of pushListeners) {
       listener();
@@ -117,7 +131,7 @@ export function useEarnEarnings(walletAddress: string | null) {
   const [snapshot, setSnapshot] = useState<EarnEarningsSnapshot>(() =>
     walletAddress && cacheAddress === walletAddress && cached
       ? { ...cached }
-      : LOADING,
+      : LOADING
   );
 
   useEffect(() => {
@@ -136,7 +150,7 @@ export function useEarnEarnings(walletAddress: string | null) {
         prev.fetchedAtMs === fetchedAtMs &&
         prev.status === status
           ? prev
-          : { earnings, fetchedAtMs, status },
+          : { earnings, fetchedAtMs, status }
       );
     };
     if (cacheAddress === walletAddress && cached) {
@@ -146,7 +160,7 @@ export function useEarnEarnings(walletAddress: string | null) {
       // Nothing cached yet — fetch now. `fetchIntoCache` always settles the
       // cache (ready or unavailable), so the chart leaves the skeleton either
       // way instead of pulsing forever.
-      void fetchIntoCache(walletAddress).then(syncFromCache);
+      void fetchIntoCache(walletAddress).then(syncFromCache, syncFromCache);
     }
     pushListeners.add(syncFromCache);
     return () => {

@@ -108,7 +108,7 @@ type AccountReader = Pick<Connection, "getMultipleAccountsInfoAndContext">;
 type BatchedAccountRead = {
   accountCount: number;
   chunkCount: number;
-  maxObservedSlot: number;
+  minObservedSlot: number;
   values: (AccountInfo<Buffer> | null)[];
 };
 
@@ -238,7 +238,7 @@ async function readAccountsInChunks(args: {
   pubkeys: PublicKey[];
 }): Promise<BatchedAccountRead> {
   const values: (AccountInfo<Buffer> | null)[] = [];
-  let maxObservedSlot = 0;
+  let minObservedSlot = Number.MAX_SAFE_INTEGER;
   let chunkCount = 0;
 
   for (
@@ -259,15 +259,26 @@ async function readAccountsInChunks(args: {
           : { minContextSlot: args.minContextSlot }),
       } satisfies GetMultipleAccountsConfig
     );
+    if (
+      !Number.isSafeInteger(result.context.slot) ||
+      result.context.slot < 0 ||
+      (args.minContextSlot !== undefined &&
+        result.context.slot < args.minContextSlot)
+    ) {
+      throw new Error("Earn RPC account read did not satisfy its slot fence.");
+    }
+    if (result.value.length !== chunk.length) {
+      throw new Error("Earn RPC account read returned an incomplete batch.");
+    }
     chunkCount += 1;
-    maxObservedSlot = Math.max(maxObservedSlot, result.context.slot);
+    minObservedSlot = Math.min(minObservedSlot, result.context.slot);
     values.push(...result.value);
   }
 
   return {
     accountCount: args.pubkeys.length,
     chunkCount,
-    maxObservedSlot,
+    minObservedSlot: chunkCount > 0 ? minObservedSlot : 0,
     values,
   };
 }
@@ -531,7 +542,7 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
       : {
           accountCount: 0,
           chunkCount: 0,
-          maxObservedSlot: firstStage.maxObservedSlot,
+          minObservedSlot: firstStage.minObservedSlot,
           values: [],
         };
   const reserveAccountForRole = (role: AccountRole) =>
@@ -558,7 +569,7 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     });
     if (!reserveAccount) {
       if (
-        args.requireCompleteReserveReads &&
+        (args.requireCompleteReserveReads || args.minContextSlot !== undefined) &&
         discovered.collateralAmountRaw > BigInt(0)
       ) {
         throw new Error(
@@ -598,9 +609,12 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     });
   }
 
-  const observedSlotNumber = Math.max(
-    firstStage.maxObservedSlot,
-    reserveStage.maxObservedSlot
+  // A later reserve read cannot prove the earlier balance accounts include a
+  // transaction. Expose the conservative lower bound across EVERY chunk so a
+  // racing confirmation is not mistaken for an already-observed mutation.
+  const observedSlotNumber = Math.min(
+    firstStage.minObservedSlot,
+    reserveStage.minObservedSlot
   );
   const observedSlot = String(observedSlotNumber);
   const observedAt = (args.now ?? (() => new Date()))().toISOString();
@@ -636,7 +650,7 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
           asset: role.asset,
           observedAt,
           observedSlot,
-          sourceSlot: firstStage.maxObservedSlot,
+          sourceSlot: firstStage.minObservedSlot,
           vaultPda,
           vaultUsdcAta: role.pubkey,
         }),
