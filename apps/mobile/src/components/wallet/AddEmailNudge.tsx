@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, TextInput } from "react-native";
 
 import { isPrivyConfigured } from "@/components/wallet/PrivyProviderRoot";
 import { mmkv } from "@/lib/storage";
+import { privyErrorMessage } from "@/lib/wallet/privy-errors";
 import { Text, View } from "@/tw";
 
 const DISMISSED_KEY = "loyal:add-email-nudge-dismissed";
@@ -71,7 +72,7 @@ export function LinkEmailForm({ onLinked }: { onLinked?: () => void } = {}) {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(privyErrorMessage(e));
     } finally {
       setBusy(false);
     }

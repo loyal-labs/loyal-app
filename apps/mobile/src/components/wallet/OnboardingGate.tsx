@@ -2,6 +2,7 @@ import {
   useLoginWithEmail,
   useLoginWithOAuth,
   useLoginWithSiws,
+  usePrivy,
 } from "@privy-io/expo";
 import { Keypair } from "@solana/web3.js";
 import * as SeedVault from "expo-seed-vault";
@@ -51,8 +52,13 @@ import {
   isMwaSupported,
   MwaSigner,
 } from "@/lib/wallet/mwa-signer";
-import { migrateSignerToPrivy } from "@/lib/wallet/privy-migration";
+import { privyErrorMessage } from "@/lib/wallet/privy-errors";
+import {
+  migrateSignerToPrivy,
+  PRIVY_MIGRATION_DONE_KEY,
+} from "@/lib/wallet/privy-migration";
 import { isPrivyUserDecline } from "@/lib/wallet/privy-signer";
+import { mmkv } from "@/lib/storage";
 import { WalletRejectedError } from "@/lib/wallet/rejection";
 import {
   isSeedVaultUserDecline,
@@ -150,9 +156,17 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
     finalizePrivySigner,
     refreshFromStorage,
   } = useWallet();
+  const { user: privyUser, logout: privyLogout } = usePrivy();
   const { sendCode, loginWithCode } = useLoginWithEmail();
   const { login: loginWithOAuth } = useLoginWithOAuth();
   const siws = useLoginWithSiws();
+
+  // Onboarding only renders when no wallet is set up, so any Privy session
+  // still on the device is stale (earlier reset, or a login that ended
+  // without a usable wallet). Privy refuses to log in over it.
+  const ensurePrivyLoggedOut = useCallback(async () => {
+    if (privyUser) await privyLogout();
+  }, [privyUser, privyLogout]);
 
   const [step, setStep] = useState<Step>(() => getSetupStartStep(mode));
   const [pendingKeypair, setPendingKeypair] = useState<Keypair | null>(null);
@@ -302,7 +316,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
           authFlowRef.current?.cancel("wallet_connect");
         } else {
           authFlowRef.current?.failFrom("wallet_connect", e);
-          setPrivyError(e instanceof Error ? e.message : "Sign-in failed");
+          setPrivyError(privyErrorMessage(e));
         }
         setFinalizing(false);
       } finally {
@@ -325,21 +339,29 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const onSubmitEmailCode = useCallback(
     async (code: string) => {
       await privyAttempt("email", async () => {
-        const user = await loginWithCode({ code });
+        await ensurePrivyLoggedOut();
+        const user = await loginWithCode({
+          code,
+          disableSignup: step === "login",
+        });
         if (!user) throw new Error("Sign-in failed. Check the code and try again.");
         authFlowRef.current?.observe("challenge");
         setFinalizing(true);
         await finalizePrivySigner(user);
       });
     },
-    [privyAttempt, finalizePrivySigner, loginWithCode],
+    [privyAttempt, ensurePrivyLoggedOut, finalizePrivySigner, loginWithCode, step],
   );
 
   const onOAuth = useCallback(
     (provider: "google" | "apple") => {
       beginAuthFlow("privy_oauth");
       void privyAttempt(provider, async () => {
-        const user = await loginWithOAuth({ provider });
+        await ensurePrivyLoggedOut();
+        const user = await loginWithOAuth({
+          provider,
+          disableSignup: step === "login",
+        });
         // Undefined means the user closed the browser sheet.
         if (!user) throw new WalletRejectedError("Sign-in was cancelled.");
         authFlowRef.current?.observe("challenge");
@@ -347,7 +369,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         await finalizePrivySigner(user);
       });
     },
-    [privyAttempt, beginAuthFlow, finalizePrivySigner, loginWithOAuth],
+    [privyAttempt, beginAuthFlow, ensurePrivyLoggedOut, finalizePrivySigner, loginWithOAuth, step],
   );
 
   // ---- Connect wallet (Seed Vault / MWA / deeplink) + Privy SIWS link ----
@@ -358,9 +380,22 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const linkToPrivy = useCallback(
     async (signer: Signer) => {
       authFlowRef.current?.observe("challenge");
+      const address = signer.publicKey.toBase58();
+      if (privyUser) {
+        const alreadyLinked = privyUser.linked_accounts.some(
+          (a) => a.type === "wallet" && "address" in a && a.address === address,
+        );
+        if (alreadyLinked) {
+          // e.g. email login found this external wallet and sent the user
+          // here; the session is the right one, no signature needed.
+          mmkv.setBoolean(PRIVY_MIGRATION_DONE_KEY, true);
+          return;
+        }
+        await privyLogout();
+      }
       await migrateSignerToPrivy(signer, siws);
     },
-    [siws],
+    [privyUser, privyLogout, siws],
   );
 
   // Legacy fallback for pre-MWA Seeker builds: authorize a seed directly
