@@ -38,7 +38,7 @@ mobile/
     _layout.tsx            # Root layout (fonts, splash, navigation)
     index.tsx              # Home screen (chat list)
     +not-found.tsx         # 404 screen
-    login/                 # Login flow (phone → code → password)
+    wallet/                # Wallet category screens
     summaries/             # Summary detail screens
   src/
     components/            # Reusable UI components
@@ -54,6 +54,13 @@ mobile/
     types/                 # Type declarations (SVG, etc.)
   assets/                  # Images, icons, fonts, animations
 ```
+
+### Auth
+
+Privy (`@privy-io/expo`) is the identity layer; `src/components/wallet/PrivyProviderRoot.tsx` mounts it when `EXPO_PUBLIC_PRIVY_APP_ID` is set. Sign-in in `OnboardingGate` is email, Google, Apple (iOS), or a Seeker / MWA / deeplink wallet via SIWS. Email and OAuth users sign with the Privy embedded wallet (`PrivyEmbeddedSigner`). Wallet users keep their legacy signer; `src/lib/wallet/privy-migration.ts` links that signer to a Privy user on first unlock by signing a SIWS message, never blocks the app, and retries on the next launch if declined or offline. The Loyal session comes from `POST /api/auth/privy/complete` on the Earn backend.
+# failed: doc still described create/import keypair onboarding after the Privy switch (2026-09-09)
+# outcome: rewritten to match the shipped auth flow
+# recurred: 0
 
 ### Key Conventions
 
@@ -89,6 +96,10 @@ EXPO_PUBLIC_SOLANA_ENV=mainnet
   testing a protected preview deployment.
 - `EXPO_PUBLIC_EARN_SPONSORED_DEPOSITS` enables sponsored deposits only when set
   to `true`; other values keep the self-paid flow.
+- `EXPO_PUBLIC_PRIVY_APP_ID` and `EXPO_PUBLIC_PRIVY_CLIENT_ID` identify the Privy app (shared with web) and its mobile app client. Both are public and set in every `eas.json` profile; when unset, Privy sign-in is disabled and only existing legacy wallets work.
+# failed: env list lacked the Privy ids when they were added (2026-09-09)
+# outcome: listed with the same wording as env.ts
+# recurred: 0
 - `EXPO_PUBLIC_MIXPANEL_TOKEN` and `EXPO_PUBLIC_ONESIGNAL_APP_ID` configure
   optional telemetry and push notification services. The EAS profiles currently
   set `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_SOLANA_ENV=mainnet`, and
