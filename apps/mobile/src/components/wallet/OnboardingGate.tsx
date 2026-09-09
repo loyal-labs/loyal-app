@@ -63,6 +63,7 @@ import {
 import {
   isPrivyUserDecline,
   PrivyExternalWalletError,
+  walletClientDisplayName,
 } from "@/lib/wallet/privy-signer";
 import { mmkv } from "@/lib/storage";
 import { WalletRejectedError } from "@/lib/wallet/rejection";
@@ -135,6 +136,16 @@ function connectFailureReason(error: unknown): string {
 
 function isUserCancel(error: unknown): boolean {
   return error instanceof WalletRejectedError || isPrivyUserDecline(error);
+}
+
+// User-facing explanation for an external wallet we cannot sign with here.
+function whereWalletIs(e: PrivyExternalWalletError): Error {
+  const short = `${e.address.slice(0, 4)}…${e.address.slice(-4)}`;
+  const name = walletClientDisplayName(e.clientType);
+  const where = name ? `in ${name}` : "on another device";
+  return new Error(
+    `Your wallet ${short} is ${where}. To use it on this phone, add it to a wallet app here and tap Connect Wallet. Or create a new wallet.`,
+  );
 }
 
 export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
@@ -345,10 +356,21 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
       } catch (e) {
         if (!(e instanceof PrivyExternalWalletError)) throw e;
         setFinalizing(false);
-        await connectExternalRef.current(e.address);
+        // Privy holds only the address of an external wallet. The key is in
+        // a wallet app: on this phone (Seed Vault, Phantom mobile) or on
+        // another device (browser extension). Try the phone first; if there
+        // is no wallet app, the user cancels, or the account does not match,
+        // say where the wallet is instead of a generic failure.
+        if (connectMode === "none") throw whereWalletIs(e);
+        try {
+          await connectExternalRef.current(e.address);
+        } catch (connectError) {
+          if (isUserCancel(connectError)) throw whereWalletIs(e);
+          throw connectError;
+        }
       }
     },
-    [finalizePrivySigner],
+    [connectMode, finalizePrivySigner],
   );
 
   const onSendEmailCode = useCallback(

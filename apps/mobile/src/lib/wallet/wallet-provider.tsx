@@ -434,14 +434,24 @@ function WalletProviderCore({
   const finalizePrivySigner = useCallback(
     async (user: PrivyUser) => {
       if (!privy) throw new Error("Privy is not configured.");
+      // Same precedence as web (privy-session-sync.tsx): an external wallet
+      // the user linked themselves is where their funds are, so it wins over
+      // an embedded one. Never mint an embedded wallet for a user who has any
+      // Solana wallet: it would sit empty next to their real address.
+      const external = user.linked_accounts.find(
+        (a) =>
+          a.type === "wallet" &&
+          a.chain_type === "solana" &&
+          a.connector_type !== "embedded",
+      );
+      if (external && "address" in external) {
+        throw new PrivyExternalWalletError(
+          external.address,
+          "wallet_client_type" in external ? external.wallet_client_type : undefined,
+        );
+      }
       let account = getAllUserEmbeddedSolanaWallets(user)[0] ?? null;
       if (!account) {
-        const external = user.linked_accounts.find(
-          (a) => a.type === "wallet" && a.chain_type === "solana",
-        );
-        if (external && "address" in external) {
-          throw new PrivyExternalWalletError(external.address);
-        }
         // A user who got an Ethereum embedded wallet on web must pass it here,
         // or Solana creation fails inside Privy's secure context.
         const created = await privy.client.embeddedWallet.createSolana({

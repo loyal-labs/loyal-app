@@ -50,7 +50,7 @@ function Inner() {
         </Pressable>
       </View>
       <Text style={styles.body}>
-        Recover your wallet on a new phone by linking an email.
+        Link an email so you can sign in to this account from any device.
       </Text>
       <LinkEmailForm />
     </View>

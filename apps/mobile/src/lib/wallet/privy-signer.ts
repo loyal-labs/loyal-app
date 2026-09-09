@@ -17,14 +17,37 @@ export function isPrivyUserDecline(error: unknown): boolean {
   );
 }
 
+// Privy `wallet_client_type` → display name. Unlisted types (and "unknown")
+// fall back to "another device" so we never name a wallet we cannot identify.
+const WALLET_CLIENT_NAMES: Record<string, string> = {
+  Loyal: "the Loyal browser extension",
+  phantom: "Phantom",
+  solflare: "Solflare",
+  backpack: "Backpack",
+  jupiter: "Jupiter",
+  coinbase_wallet: "Coinbase Wallet",
+  trust: "Trust Wallet",
+  exodus: "Exodus",
+  brave_wallet: "Brave Wallet",
+};
+
+export function walletClientDisplayName(clientType?: string): string | null {
+  if (!clientType) return null;
+  return WALLET_CLIENT_NAMES[clientType] ?? null;
+}
+
 /**
- * Thrown when a Privy login lands on a user whose only Solana wallets are
- * external (Seed Vault, Phantom, ...). The caller continues into the wallet
- * connect flow for `address` rather than minting an embedded wallet next to
- * the user's funds. Message is a fallback for callers that do not.
+ * Thrown when a Privy login lands on a user whose primary Solana wallet is
+ * external (Seed Vault, Phantom, a browser extension, ...). Privy holds only
+ * the address, never the key, so the caller must connect that wallet from an
+ * app on this phone rather than mint an embedded wallet next to the user's
+ * funds. Message is a fallback for callers that do not handle it.
  */
 export class PrivyExternalWalletError extends Error {
-  constructor(readonly address: string) {
+  constructor(
+    readonly address: string,
+    readonly clientType?: string,
+  ) {
     super(
       `Connect the wallet ending in ${address.slice(-4)} to finish signing in.`,
     );

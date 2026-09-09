@@ -35,7 +35,7 @@ function Inner({ render }: { render: (props: CellProps) => ReactNode }) {
     <>
       {render({
         title: "Add email",
-        subtitle: "Recover your wallet on a new phone",
+        subtitle: "Sign in to this account from any device",
         showChevron: !open,
         onPress: () => setOpen((v) => !v),
       })}
