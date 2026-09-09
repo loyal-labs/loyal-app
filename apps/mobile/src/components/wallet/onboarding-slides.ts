@@ -5,7 +5,7 @@ export type OnboardingSlide = {
 };
 
 export type WalletSetupAction = {
-  id: "connect-wallet" | "create" | "import" | "restore-icloud";
+  id: "connect-wallet" | "create" | "login" | "import" | "restore-icloud";
   label: string;
   helperText?: string;
 };
@@ -49,6 +49,7 @@ export function buildWalletSetupActions(
 
   const createAndImport: WalletSetupAction[] = [
     { id: "create", label: "Create New Wallet" },
+    { id: "login", label: "Log In with Email" },
     { id: "import", label: "Import Existing Wallet" },
   ];
 

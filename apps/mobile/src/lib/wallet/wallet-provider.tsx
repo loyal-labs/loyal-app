@@ -74,7 +74,7 @@ import {
   type PrivyMigrationResult,
 } from "./privy-migration";
 import { exchangePrivySession } from "./privy-session";
-import { PrivyEmbeddedSigner } from "./privy-signer";
+import { PrivyEmbeddedSigner, PrivyExternalWalletError } from "./privy-signer";
 import { SeedVaultSigner } from "./seed-vault-signer";
 import { LocalKeypairSigner, Signer } from "./signer";
 import {
@@ -114,8 +114,12 @@ interface WalletContextValue {
   finalizeMwaSigner: (account: StoredMwaAccount) => Promise<void>;
   finalizeDeeplinkSigner: (session: StoredDeeplinkSession) => Promise<void>;
   finalizeVaultSigner: (account: VaultAccount) => Promise<void>;
-  /** Privy email/OAuth sign-in: create the embedded wallet if needed, then unlock. */
-  finalizePrivySigner: () => Promise<void>;
+  /**
+   * Privy email/OAuth sign-in: hydrate or create the embedded wallet, then
+   * unlock. Throws PrivyExternalWalletError when the user's only wallets are
+   * external (connect that wallet instead).
+   */
+  finalizePrivySigner: (user: PrivyUser) => Promise<void>;
   /** Legacy signer → Privy SIWS link. "idle" until the first attempt settles. */
   privyMigrationStatus: "idle" | PrivyMigrationResult;
 
@@ -413,41 +417,65 @@ function WalletProviderCore({
     [privy],
   );
 
-  // Email / OAuth sign-in landed on a Privy user. Use the embedded wallet
-  // (creating it on first sign-up) as the signer. No PIN or biometrics: Privy
-  // owns key custody and its own prompts.
-  const finalizePrivySigner = useCallback(async () => {
-    if (!privy?.user) throw new Error("Privy user is not signed in.");
-    let wallet = privy.wallet.wallets?.[0];
-    if (!wallet) {
-      const { status } = privy.wallet;
-      if (status !== "not-created" && status !== "connected") {
-        throw new Error(`Embedded wallet is ${status}.`);
+  // Email / OAuth sign-in landed on a Privy user. Takes the user from the
+  // login call's return value: the hook's `user` in this closure is still the
+  // pre-login value in the same tick. Hydrates the embedded wallet when the
+  // user has one, creates it for a brand-new user, and refuses when the only
+  // linked wallets are external (Seed Vault, Phantom): minting a second
+  // address for that user would strand their funds behind the wrong signer.
+  const finalizePrivySigner = useCallback(
+    async (user: PrivyUser) => {
+      if (!privy) throw new Error("Privy is not configured.");
+      const embeddedAccount = user.linked_accounts.find(
+        (a): a is Extract<typeof a, { type: "wallet"; chain_type: "solana" }> =>
+          a.type === "wallet" &&
+          a.chain_type === "solana" &&
+          a.connector_type === "embedded",
+      );
+      const external = user.linked_accounts.find(
+        (a) =>
+          a.type === "wallet" &&
+          a.chain_type === "solana" &&
+          a.connector_type !== "embedded",
+      );
+      if (!embeddedAccount && external && "address" in external) {
+        throw new PrivyExternalWalletError(external.address);
       }
-      const created = await privy.wallet.create?.();
-      // create() can resolve null on Android (Google Drive recovery); the
-      // hook's wallets list is the source of truth either way.
-      wallet = privy.wallet.wallets?.[0];
-      if (!wallet && created) {
-        wallet = {
-          address: created._publicKey,
-          publicKey: created._publicKey,
-          walletIndex: 0,
-          getProvider: async () => created,
-        };
+
+      let wallet = privy.wallet.wallets?.find(
+        (w) => !embeddedAccount || w.address === embeddedAccount.address,
+      );
+      if (!wallet) {
+        const { status } = privy.wallet;
+        if (status !== "not-created" && status !== "connected") {
+          throw new Error(`Embedded wallet is ${status}.`);
+        }
+        const created = await privy.wallet.create?.();
+        // create() can resolve null on Android (Google Drive recovery); the
+        // hook's wallets list is the source of truth either way.
+        wallet = privy.wallet.wallets?.[0];
+        if (!wallet && created) {
+          wallet = {
+            address: created._publicKey,
+            publicKey: created._publicKey,
+            walletIndex: 0,
+            getProvider: async () => created,
+          };
+        }
+        if (!wallet) throw new Error("Embedded wallet creation returned no wallet.");
       }
-      if (!wallet) throw new Error("Embedded wallet creation returned no wallet.");
-    }
-    const provider = await wallet.getProvider();
-    const next = new PrivyEmbeddedSigner(provider, wallet.address);
-    void exchangeSession(wallet.address);
-    setSigner(next);
-    setPublicKey(wallet.address);
-    setWalletSigner(next);
-    setState("vault-unlocked");
-    identifyWallet(wallet.address, "privy");
-    track(WALLET_SETUP_EVENTS.walletCreated, { source: "privy" });
-  }, [privy, exchangeSession]);
+      const provider = await wallet.getProvider();
+      const next = new PrivyEmbeddedSigner(provider, wallet.address);
+      void exchangeSession(wallet.address);
+      setSigner(next);
+      setPublicKey(wallet.address);
+      setWalletSigner(next);
+      setState("vault-unlocked");
+      identifyWallet(wallet.address, "privy");
+      track(WALLET_SETUP_EVENTS.walletCreated, { source: "privy" });
+    },
+    [privy, exchangeSession],
+  );
 
   // Link an existing (legacy) signer to a Privy user via SIWS. Runs once per
   // app session, only while no Privy user is signed in. Local signers reach

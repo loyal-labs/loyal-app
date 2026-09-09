@@ -13,6 +13,8 @@ import { Pressable, SafeAreaView, Text, View } from "@/tw";
 export type PrivySignInMethod = "email" | "google" | "apple";
 
 type Props = {
+  /** Copy only: Privy login is login-or-signup either way. */
+  intent: "create" | "login";
   pending: PrivySignInMethod | null;
   error: string | null;
   onSendEmailCode: (email: string) => Promise<void>;
@@ -25,6 +27,7 @@ type Props = {
 // new embedded wallet, so there is no seed phrase to write down. Layout and
 // type mirror ImportWalletScreen so the two flows feel like one product.
 export function PrivySignInScreen({
+  intent,
   pending,
   error,
   onSendEmailCode,
@@ -117,10 +120,13 @@ export function PrivySignInScreen({
             </View>
           ) : (
             <View className="flex-1">
-              <Text style={styles.title}>Create New Wallet</Text>
+              <Text style={styles.title}>
+                {intent === "create" ? "Create New Wallet" : "Log In"}
+              </Text>
               <Text style={styles.subtitle}>
-                Sign in to create a wallet you can recover from any device.
-                No seed phrase to write down.
+                {intent === "create"
+                  ? "Sign in to create a wallet you can recover from any device. No seed phrase to write down."
+                  : "Use the email or Google account linked to your wallet."}
               </Text>
               <View className="mt-8">
                 <TextInput

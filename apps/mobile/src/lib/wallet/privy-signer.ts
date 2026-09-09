@@ -18,6 +18,20 @@ export function isPrivyUserDecline(error: unknown): boolean {
 }
 
 /**
+ * Thrown when a Privy login lands on a user whose only Solana wallets are
+ * external (Seed Vault, Phantom, ...). The caller should send the user to
+ * Connect Wallet rather than mint an embedded wallet next to their funds.
+ */
+export class PrivyExternalWalletError extends Error {
+  constructor(readonly address: string) {
+    super(
+      `This account is linked to a wallet ending in ${address.slice(-4)}. Use Connect Wallet to sign in with it.`,
+    );
+    this.name = "PrivyExternalWalletError";
+  }
+}
+
+/**
  * Signer backed by the Privy embedded Solana wallet. The key lives in Privy's
  * TEE; every call round-trips through the SDK. Message and signature are
  * base64 on the wire (js-sdk-core signWithUserSigner contract).

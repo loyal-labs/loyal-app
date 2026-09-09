@@ -67,10 +67,11 @@ import {
 } from "@/services/observability";
 import { Text, View } from "@/tw";
 
-// "create" is the Privy sign-in (email / Google / Apple → embedded wallet);
+// "create" and "login" are the same Privy sign-in (email / Google / Apple);
+// create ends in a new embedded wallet, login hydrates an existing one.
 // "import" is the secret-key + PIN flow, kept for users bringing their own
-// key. Both end on the same Privy user as a connected wallet does.
-type Step = OnboardingStartStep | "create" | "import" | "biometric-setup";
+// key. All end on the same Privy user as a connected wallet does.
+type Step = OnboardingStartStep | "create" | "login" | "import" | "biometric-setup";
 type TransitionDirection = "forward" | "backward";
 
 type Props = {
@@ -324,10 +325,11 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const onSubmitEmailCode = useCallback(
     async (code: string) => {
       await privyAttempt("email", async () => {
-        await loginWithCode({ code });
+        const user = await loginWithCode({ code });
+        if (!user) throw new Error("Sign-in failed. Check the code and try again.");
         authFlowRef.current?.observe("challenge");
         setFinalizing(true);
-        await finalizePrivySigner();
+        await finalizePrivySigner(user);
       });
     },
     [privyAttempt, finalizePrivySigner, loginWithCode],
@@ -342,7 +344,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         if (!user) throw new WalletRejectedError("Sign-in was cancelled.");
         authFlowRef.current?.observe("challenge");
         setFinalizing(true);
-        await finalizePrivySigner();
+        await finalizePrivySigner(user);
       });
     },
     [privyAttempt, beginAuthFlow, finalizePrivySigner, loginWithOAuth],
@@ -555,15 +557,21 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
           setPrivyError(null);
           navigateToStep("create", "forward");
         }}
+        onLogin={() => {
+          beginAuthFlow("privy_email");
+          setPrivyError(null);
+          navigateToStep("login", "forward");
+        }}
         onImportWallet={() => {
           beginAuthFlow("import_wallet");
           navigateToStep("import", "forward");
         }}
       />
     );
-  } else if (step === "create") {
+  } else if (step === "create" || step === "login") {
     content = (
       <PrivySignInScreen
+        intent={step}
         pending={privyPending}
         error={privyError}
         onSendEmailCode={onSendEmailCode}

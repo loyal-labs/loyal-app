@@ -36,6 +36,7 @@ type Props = {
   connectWalletError?: string | null;
   onConnectWallet: () => void;
   onCreateWallet: () => void;
+  onLogin: () => void;
   onImportWallet: () => void;
   onRestoreCloudBackup?: () => void;
 };
@@ -47,6 +48,7 @@ export function WalletSetupOnboardingScreen({
   connectWalletError = null,
   onConnectWallet,
   onCreateWallet,
+  onLogin,
   onImportWallet,
   onRestoreCloudBackup,
 }: Props) {
@@ -76,7 +78,7 @@ export function WalletSetupOnboardingScreen({
 
   const wrapWithEnded = useCallback(
     (
-      flow: "connect-wallet" | "create" | "import" | "restore-icloud",
+      flow: "connect-wallet" | "create" | "login" | "import" | "restore-icloud",
       handler: () => void,
     ) =>
       () => {
@@ -94,6 +96,7 @@ export function WalletSetupOnboardingScreen({
     () => ({
       "connect-wallet": wrapWithEnded("connect-wallet", onConnectWallet),
       create: wrapWithEnded("create", onCreateWallet),
+      login: wrapWithEnded("login", onLogin),
       import: wrapWithEnded("import", onImportWallet),
       "restore-icloud": wrapWithEnded(
         "restore-icloud",
@@ -103,6 +106,7 @@ export function WalletSetupOnboardingScreen({
     [
       onConnectWallet,
       onCreateWallet,
+      onLogin,
       onImportWallet,
       onRestoreCloudBackup,
       wrapWithEnded,
