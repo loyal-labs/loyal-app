@@ -1,8 +1,12 @@
 import {
+  getAllUserEmbeddedSolanaWallets,
+  getEntropyDetailsFromAccount,
+  getUserEmbeddedEthereumWallet,
   useEmbeddedSolanaWallet,
   useIdentityToken,
   useLoginWithSiws,
   usePrivy,
+  usePrivyClient,
 } from "@privy-io/expo";
 import type { User as PrivyUser } from "@privy-io/expo";
 import { Keypair } from "@solana/web3.js";
@@ -157,6 +161,7 @@ type PrivyBindings = {
   user: PrivyUser | null;
   logout: () => Promise<void>;
   wallet: ReturnType<typeof useEmbeddedSolanaWallet>;
+  client: ReturnType<typeof usePrivyClient>;
   siws: ReturnType<typeof useLoginWithSiws>;
   getIdentityToken: () => Promise<string | null>;
 };
@@ -171,11 +176,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 function WalletProviderWithPrivy({ children }: { children: ReactNode }) {
   const { isReady, user, logout } = usePrivy();
   const wallet = useEmbeddedSolanaWallet();
+  const client = usePrivyClient();
   const siws = useLoginWithSiws();
   const { getIdentityToken } = useIdentityToken();
   const privy = useMemo<PrivyBindings>(
-    () => ({ isReady, user, logout, wallet, siws, getIdentityToken }),
-    [isReady, user, logout, wallet, siws, getIdentityToken],
+    () => ({ isReady, user, logout, wallet, client, siws, getIdentityToken }),
+    [isReady, user, logout, wallet, client, siws, getIdentityToken],
   );
   return <WalletProviderCore privy={privy}>{children}</WalletProviderCore>;
 }
@@ -417,61 +423,46 @@ function WalletProviderCore({
     [privy],
   );
 
-  // Email / OAuth sign-in landed on a Privy user. Takes the user from the
-  // login call's return value: the hook's `user` in this closure is still the
-  // pre-login value in the same tick. Hydrates the embedded wallet when the
-  // user has one, creates it for a brand-new user, and refuses when the only
+  // Email / OAuth sign-in landed on a Privy user. Works from the `user` the
+  // login call returned and the Privy client directly: the hook state
+  // (`privy.user`, `privy.wallet`) still reflects the pre-login session in
+  // this tick. Hydrates the embedded wallet when the user has one, creates
+  // it for a brand-new user, and hands off to wallet connect when the only
   // linked wallets are external (Seed Vault, Phantom): minting a second
-  // address for that user would strand their funds behind the wrong signer.
+  // address next to the user's funds would leave the app signing with the
+  // wrong one.
   const finalizePrivySigner = useCallback(
     async (user: PrivyUser) => {
       if (!privy) throw new Error("Privy is not configured.");
-      const embeddedAccount = user.linked_accounts.find(
-        (a): a is Extract<typeof a, { type: "wallet"; chain_type: "solana" }> =>
-          a.type === "wallet" &&
-          a.chain_type === "solana" &&
-          a.connector_type === "embedded",
-      );
-      const external = user.linked_accounts.find(
-        (a) =>
-          a.type === "wallet" &&
-          a.chain_type === "solana" &&
-          a.connector_type !== "embedded",
-      );
-      if (!embeddedAccount && external && "address" in external) {
-        throw new PrivyExternalWalletError(external.address);
-      }
-
-      let wallet = privy.wallet.wallets?.find(
-        (w) => !embeddedAccount || w.address === embeddedAccount.address,
-      );
-      if (!wallet) {
-        const { status } = privy.wallet;
-        if (status !== "not-created" && status !== "connected") {
-          throw new Error(`Embedded wallet is ${status}.`);
+      let account = getAllUserEmbeddedSolanaWallets(user)[0] ?? null;
+      if (!account) {
+        const external = user.linked_accounts.find(
+          (a) => a.type === "wallet" && a.chain_type === "solana",
+        );
+        if (external && "address" in external) {
+          throw new PrivyExternalWalletError(external.address);
         }
-        const created = await privy.wallet.create?.();
-        // create() can resolve null on Android (Google Drive recovery); the
-        // hook's wallets list is the source of truth either way.
-        wallet = privy.wallet.wallets?.[0];
-        if (!wallet && created) {
-          wallet = {
-            address: created._publicKey,
-            publicKey: created._publicKey,
-            walletIndex: 0,
-            getProvider: async () => created,
-          };
-        }
-        if (!wallet) throw new Error("Embedded wallet creation returned no wallet.");
+        // A user who got an Ethereum embedded wallet on web must pass it here,
+        // or Solana creation fails inside Privy's secure context.
+        const created = await privy.client.embeddedWallet.createSolana({
+          ethereumAccount: getUserEmbeddedEthereumWallet(user) ?? undefined,
+        });
+        account = getAllUserEmbeddedSolanaWallets(created.user)[0] ?? null;
+        if (!account) throw new Error("Embedded wallet creation returned no wallet.");
       }
-      const provider = await wallet.getProvider();
-      const next = new PrivyEmbeddedSigner(provider, wallet.address);
-      void exchangeSession(wallet.address);
+      const { entropyId, entropyIdVerifier } = getEntropyDetailsFromAccount(account);
+      const provider = await privy.client.embeddedWallet.getSolanaProvider(
+        account,
+        entropyId,
+        entropyIdVerifier,
+      );
+      const next = new PrivyEmbeddedSigner(provider, account.address);
+      void exchangeSession(account.address);
       setSigner(next);
-      setPublicKey(wallet.address);
+      setPublicKey(account.address);
       setWalletSigner(next);
       setState("vault-unlocked");
-      identifyWallet(wallet.address, "privy");
+      identifyWallet(account.address, "privy");
       track(WALLET_SETUP_EVENTS.walletCreated, { source: "privy" });
     },
     [privy, exchangeSession],
