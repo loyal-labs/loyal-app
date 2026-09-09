@@ -4,6 +4,8 @@ name: Preview Domain
 # loyal-frontend Vercel project (a Privy-allowed origin; *.vercel.app is not).
 # Wildcard DNS + cert for *.preview.askloyal.com already exist, so attaching
 # the domain is the only step. Removed when the PR closes.
+# A single bot comment shares the link and is marked inactive on close, restored
+# on reopen. Pushes do not update the comment: the branch URL stays the same.
 
 on:
   pull_request:
@@ -11,6 +13,11 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+
+concurrency:
+  group: preview-domain-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
   domain:
@@ -22,11 +29,13 @@ jobs:
       BRANCH: ${{ github.head_ref }}
     steps:
       - name: Attach or remove branch preview domain
+        id: domain
         run: |
           set -euo pipefail
           # Vercel branch domains are lowercase hostnames; branch names are not.
           name="$(tr '[:upper:]' '[:lower:]' <<<"$BRANCH" | tr -c 'a-z0-9-\n' '-' | cut -c1-63 | sed 's/-*$//')"
           domain="${name}.preview.askloyal.com"
+          echo "url=https://$domain" >> "$GITHUB_OUTPUT"
           api="https://api.vercel.com"
           auth=(-H "Authorization: Bearer $VERCEL_TOKEN")
 
@@ -46,3 +55,44 @@ jobs:
           # 409: already attached (reopened PR) — fine.
           [[ "$code" == "200" || "$code" == "409" ]] || { cat /tmp/out.json; exit 1; }
           echo "::notice::Preview: https://$domain"
+
+      - name: Create or update preview comment
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.domain.outputs.url }}
+        with:
+          script: |
+            const marker = '<!-- loyal-preview-domain -->';
+            const closed = context.payload.action === 'closed';
+            const body = [
+              marker,
+              '### Loyal web preview',
+              '',
+              ...(closed ? [
+                'Preview domain removed because this pull request is closed. Reopening restores the link.',
+              ] : [
+                `[Open preview](${process.env.PREVIEW_URL})`,
+                '',
+                'Stable branch URL for Privy authentication. Follows successful Vercel deployments; the first deployment may still be building. Vercel login may be required.',
+              ]),
+            ].join('\n');
+            const issue = { ...context.repo, issue_number: context.issue.number };
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...issue,
+              per_page: 100,
+            });
+            const existing = comments.find(comment =>
+              comment.user?.login === 'github-actions[bot]' &&
+              comment.body?.startsWith(marker)
+            );
+            if (existing) {
+              if (existing.body !== body) {
+                await github.rest.issues.updateComment({
+                  ...context.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              }
+            } else {
+              await github.rest.issues.createComment({ ...issue, body });
+            }
