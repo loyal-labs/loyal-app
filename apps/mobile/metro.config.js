@@ -61,11 +61,6 @@ config.resolver.extraNodeModules = {
   "@loyal-labs/solana-instruction-decoder": solanaInstructionDecoderRoot,
 };
 
-// Privy pulls in `jose`, which exports a Node build under "import" and a
-// WebCrypto build under "browser". Metro's default conditions skip "browser"
-// and bundle the Node build, which imports "crypto" and fails on device.
-config.resolver.unstable_conditionNames = ["browser", "require", "react-native"];
-
 // SVG transformer
 config.transformer.babelTransformerPath = require.resolve(
   "react-native-svg-transformer",
@@ -89,6 +84,22 @@ nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
   // prevents the branch from ever executing on React Native.
   if (moduleName === "node:crypto") {
     return { type: "empty" };
+  }
+
+  // Privy pulls in `jose`, whose "import" export is a Node build that needs
+  // "crypto"; its "browser" build uses WebCrypto and works on device. Do NOT
+  // add "browser" to resolver.unstable_conditionNames for this: the Solana
+  // MWA packages list "browser" before "react-native" in their exports, so
+  // that setting silently swaps in their browser stubs and the Seeker wallet
+  // button stops doing anything.
+  if (moduleName === "jose") {
+    return {
+      type: "sourceFile",
+      filePath: path.join(
+        path.dirname(require.resolve("jose/package.json")),
+        "dist/browser/index.js",
+      ),
+    };
   }
 
   const defaultResolve = (name) => {
