@@ -7081,20 +7081,14 @@ export function useSmartAccountSidebarData(
       throw new Error("Smart account not loaded yet.");
     }
 
-    if (!wallet.publicKey) {
-      throw new Error("Connect the authenticated wallet to sign this action.");
-    }
-
     if (!user?.walletAddress) {
       throw new Error("Connect the authenticated wallet to sign this action.");
     }
 
-    if (wallet.publicKey.toBase58() !== user.walletAddress) {
-      throw new Error(
-        "Connected wallet does not match the authenticated wallet."
-      );
-    }
-
+    // Preparation only needs the authenticated public identity. The adapter
+    // may still be disconnected on a restored session; the UI reconnect gate
+    // runs after preparation, and every execute callback checks the signer.
+    const walletAddress = new PublicKey(user.walletAddress);
     confirmedClientEarnPolicy.resolve(earnState);
     if (
       overview.settingsPda !== user.settingsPda ||
@@ -7113,11 +7107,11 @@ export function useSmartAccountSidebarData(
         programId: new PublicKey(overview.programId),
       }),
       cluster: resolveEarnLoyalCluster(solanaEnv),
-      feePayer: wallet.publicKey,
+      feePayer: walletAddress,
       policySigner: new PublicKey(policySignerPublicKey),
       settingsPda: new PublicKey(overview.settingsPda),
-      signer: wallet.publicKey,
-      walletAddress: new PublicKey(user.walletAddress),
+      signer: walletAddress,
+      walletAddress,
     };
   }, [
     confirmedClientEarnPolicy,
@@ -7127,7 +7121,6 @@ export function useSmartAccountSidebarData(
     solanaEnv,
     user?.settingsPda,
     user?.walletAddress,
-    wallet.publicKey,
   ]);
 
   const prepareEarnDeposit = useCallback(

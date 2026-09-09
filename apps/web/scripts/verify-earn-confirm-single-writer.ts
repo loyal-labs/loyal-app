@@ -111,6 +111,7 @@ for (const file of [
 for (const verifier of [
   "verify-earn-read-recovery.cjs",
   "verify-earn-mobile-realtime.cjs",
+  "verify-earn-prepare-signer.cjs",
 ]) {
   const result = spawnSync("node", [resolve(repoRoot, "scripts", verifier)], {
     cwd: repoRoot,

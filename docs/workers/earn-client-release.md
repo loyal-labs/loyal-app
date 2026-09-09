@@ -38,6 +38,12 @@ legacy internals merely because a web wrapper no longer exists. New mobile
 `deposit/context`, `withdraw/context`, and cleanup context requests are reads,
 not server-prepared transaction fallbacks.
 
+Client-side preparation uses the authenticated wallet's **public address**, not
+an attached wallet adapter. A restored session must reach the existing approval/
+reconnect gate even before its extension reconnects. Every execution callback
+still requires the connected signer to match that authenticated wallet before
+signing or submission; preparation does not authorize execution.
+
 ## Local verification
 
 See [PR #708 verification evidence](./earn-client-verification.md) for the
