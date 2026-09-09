@@ -4,6 +4,7 @@ import {
   useLoginWithSiws,
   usePrivy,
 } from "@privy-io/expo";
+import type { User as PrivyUser } from "@privy-io/expo";
 import { Keypair } from "@solana/web3.js";
 import * as SeedVault from "expo-seed-vault";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -40,6 +41,7 @@ import {
   connectDeeplinkWallet,
   DEEPLINK_WALLET_LABELS,
   DeeplinkSigner,
+  disconnectDeeplinkWallet,
   getInstalledDeeplinkWallets,
 } from "@/lib/wallet/deeplink-signer";
 import {
@@ -49,6 +51,7 @@ import {
 } from "@/lib/wallet/icloud-backup";
 import {
   connectMwaWallet,
+  deauthorizeMwaWallet,
   isMwaSupported,
   MwaSigner,
 } from "@/lib/wallet/mwa-signer";
@@ -57,7 +60,10 @@ import {
   migrateSignerToPrivy,
   PRIVY_MIGRATION_DONE_KEY,
 } from "@/lib/wallet/privy-migration";
-import { isPrivyUserDecline } from "@/lib/wallet/privy-signer";
+import {
+  isPrivyUserDecline,
+  PrivyExternalWalletError,
+} from "@/lib/wallet/privy-signer";
 import { mmkv } from "@/lib/storage";
 import { WalletRejectedError } from "@/lib/wallet/rejection";
 import {
@@ -326,6 +332,25 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
     [privyPending],
   );
 
+  // Embedded wallet → sign in directly. External wallet (Seed Vault, Phantom)
+  // → the email proved identity; now authorize that wallet on this device.
+  const connectExternalRef = useRef<(expected?: string) => Promise<void>>(
+    async () => {},
+  );
+  const finishPrivyLogin = useCallback(
+    async (user: PrivyUser) => {
+      setFinalizing(true);
+      try {
+        await finalizePrivySigner(user);
+      } catch (e) {
+        if (!(e instanceof PrivyExternalWalletError)) throw e;
+        setFinalizing(false);
+        await connectExternalRef.current(e.address);
+      }
+    },
+    [finalizePrivySigner],
+  );
+
   const onSendEmailCode = useCallback(
     async (email: string) => {
       beginAuthFlow("privy_email");
@@ -346,11 +371,10 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         });
         if (!user) throw new Error("Sign-in failed. Check the code and try again.");
         authFlowRef.current?.observe("challenge");
-        setFinalizing(true);
-        await finalizePrivySigner(user);
+        await finishPrivyLogin(user);
       });
     },
-    [privyAttempt, ensurePrivyLoggedOut, finalizePrivySigner, loginWithCode, step],
+    [privyAttempt, ensurePrivyLoggedOut, finishPrivyLogin, loginWithCode, step],
   );
 
   const onOAuth = useCallback(
@@ -365,11 +389,10 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         // Undefined means the user closed the browser sheet.
         if (!user) throw new WalletRejectedError("Sign-in was cancelled.");
         authFlowRef.current?.observe("challenge");
-        setFinalizing(true);
-        await finalizePrivySigner(user);
+        await finishPrivyLogin(user);
       });
     },
-    [privyAttempt, beginAuthFlow, ensurePrivyLoggedOut, finalizePrivySigner, loginWithOAuth, step],
+    [privyAttempt, beginAuthFlow, ensurePrivyLoggedOut, finishPrivyLogin, loginWithOAuth, step],
   );
 
   // ---- Connect wallet (Seed Vault / MWA / deeplink) + Privy SIWS link ----
@@ -402,7 +425,21 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
   // with the vault. Opens the vault's seed picker first so the user can
   // choose WHICH seed to connect; falls back to an already-authorized seed
   // to recover orphaned auth tokens.
-  const connectSeedVault = useCallback(async () => {
+  // The wallet the user must connect (set by an email/OAuth login that found
+  // an external wallet on the account). Any other account is rejected so the
+  // Privy user and the on-device signer never point at different addresses.
+  const assertExpected = useCallback(
+    (address: string, expected: string | undefined) => {
+      if (expected && address !== expected) {
+        throw new Error(
+          `That wallet does not match this account. Choose the one ending in ${expected.slice(-4)}.`,
+        );
+      }
+    },
+    [],
+  );
+
+  const connectSeedVault = useCallback(async (expected?: string) => {
     const granted = await SeedVault.requestPermission();
     if (!granted) {
       // Deliberately a failure, not a cancel: this boolean is false for a
@@ -427,6 +464,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
           : authorizeError;
       },
     );
+    assertExpected(account.publicKey, expected);
     authFlowRef.current?.setWalletAddress(account.publicKey);
     authFlowRef.current?.observe("wallet_connect");
     setFinalizing(true);
@@ -439,15 +477,23 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
       ),
     );
     authFlowRef.current?.complete("completion");
-  }, [finalizeVaultSigner, linkToPrivy]);
+  }, [assertExpected, finalizeVaultSigner, linkToPrivy]);
 
-  const connectMwa = useCallback(async () => {
+  const connectMwa = useCallback(async (expected?: string) => {
     // Opens the MWA wallet chooser; the user picks the wallet app and
     // account there. Null means they cancelled or declined — no error.
     const account = await connectMwaWallet();
     if (!account) {
       authFlowRef.current?.cancel("wallet_connect");
       return;
+    }
+    try {
+      assertExpected(account.publicKey, expected);
+    } catch (e) {
+      // Wrong account picked: release the authorization so a retry starts
+      // clean in the wallet app.
+      await deauthorizeMwaWallet(account.authToken).catch(() => {});
+      throw e;
     }
     authFlowRef.current?.setWalletAddress(account.publicKey);
     authFlowRef.current?.observe("wallet_connect");
@@ -463,12 +509,12 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
       new MwaSigner(account.authToken, account.publicKey, account.label),
     );
     authFlowRef.current?.complete("completion");
-  }, [finalizeMwaSigner, linkToPrivy]);
+  }, [assertExpected, finalizeMwaSigner, linkToPrivy]);
 
   // iOS external-wallet connect over Phantom-style deeplinks. Null from the
   // connect call means the user declined in the wallet or switched back
   // without answering — a choice, not an error.
-  const connectDeeplink = useCallback(async () => {
+  const connectDeeplink = useCallback(async (expected?: string) => {
     const provider = await chooseDeeplinkProvider(deeplinkWallets);
     if (!provider) {
       authFlowRef.current?.cancel("wallet_connect");
@@ -490,6 +536,12 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         provider,
         surface: "onboarding",
       });
+      try {
+        assertExpected(session.publicKey, expected);
+      } catch (e) {
+        await disconnectDeeplinkWallet(session).catch(() => {});
+        throw e;
+      }
       authFlowRef.current?.setWalletAddress(session.publicKey);
       authFlowRef.current?.observe("wallet_connect");
       setFinalizing(true);
@@ -504,7 +556,25 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
       });
       throw e;
     }
-  }, [deeplinkWallets, finalizeDeeplinkSigner, linkToPrivy]);
+  }, [assertExpected, deeplinkWallets, finalizeDeeplinkSigner, linkToPrivy]);
+
+  const connectExternal = useCallback(
+    async (expected?: string) => {
+      if (connectMode === "seed-vault") await connectSeedVault(expected);
+      else if (connectMode === "deeplink") await connectDeeplink(expected);
+      else if (connectMode === "mwa") await connectMwa(expected);
+      else {
+        throw new Error(
+          "No wallet app is available on this device to sign in with this account.",
+        );
+      }
+    },
+    [connectMode, connectSeedVault, connectDeeplink, connectMwa],
+  );
+
+  useEffect(() => {
+    connectExternalRef.current = connectExternal;
+  }, [connectExternal]);
 
   const handleConnectWallet = useCallback(async () => {
     if (connectWalletPending) return;
@@ -518,13 +588,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
     }
     beginAuthFlow(connectMode === "seed-vault" ? "seed_vault" : "wallet_adapter");
     try {
-      if (connectMode === "seed-vault") {
-        await connectSeedVault();
-      } else if (connectMode === "deeplink") {
-        await connectDeeplink();
-      } else {
-        await connectMwa();
-      }
+      await connectExternal();
     } catch (e) {
       authFlowRef.current?.failFrom("wallet_connect", e);
       const msg =
@@ -541,14 +605,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
     } finally {
       setConnectWalletPending(false);
     }
-  }, [
-    connectWalletPending,
-    connectMode,
-    connectSeedVault,
-    connectDeeplink,
-    connectMwa,
-    beginAuthFlow,
-  ]);
+  }, [connectWalletPending, connectMode, connectExternal, beginAuthFlow]);
 
   if (finalizing) {
     return (

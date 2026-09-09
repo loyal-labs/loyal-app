@@ -19,13 +19,14 @@ export function isPrivyUserDecline(error: unknown): boolean {
 
 /**
  * Thrown when a Privy login lands on a user whose only Solana wallets are
- * external (Seed Vault, Phantom, ...). The caller should send the user to
- * Connect Wallet rather than mint an embedded wallet next to their funds.
+ * external (Seed Vault, Phantom, ...). The caller continues into the wallet
+ * connect flow for `address` rather than minting an embedded wallet next to
+ * the user's funds. Message is a fallback for callers that do not.
  */
 export class PrivyExternalWalletError extends Error {
   constructor(readonly address: string) {
     super(
-      `This account is linked to a wallet ending in ${address.slice(-4)}. Use Connect Wallet to sign in with it.`,
+      `Connect the wallet ending in ${address.slice(-4)} to finish signing in.`,
     );
     this.name = "PrivyExternalWalletError";
   }
