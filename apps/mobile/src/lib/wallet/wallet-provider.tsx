@@ -5,6 +5,7 @@ import {
   usePrivy,
 } from "@privy-io/expo";
 import type { User as PrivyUser } from "@privy-io/expo";
+import { Keypair } from "@solana/web3.js";
 import * as SeedVault from "expo-seed-vault";
 import type { VaultAccount } from "expo-seed-vault";
 import {
@@ -47,8 +48,10 @@ import {
   consumeBiometricRestorePending,
   getStoredPublicKey,
   hasStoredKeypair,
+  importKeypair,
   loadKeypair,
   restoreFromSyncedKeychain as restoreFromSyncedKeypair,
+  storeKeypair,
   changePin as changeKeypairPin,
 } from "./keypair-storage";
 import {
@@ -102,6 +105,12 @@ interface WalletContextValue {
   onboardingReplayActive: boolean;
 
   // Wallet setup
+  importWallet: (secretKey: Uint8Array, pin: string) => Promise<Keypair>;
+  finalizeSigner: (
+    keypair: Keypair,
+    pin: string,
+    opts?: { alreadyStored?: boolean },
+  ) => Promise<void>;
   finalizeMwaSigner: (account: StoredMwaAccount) => Promise<void>;
   finalizeDeeplinkSigner: (session: StoredDeeplinkSession) => Promise<void>;
   finalizeVaultSigner: (account: VaultAccount) => Promise<void>;
@@ -295,6 +304,45 @@ function WalletProviderCore({
     return () => subscription.remove();
   }, [state, lockInternal]);
 
+  // Import keypair — encrypts + stores but does NOT unlock.
+  // Caller goes through biometric setup, then finalizeSigner unlocks.
+  const importWallet = useCallback(
+    async (secretKey: Uint8Array, pin: string) => importKeypair(secretKey, pin),
+    [],
+  );
+
+  // Called after biometric setup — persists keypair (create) or just unlocks
+  // (import). The Privy SIWS link runs from the migration effect below once
+  // `signer` lands, so an imported key joins a Privy user the same way a
+  // pre-Privy wallet does after unlock.
+  const finalizeSigner = useCallback(
+    async (kp: Keypair, pin: string, opts?: { alreadyStored?: boolean }) => {
+      if (!opts?.alreadyStored) {
+        await storeKeypair(kp, pin);
+      }
+      const next = new LocalKeypairSigner(kp);
+      const pk = kp.publicKey.toBase58();
+      setSigner(next);
+      setPublicKey(pk);
+      setWalletSigner(next);
+      setState("unlocked");
+      const source: "created" | "imported" = opts?.alreadyStored
+        ? "imported"
+        : "created";
+      identifyWallet(pk, source);
+      track(
+        source === "imported"
+          ? WALLET_SETUP_EVENTS.walletImported
+          : WALLET_SETUP_EVENTS.walletCreated,
+        { source },
+      );
+      // Default-on iCloud backup: keep the Drive file in step with the new
+      // wallet. Best-effort; the keychain mirror already ran in storeKeypair.
+      void refreshCloudBackupIfEnabled();
+    },
+    [],
+  );
+
   // MWA accounts finalize without PIN/biometric setup. The user's wallet app
   // owns all authorization UI going forward.
   const finalizeMwaSigner = useCallback(async (account: StoredMwaAccount) => {
@@ -405,19 +453,15 @@ function WalletProviderCore({
   // app session, only while no Privy user is signed in. Local signers reach
   // here after unlock, so the user has just proven presence; hardware
   // signers get one approval prompt. Never blocks: see migrateSignerToPrivy.
-  const migrationAttempted = useRef(false);
+  // Keyed by address so a reset → import in the same session links the new
+  // key too, while StrictMode double-effects stay single-shot.
+  const migrationAttempted = useRef<string | null>(null);
   useEffect(() => {
-    if (
-      !privy ||
-      !privy.isReady ||
-      privy.user ||
-      !signer ||
-      signer.kind === "privy" ||
-      migrationAttempted.current
-    ) {
-      return;
-    }
-    migrationAttempted.current = true;
+    if (!privy || !privy.isReady || privy.user || !signer) return;
+    if (signer.kind === "privy") return;
+    const address = signer.publicKey.toBase58();
+    if (migrationAttempted.current === address) return;
+    migrationAttempted.current = address;
     void (async () => {
       const result = await migrateSignerToPrivy(signer, privy.siws);
       setPrivyMigrationStatus(result);
@@ -589,6 +633,8 @@ function WalletProviderCore({
       signer,
       publicKey,
       onboardingReplayActive,
+      importWallet,
+      finalizeSigner,
       finalizeMwaSigner,
       finalizeDeeplinkSigner,
       finalizeVaultSigner,
@@ -611,6 +657,8 @@ function WalletProviderCore({
       signer,
       publicKey,
       onboardingReplayActive,
+      importWallet,
+      finalizeSigner,
       finalizeMwaSigner,
       finalizeDeeplinkSigner,
       finalizeVaultSigner,

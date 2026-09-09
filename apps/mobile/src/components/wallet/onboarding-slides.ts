@@ -4,6 +4,12 @@ export type OnboardingSlide = {
   image: number;
 };
 
+export type WalletSetupAction = {
+  id: "connect-wallet" | "create" | "import" | "restore-icloud";
+  label: string;
+  helperText?: string;
+};
+
 /**
  * Which external-wallet connect path this binary supports: "mwa" on builds
  * with the MWA native module, "seed-vault" as the legacy fallback on older
@@ -14,7 +20,7 @@ export type WalletConnectMode = "mwa" | "seed-vault" | "deeplink" | "none";
 
 export type OnboardingMode = "setup" | "replay";
 
-export type OnboardingStartStep = "slides" | "sign-in";
+export type OnboardingStartStep = "slides" | "setup-onboarding";
 
 export const ONBOARDING_SLIDES: OnboardingSlide[] = [
   {
@@ -25,6 +31,49 @@ export const ONBOARDING_SLIDES: OnboardingSlide[] = [
   },
 ];
 
+export function buildWalletSetupActions(
+  connectMode: WalletConnectMode,
+  hasCloudBackup = false,
+): WalletSetupAction[] {
+  // A found iCloud backup outranks everything: the user already has a wallet
+  // and almost certainly wants it back, so restore renders as the primary.
+  const restore: WalletSetupAction[] = hasCloudBackup
+    ? [
+        {
+          id: "restore-icloud",
+          label: "Restore from iCloud",
+          helperText: "Wallet backup found in your iCloud",
+        },
+      ]
+    : [];
+
+  const createAndImport: WalletSetupAction[] = [
+    { id: "create", label: "Create New Wallet" },
+    { id: "import", label: "Import Existing Wallet" },
+  ];
+
+  // No external wallet backend (iOS: no Seed Vault, no Mobile Wallet
+  // Adapter). Drop the action entirely rather than rendering a disabled
+  // primary CTA — a dead first button that names another mobile platform is
+  // both a bad first impression and an App Review flag.
+  if (connectMode === "none") return [...restore, ...createAndImport];
+
+  return [
+    ...restore,
+    connectMode === "seed-vault"
+      ? { id: "connect-wallet", label: "Use Seed Vault" }
+      : {
+          id: "connect-wallet",
+          label: "Connect Wallet",
+          helperText:
+            connectMode === "deeplink"
+              ? "Phantom or Solflare"
+              : "Phantom, Solflare, or Seed Vault",
+        },
+    ...createAndImport,
+  ];
+}
+
 export function getSetupStartStep(mode: OnboardingMode): OnboardingStartStep {
-  return mode === "setup" ? "sign-in" : "slides";
+  return mode === "setup" ? "setup-onboarding" : "slides";
 }

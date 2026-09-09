@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react-native";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -6,48 +7,35 @@ import {
   StyleSheet,
   TextInput,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { LogoHeader } from "@/components/LogoHeader";
-import type { WalletConnectMode } from "@/components/wallet/onboarding-slides";
-import { Pressable, Text, View } from "@/tw";
+import { Pressable, SafeAreaView, Text, View } from "@/tw";
 
-export type PrivySignInMethod = "email" | "google" | "apple" | "wallet";
+export type PrivySignInMethod = "email" | "google" | "apple";
 
 type Props = {
-  connectMode: WalletConnectMode;
-  /** True on a Seeker: names the device wallet instead of a generic label. */
-  seekerWallet: boolean;
   pending: PrivySignInMethod | null;
   error: string | null;
   onSendEmailCode: (email: string) => Promise<void>;
   onSubmitEmailCode: (code: string) => Promise<void>;
   onOAuth: (provider: "google" | "apple") => void;
-  onConnectWallet: () => void;
+  onBack: () => void;
 };
 
-function walletLabel(connectMode: WalletConnectMode, seeker: boolean) {
-  if (connectMode === "none") return null;
-  if (seeker) return "Continue with Seeker wallet";
-  return "Connect wallet";
-}
-
+// "Create New Wallet" step: a Privy account (email / Google / Apple) backs a
+// new embedded wallet, so there is no seed phrase to write down. Layout and
+// type mirror ImportWalletScreen so the two flows feel like one product.
 export function PrivySignInScreen({
-  connectMode,
-  seekerWallet,
   pending,
   error,
   onSendEmailCode,
   onSubmitEmailCode,
   onOAuth,
-  onConnectWallet,
+  onBack,
 }: Props) {
-  const { bottom } = useSafeAreaInsets();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const disabled = pending !== null;
-  const wallet = walletLabel(connectMode, seekerWallet);
 
   const submitEmail = async () => {
     const trimmed = email.trim();
@@ -56,172 +44,193 @@ export function PrivySignInScreen({
     setCodeSent(true);
   };
 
-  return (
-    <KeyboardAvoidingView
-      className="flex-1 bg-white"
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <LogoHeader />
-      <View className="flex-1 justify-end px-6" style={{ paddingBottom: Math.max(bottom + 12, 24) }}>
-        <Text style={styles.title}>Sign in to Loyal</Text>
+  const submitCode = () => {
+    if (code.trim().length < 6) return;
+    void onSubmitEmailCode(code.trim());
+  };
 
-        <View className="gap-3">
-          {codeSent ? (
-            <>
-              <Text style={styles.helperText}>Enter the code sent to {email.trim()}</Text>
-              <TextInput
-                style={styles.input}
-                value={code}
-                onChangeText={setCode}
-                placeholder="6-digit code"
-                placeholderTextColor="rgba(0,0,0,0.3)"
-                keyboardType="number-pad"
-                autoFocus
-                editable={!disabled}
-                onSubmitEditing={() => void onSubmitEmailCode(code.trim())}
-              />
-              <Button
-                label="Continue"
-                primary
-                busy={pending === "email"}
-                disabled={disabled || code.trim().length < 6}
-                onPress={() => void onSubmitEmailCode(code.trim())}
-              />
-              <Pressable
-                onPress={() => {
+  return (
+    <SafeAreaView className="flex-1 bg-white">
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View className="flex-1 px-6 pt-4">
+          <View className="mb-8 flex-row items-center">
+            <Pressable
+              onPress={() => {
+                if (codeSent) {
                   setCodeSent(false);
                   setCode("");
-                }}
-                disabled={disabled}
-              >
-                <Text style={styles.linkText}>Use a different email</Text>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Email address"
-                placeholderTextColor="rgba(0,0,0,0.3)"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                editable={!disabled}
-                onSubmitEditing={() => void submitEmail()}
-              />
-              <Button
-                label="Continue with email"
-                primary
-                busy={pending === "email"}
-                disabled={disabled || !email.trim()}
-                onPress={() => void submitEmail()}
-              />
-              <Button
-                label="Continue with Google"
-                busy={pending === "google"}
-                disabled={disabled}
-                onPress={() => onOAuth("google")}
-              />
-              {Platform.OS === "ios" ? (
-                <Button
-                  label="Continue with Apple"
-                  busy={pending === "apple"}
-                  disabled={disabled}
-                  onPress={() => onOAuth("apple")}
-                />
-              ) : null}
-              {wallet ? (
-                <Button
-                  label={wallet}
-                  busy={pending === "wallet"}
-                  disabled={disabled}
-                  onPress={onConnectWallet}
-                />
-              ) : null}
-            </>
-          )}
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-        </View>
-      </View>
-    </KeyboardAvoidingView>
-  );
-}
+                } else {
+                  onBack();
+                }
+              }}
+              hitSlop={12}
+              className="mr-3"
+              disabled={disabled}
+            >
+              <ArrowLeft size={24} color="#000" strokeWidth={1.5} />
+            </Pressable>
+            <View className="flex-1" />
+          </View>
 
-function Button({
-  label,
-  primary = false,
-  busy = false,
-  disabled = false,
-  onPress,
-}: {
-  label: string;
-  primary?: boolean;
-  busy?: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={[
-        primary ? styles.primaryButton : styles.secondaryButton,
-        disabled && !busy && styles.disabledButton,
-      ]}
-      onPress={onPress}
-      disabled={disabled}
-    >
-      {busy ? (
-        <ActivityIndicator size="small" color={primary ? "#fff" : "#000"} />
-      ) : (
-        <Text
-          style={[
-            primary ? styles.primaryButtonText : styles.secondaryButtonText,
-            disabled && styles.disabledButtonText,
-          ]}
-        >
-          {label}
-        </Text>
-      )}
-    </Pressable>
+          {codeSent ? (
+            <View className="flex-1">
+              <Text style={styles.title}>Check your email</Text>
+              <Text style={styles.subtitle}>
+                Enter the 6-digit code sent to {email.trim()}
+              </Text>
+              <View className="mt-8">
+                <TextInput
+                  style={styles.input}
+                  value={code}
+                  onChangeText={setCode}
+                  placeholder="000000"
+                  placeholderTextColor="rgba(0,0,0,0.3)"
+                  keyboardType="number-pad"
+                  autoFocus
+                  editable={!disabled}
+                  maxLength={6}
+                  onSubmitEditing={submitCode}
+                />
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              </View>
+              <View className="flex-1" />
+              <View className="pb-4">
+                <Pressable
+                  style={[
+                    styles.primaryButton,
+                    (disabled || code.trim().length < 6) &&
+                      styles.buttonDisabled,
+                  ]}
+                  onPress={submitCode}
+                  disabled={disabled || code.trim().length < 6}
+                >
+                  {pending === "email" ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>Continue</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View className="flex-1">
+              <Text style={styles.title}>Create New Wallet</Text>
+              <Text style={styles.subtitle}>
+                Sign in to create a wallet you can recover from any device.
+                No seed phrase to write down.
+              </Text>
+              <View className="mt-8">
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Email address"
+                  placeholderTextColor="rgba(0,0,0,0.3)"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  editable={!disabled}
+                  onSubmitEditing={() => void submitEmail()}
+                />
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              </View>
+              <View className="flex-1" />
+              <View className="gap-3 pb-4">
+                <Pressable
+                  style={[
+                    styles.primaryButton,
+                    (disabled || !email.trim()) && styles.buttonDisabled,
+                  ]}
+                  onPress={() => void submitEmail()}
+                  disabled={disabled || !email.trim()}
+                >
+                  {pending === "email" ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.primaryButtonText}>
+                      Continue with Email
+                    </Text>
+                  )}
+                </Pressable>
+                <Pressable
+                  style={[styles.secondaryButton, disabled && styles.buttonDisabled]}
+                  onPress={() => onOAuth("google")}
+                  disabled={disabled}
+                >
+                  {pending === "google" ? (
+                    <ActivityIndicator color="#000" />
+                  ) : (
+                    <Text style={styles.secondaryButtonText}>
+                      Continue with Google
+                    </Text>
+                  )}
+                </Pressable>
+                {Platform.OS === "ios" ? (
+                  <Pressable
+                    style={[styles.secondaryButton, disabled && styles.buttonDisabled]}
+                    onPress={() => onOAuth("apple")}
+                    disabled={disabled}
+                  >
+                    {pending === "apple" ? (
+                      <ActivityIndicator color="#000" />
+                    ) : (
+                      <Text style={styles.secondaryButtonText}>
+                        Continue with Apple
+                      </Text>
+                    )}
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   title: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 28,
     color: "#000",
-    textAlign: "center",
-    marginBottom: 20,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 18,
+    color: "rgba(0,0,0,0.5)",
+    lineHeight: 24,
   },
   input: {
     fontFamily: "Geist_400Regular",
     fontSize: 17,
     color: "#000",
     backgroundColor: "rgba(0,0,0,0.04)",
-    borderRadius: 999,
-    height: 52,
-    paddingHorizontal: 20,
+    borderRadius: 16,
+    height: 56,
+    paddingHorizontal: 16,
   },
   primaryButton: {
     height: 52,
-    borderRadius: 999,
+    borderRadius: 16,
     backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
   },
   primaryButtonText: {
-    fontFamily: "Geist_500Medium",
+    fontFamily: "Geist_600SemiBold",
     fontSize: 17,
-    lineHeight: 22,
     color: "#fff",
   },
   secondaryButton: {
     height: 52,
-    borderRadius: 999,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(0,0,0,0.08)",
     backgroundColor: "#fff",
@@ -229,38 +238,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   secondaryButtonText: {
-    fontFamily: "Geist_500Medium",
+    fontFamily: "Geist_600SemiBold",
     fontSize: 17,
-    lineHeight: 22,
     color: "#000",
   },
-  disabledButton: {
-    backgroundColor: "rgba(0,0,0,0.06)",
-    borderColor: "transparent",
-  },
-  disabledButtonText: {
-    color: "rgba(0,0,0,0.38)",
-  },
-  helperText: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 14,
-    lineHeight: 18,
-    color: "rgba(60, 60, 67, 0.6)",
-    textAlign: "center",
-  },
-  linkText: {
-    fontFamily: "Geist_500Medium",
-    fontSize: 14,
-    lineHeight: 18,
-    color: "rgba(60, 60, 67, 0.6)",
-    textAlign: "center",
-    paddingVertical: 8,
+  buttonDisabled: {
+    opacity: 0.4,
   },
   errorText: {
     fontFamily: "Geist_500Medium",
-    fontSize: 14,
-    lineHeight: 18,
-    color: "#b91c1c",
-    textAlign: "center",
+    fontSize: 13,
+    color: "#FF3B30",
+    marginTop: 8,
   },
 });
