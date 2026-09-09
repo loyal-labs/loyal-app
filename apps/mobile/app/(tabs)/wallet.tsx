@@ -19,6 +19,7 @@ import {
 } from "@/components/earn/DepositSheet";
 import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
+import { AddEmailNudge } from "@/components/wallet/AddEmailNudge";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
@@ -402,6 +403,7 @@ export default function WalletScreen() {
         }
       >
         <View className="flex-1">
+          <AddEmailNudge />
           <BalanceCard
             key={networkKey}
             walletAddress={walletAddress}
