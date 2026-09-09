@@ -12,7 +12,7 @@ import {
  */
 export interface Signer {
   readonly publicKey: PublicKey;
-  readonly kind: "local" | "seed-vault" | "mwa" | "deeplink";
+  readonly kind: "local" | "seed-vault" | "mwa" | "deeplink" | "privy";
   signMessage(bytes: Uint8Array): Promise<Uint8Array>;
   signTransaction<T extends Transaction | VersionedTransaction>(
     tx: T,
