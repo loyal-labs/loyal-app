@@ -123,7 +123,10 @@ interface WalletContextValue {
    * unlock. Throws PrivyExternalWalletError when the user's only wallets are
    * external (connect that wallet instead).
    */
-  finalizePrivySigner: (user: PrivyUser) => Promise<void>;
+  finalizePrivySigner: (
+    user: PrivyUser,
+    opts?: { useEmbedded?: boolean },
+  ) => Promise<void>;
   /** Legacy signer → Privy SIWS link. "idle" until the first attempt settles. */
   privyMigrationStatus: "idle" | PrivyMigrationResult;
 
@@ -147,6 +150,9 @@ interface WalletContextValue {
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
+
+// Set when a sign-in on this device ended on the Privy embedded wallet.
+const PRIVY_EMBEDDED_KEY = "loyal:privy-embedded-wallet";
 
 export function useWallet(): WalletContextValue {
   const ctx = useContext(WalletContext);
@@ -265,7 +271,15 @@ function WalletProviderCore({
         // device — land on the lock screen and let the PIN unlock it.
         setPublicKey(await getStoredPublicKey());
         setState("locked");
-      } else if (privyHasUser && privyEmbedded) {
+      } else if (
+        privyHasUser &&
+        privyEmbedded &&
+        mmkv.getBoolean(PRIVY_EMBEDDED_KEY)
+      ) {
+        // Only after a sign-in on this device ended on the embedded wallet.
+        // A Privy session alone is not enough: a login that stopped at the
+        // external-wallet handoff would otherwise resurface as the embedded
+        // address on the next launch.
         const provider = await privyEmbedded.getProvider();
         const next = new PrivyEmbeddedSigner(provider, privyEmbedded.address);
         setSigner(next);
@@ -432,25 +446,27 @@ function WalletProviderCore({
   // address next to the user's funds would leave the app signing with the
   // wrong one.
   const finalizePrivySigner = useCallback(
-    async (user: PrivyUser) => {
+    async (user: PrivyUser, opts?: { useEmbedded?: boolean }) => {
       if (!privy) throw new Error("Privy is not configured.");
       // Same precedence as web (privy-session-sync.tsx): an external wallet
       // the user linked themselves is where their funds are, so it wins over
-      // an embedded one. Never mint an embedded wallet for a user who has any
-      // Solana wallet: it would sit empty next to their real address.
+      // an embedded one unless the user picked the embedded one explicitly.
+      // Never mint an embedded wallet for a user who has any Solana wallet:
+      // it would sit empty next to their real address.
       const external = user.linked_accounts.find(
         (a) =>
           a.type === "wallet" &&
           a.chain_type === "solana" &&
           a.connector_type !== "embedded",
       );
-      if (external && "address" in external) {
+      let account = getAllUserEmbeddedSolanaWallets(user)[0] ?? null;
+      if (external && "address" in external && !opts?.useEmbedded) {
         throw new PrivyExternalWalletError(
           external.address,
           "wallet_client_type" in external ? external.wallet_client_type : undefined,
+          account?.address,
         );
       }
-      let account = getAllUserEmbeddedSolanaWallets(user)[0] ?? null;
       if (!account) {
         // A user who got an Ethereum embedded wallet on web must pass it here,
         // or Solana creation fails inside Privy's secure context.
@@ -467,6 +483,7 @@ function WalletProviderCore({
         entropyIdVerifier,
       );
       const next = new PrivyEmbeddedSigner(provider, account.address);
+      mmkv.setBoolean(PRIVY_EMBEDDED_KEY, true);
       void exchangeSession(account.address);
       setSigner(next);
       setPublicKey(account.address);
@@ -618,6 +635,7 @@ function WalletProviderCore({
         }
       }
       mmkv.setBoolean(PRIVY_MIGRATION_DONE_KEY, false);
+      mmkv.setBoolean(PRIVY_EMBEDDED_KEY, false);
 
       await clearMwaAccount();
       await clearDeeplinkSession();

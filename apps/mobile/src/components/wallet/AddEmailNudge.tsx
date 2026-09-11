@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, TextInput } from "react-native";
 
 import { isPrivyConfigured } from "@/components/wallet/PrivyProviderRoot";
 import { mmkv } from "@/lib/storage";
+import { isValidEmail } from "@/lib/wallet/email";
 import { privyErrorMessage } from "@/lib/wallet/privy-errors";
 import { Text, View } from "@/tw";
 
@@ -108,17 +109,20 @@ export function LinkEmailForm({ onLinked }: { onLinked?: () => void } = {}) {
           autoCorrect={false}
           autoComplete="email"
           editable={!busy}
-          onSubmitEditing={() =>
+          onSubmitEditing={() => {
+            if (!isValidEmail(email.trim())) return;
             void run(async () => {
               await sendCode({ email: email.trim() });
               setSent(true);
-            })
-          }
+            });
+          }}
         />
       )}
       <Pressable
         style={[styles.button, busy && styles.buttonDisabled]}
-        disabled={busy || (sent ? code.trim().length < 6 : !email.trim())}
+        disabled={
+          busy || (sent ? code.trim().length < 6 : !isValidEmail(email.trim()))
+        }
         onPress={() =>
           void run(async () => {
             if (sent) {

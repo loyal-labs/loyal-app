@@ -47,6 +47,8 @@ export class PrivyExternalWalletError extends Error {
   constructor(
     readonly address: string,
     readonly clientType?: string,
+    /** The user also has a Privy embedded wallet; the caller may offer it. */
+    readonly embeddedAddress?: string,
   ) {
     super(
       `Connect the wallet ending in ${address.slice(-4)} to finish signing in.`,

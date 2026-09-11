@@ -8,6 +8,7 @@ import {
   TextInput,
 } from "react-native";
 
+import { isValidEmail } from "@/lib/wallet/email";
 import { Pressable, SafeAreaView, Text, View } from "@/tw";
 
 export type PrivySignInMethod = "email" | "google" | "apple";
@@ -40,9 +41,10 @@ export function PrivySignInScreen({
   const [codeSent, setCodeSent] = useState(false);
   const disabled = pending !== null;
 
+  const emailOk = isValidEmail(email.trim());
   const submitEmail = async () => {
     const trimmed = email.trim();
-    if (!trimmed) return;
+    if (!isValidEmail(trimmed)) return;
     await onSendEmailCode(trimmed);
     setCodeSent(true);
   };
@@ -149,10 +151,10 @@ export function PrivySignInScreen({
                 <Pressable
                   style={[
                     styles.primaryButton,
-                    (disabled || !email.trim()) && styles.buttonDisabled,
+                    (disabled || !emailOk) && styles.buttonDisabled,
                   ]}
                   onPress={() => void submitEmail()}
-                  disabled={disabled || !email.trim()}
+                  disabled={disabled || !emailOk}
                 >
                   {pending === "email" ? (
                     <ActivityIndicator color="#fff" />

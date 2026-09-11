@@ -8,7 +8,14 @@ import type { User as PrivyUser } from "@privy-io/expo";
 import { Keypair } from "@solana/web3.js";
 import * as SeedVault from "expo-seed-vault";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActionSheetIOS, ActivityIndicator, Platform, StyleSheet } from "react-native";
+import {
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  type AlertButton,
+  Platform,
+  StyleSheet,
+} from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -148,6 +155,45 @@ class WalletMismatchError extends Error {
     );
     this.name = "WalletMismatchError";
   }
+}
+
+// Which wallet to sign in with when the Privy user has an external wallet
+// (and maybe an embedded one too). Native alert: two or three buttons.
+function chooseWalletSource(
+  e: PrivyExternalWalletError,
+  canConnect: boolean,
+): Promise<"embedded" | "connect" | null> {
+  const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+  const name = walletClientDisplayName(e.clientType);
+  return new Promise((resolve) => {
+    const buttons: AlertButton[] = [
+      { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+    ];
+    if (canConnect) {
+      buttons.push({
+        text: `Connect ${short(e.address)}`,
+        onPress: () => resolve("connect"),
+      });
+    }
+    if (e.embeddedAddress) {
+      buttons.push({
+        text: `Use ${short(e.embeddedAddress)}`,
+        onPress: () => resolve("embedded"),
+      });
+    }
+    Alert.alert(
+      "Choose a wallet",
+      `This account's wallet ${short(e.address)} is ${name ? `in ${name}` : "in another wallet app"}.` +
+        (canConnect
+          ? " Connect it from a wallet app on this phone"
+          : " It cannot be connected on this phone") +
+        (e.embeddedAddress
+          ? `, or use the Loyal wallet ${short(e.embeddedAddress)} linked to this account.`
+          : "."),
+      buttons,
+      { cancelable: true, onDismiss: () => resolve(null) },
+    );
+  });
 }
 
 // User-facing explanation for an external wallet we cannot sign with here.
@@ -370,13 +416,25 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         setFinalizing(false);
         // Privy holds only the address of an external wallet. The key is in
         // a wallet app: on this phone (Seed Vault, Phantom mobile) or on
-        // another device (browser extension). Try the phone first; if there
-        // is no wallet app, the user cancels, or the account does not match,
-        // say where the wallet is instead of a generic failure.
-        if (connectMode === "none") throw whereWalletIs(e);
+        // another device (browser extension). Never open a wallet app on
+        // our own: on a non-Seeker Android the MWA chooser launches whatever
+        // wallet is installed, which cannot hold this key. Ask instead.
+        const choice = await chooseWalletSource(e, connectMode !== "none");
+        if (choice === "embedded") {
+          setFinalizing(true);
+          await finalizePrivySigner(user, { useEmbedded: true });
+          return;
+        }
+        if (choice !== "connect") {
+          // Leave no half-session behind: the next launch must not hydrate
+          // the embedded wallet the user did not choose.
+          await privyLogout();
+          throw new WalletRejectedError("Sign-in was cancelled.");
+        }
         try {
           await connectExternalRef.current(e.address);
         } catch (connectError) {
+          await privyLogout();
           // Cancelled, or the phone's wallet app holds a different key
           // (typical when the linked wallet is a browser extension): both
           // mean the key is not here.
@@ -390,7 +448,7 @@ function PrivyOnboardingGate({ mode = "setup", onReplayDone }: Props) {
         }
       }
     },
-    [connectMode, finalizePrivySigner],
+    [connectMode, finalizePrivySigner, privyLogout],
   );
 
   const onSendEmailCode = useCallback(
