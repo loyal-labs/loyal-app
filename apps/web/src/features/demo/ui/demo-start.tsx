@@ -1,12 +1,25 @@
 "use client";
 
+import {
+  getStablecoinMintForCluster,
+  resolveLoyalClusterForSolanaEnv,
+  Stablecoin,
+} from "@loyal-labs/actions";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCreateWallet } from "@privy-io/react-auth/solana";
+import { Connection, PublicKey } from "@solana/web3.js";
 import type { AnimationItem } from "lottie-web";
-import { Copy } from "lucide-react";
+import {
+  CircleArrowUp,
+  CircleCheck,
+  Copy,
+  LoaderCircle,
+  RefreshCw,
+} from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { cn } from "@/lib/utils";
 
 // Scripted setup: each step shows its status for STEP_MS, then appends a
@@ -39,7 +52,62 @@ const SETUP_STEPS = [
 const FAKE_SIGNATURE =
   "2wsvQm3k7hZp9xL4nR8tB6yC1dF5gH0jK2mN4pQ6rS8tU1vW3xY5zA7bC9dE1fG3hn2m";
 
-type DemoTx = { title: string; time: string; signature: string };
+const MIN_FUNDING_USDC = 2;
+const BALANCE_POLL_MS = 10_000;
+
+// Balances shown after each loop step: [wallet, smart account, kamino]. The
+// wallet starts from the real USDC balance; the rest is scripted.
+// ponytail: fixed 2-USDC loop; read real balances once the steps are real.
+type Balances = [number, number, number];
+const LOOP_STEPS: {
+  status: string;
+  tx: string;
+  route: [string, string];
+  connector: 0 | 1 | 2 | 3;
+  after: (wallet: number) => Balances;
+}[] = [
+  {
+    status: "Moving 2 USDC to Smart account…",
+    tx: "Move 2 USDC",
+    route: ["Privy wallet", "Smart account"],
+    connector: 0,
+    after: (w) => [w - 2, 2, 0],
+  },
+  {
+    status: "Moving 2 USDC to Kamino…",
+    tx: "Move 2 USDC",
+    route: ["Smart account", "Kamino"],
+    connector: 1,
+    after: (w) => [w - 2, 0, 2.000001],
+  },
+  {
+    status: "Sending 1 USDC to smart account…",
+    tx: "Send 1 USDC",
+    route: ["Kamino", "Smart account"],
+    connector: 3,
+    after: (w) => [w - 2, 1, 1.000002],
+  },
+  {
+    status: "Sending 1 USDC to wallet…",
+    tx: "Send 1 USDC",
+    route: ["Smart account", "Privy wallet"],
+    connector: 2,
+    after: (w) => [w - 1, 0, 1.000002],
+  },
+];
+
+type DemoTx = {
+  title: string;
+  time: string;
+  signature: string;
+  route?: [string, string];
+};
+
+const usdc = (v: number, min = 2) =>
+  v.toLocaleString("en-US", {
+    minimumFractionDigits: min,
+    maximumFractionDigits: 6,
+  });
 
 const KAMINO_YIELD = 0.08;
 const BALANCE_STOPS = [
@@ -62,31 +130,47 @@ const usdShort = (v: number) =>
 export function DemoStart() {
   const [balanceIdx, setBalanceIdx] = useState(3);
   const [shareIdx, setShareIdx] = useState(3);
-  const balances = BALANCE_STOPS[balanceIdx];
+  const userBalances = BALANCE_STOPS[balanceIdx];
   const yourShare = SHARE_STOPS[shareIdx];
   const usersShare = KAMINO_YIELD - yourShare;
-  const youKeep = balances * yourShare;
+  const youKeep = userBalances * yourShare;
 
   const { ready, authenticated, user, login, logout } = usePrivy();
   const walletAddress = useDemoWallet();
   const signedIn = ready && authenticated && user !== null;
   const setup = useScriptedSetup();
+  const walletUsdc = useUsdcBalance(
+    setup.phase === "done" ? walletAddress : null
+  );
+  const loop = useScriptedLoop(setup.phase === "done" ? walletUsdc : null);
+  const funded = walletUsdc !== null && walletUsdc >= MIN_FUNDING_USDC;
+  const txs = [...loop.txs, ...setup.txs];
+  const balances: Balances = loop.balances ?? [walletUsdc ?? 0, 0, 0];
+  const activeConnector =
+    loop.phase === "running" ? LOOP_STEPS[loop.step].connector : null;
 
   return (
     <div className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]">
       <header className="flex w-full justify-center px-6">
-        <div className="flex h-[68px] w-full max-w-[1200px] items-center justify-between">
+        <div className="relative flex h-[68px] w-full max-w-[1200px] items-center justify-between">
           <Image
             alt="Loyal"
             height={24}
             src="/landing/figma/header-logotype.svg"
             width={56}
           />
+          {loop.phase === "done" ? (
+            <span className="absolute left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full bg-[#e1e3e6] px-3 font-medium text-[#0f0d13] text-[13px]">
+              <CircleCheck size={16} strokeWidth={2} />
+              Money moved itself!
+            </span>
+          ) : null}
           {signedIn ? (
             <button
               className="h-11 rounded-full bg-[rgba(249,54,60,0.14)] px-5 font-medium text-[16px] leading-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
               onClick={() => {
                 setup.reset();
+                loop.reset();
                 void logout();
               }}
               type="button"
@@ -104,9 +188,10 @@ export function DemoStart() {
               Money that moves itself
             </h1>
             <p className="text-[15px] text-[#97959a] leading-[1.2]">
-              At {usdShort(balances)} of user balances this loop pays you about{" "}
-              {usd.format(youKeep)} a year. Users earn {pct(usersShare)}, you
-              keep {pct(yourShare)} of roughly {pct(KAMINO_YIELD)} Kamino yield.
+              At {usdShort(userBalances)} of user balances this loop pays you
+              about {usd.format(youKeep)} a year. Users earn {pct(usersShare)},
+              you keep {pct(yourShare)} of roughly {pct(KAMINO_YIELD)} Kamino
+              yield.
               <br />
               Rates float. The split is set in your contract.
             </p>
@@ -124,23 +209,37 @@ export function DemoStart() {
 
       <section className="flex w-full justify-center px-6 py-4">
         <div className="relative w-full max-w-[1200px] lg:py-[60px]">
-          <Connectors />
+          <Connectors active={activeConnector} />
           <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
             <SchemeCard
+              action={
+                setup.phase === "done" && balances[0] > 0 ? (
+                  <button
+                    className="flex h-9 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[14px] transition-colors hover:bg-white/[0.12]"
+                    type="button"
+                  >
+                    <CircleArrowUp size={18} strokeWidth={1.5} />
+                    Withdraw
+                  </button>
+                ) : null
+              }
               caption="User's spendable cash"
               subtitle={
                 walletAddress ? <WalletBadge address={walletAddress} /> : null
               }
               title="Privy wallet"
+              value={balances[0]}
             />
             <SchemeCard
               caption="Programmable and policy-guarded account"
               title="Smart account"
+              value={balances[1]}
             />
             <SchemeCard
               caption="Vault, where idle cash works"
-              dim
+              dim={balances[2] === 0}
               title="Kamino Main Market"
+              value={balances[2]}
             />
           </div>
         </div>
@@ -169,6 +268,35 @@ export function DemoStart() {
                   {SETUP_STEPS[setup.step].status}
                 </span>
               </div>
+            ) : loop.phase === "running" ? (
+              <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
+                <Loader />
+                <span className="text-[16px] leading-5">
+                  {LOOP_STEPS[loop.step].status}
+                </span>
+              </div>
+            ) : loop.phase === "done" ? (
+              <button
+                className="flex h-[164px] w-full max-w-[620px] items-center justify-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 font-bold text-[28px] uppercase leading-8 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+                onClick={loop.reset}
+                type="button"
+              >
+                <RefreshCw size={28} strokeWidth={2} />
+                Reset demo
+              </button>
+            ) : funded ? (
+              <button
+                className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+                onClick={loop.start}
+                type="button"
+              >
+                <span className="font-bold text-[28px] uppercase leading-8">
+                  Run the loop
+                </span>
+                <span className="text-[#97959a] text-[16px] leading-5">
+                  Pull 2 USDC, deposit to Kamino, withdraw 1 USDC back
+                </span>
+              </button>
             ) : (
               <div className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5">
                 <button
@@ -184,7 +312,8 @@ export function DemoStart() {
                     ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
                     : "…"}
                 </button>
-                <span className="text-[#97959a] text-[16px] leading-5">
+                <span className="flex items-center gap-1.5 text-[#97959a] text-[16px] leading-5">
+                  <LoaderCircle className="animate-spin" size={14} />
                   Fund Privy wallet with at least 2 USDC
                 </span>
               </div>
@@ -195,7 +324,7 @@ export function DemoStart() {
               <p className="px-6 py-[18px] font-semibold text-[20px] leading-6">
                 Transactions
               </p>
-              {setup.txs.length === 0 ? (
+              {txs.length === 0 ? (
                 <div className="flex flex-col items-center gap-4 pt-6 pb-12">
                   <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
                   <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
@@ -204,17 +333,27 @@ export function DemoStart() {
                 </div>
               ) : (
                 <ul className="flex flex-col px-2">
-                  {setup.txs.map((tx, i) => (
+                  {txs.map((tx, i) => (
                     <li
                       className="flex items-center justify-between px-4 py-2.5"
                       key={`${tx.title}-${i}`}
                     >
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-1 flex-col gap-0.5">
                         <p className="text-[16px] leading-5">{tx.title}</p>
                         <p className="text-[#97959a] text-[13px] leading-4">
                           {tx.time}
                         </p>
                       </div>
+                      {tx.route ? (
+                        <p className="flex flex-1 items-center gap-1.5 text-[14px] leading-5">
+                          {tx.route[0]}
+                          <CircleArrowUp
+                            className="rotate-90 text-[#636067]"
+                            size={14}
+                          />
+                          {tx.route[1]}
+                        </p>
+                      ) : null}
                       <a
                         className="flex items-center gap-1.5 font-mono text-[#97959a] text-[14px] leading-5 transition-colors hover:text-[#e1e3e6]"
                         href={`https://orbmarkets.io/tx/${tx.signature}`}
@@ -276,7 +415,7 @@ export function DemoStart() {
                   User balances
                 </p>
                 <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
-                  {usd.format(balances)}
+                  {usd.format(userBalances)}
                 </p>
               </div>
               <StepSlider
@@ -335,12 +474,17 @@ function SchemeCard({
   subtitle,
   caption,
   dim,
+  value,
+  action,
 }: {
   title: string;
   subtitle?: React.ReactNode;
   caption: string;
   dim?: boolean;
+  value: number;
+  action?: React.ReactNode;
 }) {
+  const [whole, frac] = usdc(value).split(".");
   return (
     <div className="flex min-h-[200px] flex-col justify-between rounded-[32px] bg-[#1d1b20]">
       <div className="flex flex-col gap-0.5 p-6">
@@ -362,9 +506,11 @@ function SchemeCard({
               dim && "text-[#636067]"
             )}
           >
-            0<span className="text-[#636067]">.00</span>
+            {whole}
+            <span className="text-[#636067]">.{frac}</span>
           </p>
         </div>
+        {action ? <div className="pt-3">{action}</div> : null}
       </div>
       <p className="p-6 text-[#97959a] text-[16px] leading-5">{caption}</p>
     </div>
@@ -428,6 +574,95 @@ function useScriptedSetup() {
   };
 }
 
+function useScriptedLoop(walletUsdc: number | null) {
+  const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
+  const [step, setStep] = useState(0);
+  const [txs, setTxs] = useState<DemoTx[]>([]);
+  const [balances, setBalances] = useState<Balances | null>(null);
+  const startWallet = useRef(0);
+
+  useEffect(() => {
+    if (phase !== "running") return;
+    const id = setTimeout(() => {
+      const s = LOOP_STEPS[step];
+      const time = new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      setTxs((prev) => [
+        { title: s.tx, time, signature: FAKE_SIGNATURE, route: s.route },
+        ...prev,
+      ]);
+      setBalances(s.after(startWallet.current));
+      if (step + 1 < LOOP_STEPS.length) setStep(step + 1);
+      else setPhase("done");
+    }, STEP_MS);
+    return () => clearTimeout(id);
+  }, [phase, step]);
+
+  return {
+    phase,
+    step,
+    txs,
+    balances,
+    start: () => {
+      startWallet.current = walletUsdc ?? 0;
+      setTxs([]);
+      setStep(0);
+      setBalances(null);
+      setPhase("running");
+    },
+    reset: () => {
+      setTxs([]);
+      setStep(0);
+      setBalances(null);
+      setPhase("idle");
+    },
+  };
+}
+
+// Real USDC balance of the Privy wallet, polled while an address is given.
+function useUsdcBalance(address: string | null): number | null {
+  const { solanaEnv, solanaRpcEndpoint } = usePublicEnv();
+  const [balance, setBalance] = useState<number | null>(null);
+  useEffect(() => {
+    if (!address) {
+      setBalance(null);
+      return;
+    }
+    const connection = new Connection(solanaRpcEndpoint, "confirmed");
+    const mint = getStablecoinMintForCluster(
+      resolveLoyalClusterForSolanaEnv(solanaEnv),
+      Stablecoin.USDC
+    );
+    const owner = new PublicKey(address);
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const { value } = await connection.getParsedTokenAccountsByOwner(
+          owner,
+          { mint }
+        );
+        const total = value.reduce(
+          (sum, a) =>
+            sum + (a.account.data.parsed.info.tokenAmount.uiAmount ?? 0),
+          0
+        );
+        if (!cancelled) setBalance(total);
+      } catch {
+        // keep last value; next poll retries
+      }
+    };
+    void read();
+    const id = setInterval(read, BALANCE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [address, solanaEnv, solanaRpcEndpoint]);
+  return balance;
+}
+
 function Loader() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -479,7 +714,8 @@ function useDemoWallet(): string | null {
 // where the cards stack. The Figma design uses a 24px column gap and 60px
 // connector rows; `vectorEffect` keeps the strokes 2px while the arcs
 // stretch with the layout.
-function Connectors() {
+// Connector index: 0 pull, 1 deposit, 2 withdraw to wallet, 3 withdraw from Kamino.
+function Connectors({ active }: { active: number | null }) {
   const top: [string, string][] = [
     ["Pull 2 USDC · recurring", "left-[calc(33.333%-12px)]"],
     ["Deposit · 2 USDC", "left-[calc(66.666%-12px)]"],
@@ -528,13 +764,21 @@ function Connectors() {
           <path d="M185 308 L192 301 L199 308" />
         </g>
       </svg>
-      {top.map(([text, left]) => (
-        <Pill className={cn("top-[2px]", left)} key={text + left}>
+      {top.map(([text, left], i) => (
+        <Pill
+          active={active === i}
+          className={cn("top-[2px]", left)}
+          key={left}
+        >
           {text}
         </Pill>
       ))}
-      {bottom.map(([text, left]) => (
-        <Pill className={cn("bottom-[2px]", left)} key={text + left}>
+      {bottom.map(([text, left], i) => (
+        <Pill
+          active={active === i + 2}
+          className={cn("bottom-[2px]", left)}
+          key={left}
+        >
           {text}
         </Pill>
       ))}
@@ -545,17 +789,21 @@ function Connectors() {
 function Pill({
   children,
   className,
+  active,
 }: {
   children: string;
   className: string;
+  active: boolean;
 }) {
   return (
     <span
       className={cn(
-        "absolute -translate-x-1/2 whitespace-nowrap rounded-full bg-[#333036] px-5 py-2.5 text-[16px] leading-5 tracking-[-0.176px]",
+        "absolute flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-[16px] leading-5 tracking-[-0.176px] transition-colors",
+        active ? "bg-[#ff5050] text-white" : "bg-[#333036]",
         className
       )}
     >
+      {active ? <LoaderCircle className="animate-spin" size={16} /> : null}
       {children}
     </span>
   );
