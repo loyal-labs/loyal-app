@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { DemoPrivyProvider } from "@/features/demo/ui/demo-privy-provider";
 import { DemoStart } from "@/features/demo/ui/demo-start";
 
 export const metadata: Metadata = {
@@ -8,5 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default function DemoPage() {
-  return <DemoStart />;
+  return (
+    <DemoPrivyProvider>
+      <DemoStart />
+    </DemoPrivyProvider>
+  );
 }

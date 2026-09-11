@@ -1,7 +1,10 @@
 "use client";
 
+import { usePrivy } from "@privy-io/react-auth";
+import { useCreateWallet } from "@privy-io/react-auth/solana";
+import { Copy } from "lucide-react";
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -31,39 +34,56 @@ export function DemoStart() {
   const usersShare = KAMINO_YIELD - yourShare;
   const youKeep = balances * yourShare;
 
+  const { ready, authenticated, user, login, logout } = usePrivy();
+  const walletAddress = useDemoWallet();
+  const signedIn = ready && authenticated && user !== null;
+
   return (
     <div className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]">
       <header className="flex w-full justify-center px-6">
-        <div className="flex h-[68px] w-full max-w-[1200px] items-center">
+        <div className="flex h-[68px] w-full max-w-[1200px] items-center justify-between">
           <Image
             alt="Loyal"
             height={24}
             src="/landing/figma/header-logotype.svg"
             width={56}
           />
+          {signedIn ? (
+            <button
+              className="h-11 rounded-full bg-[rgba(249,54,60,0.14)] px-5 font-medium text-[16px] leading-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+              onClick={() => void logout()}
+              type="button"
+            >
+              Sign out
+            </button>
+          ) : null}
         </div>
       </header>
 
-      <section className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center">
-        <div className="flex max-w-[540px] flex-col gap-4">
-          <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
-            Money that moves itself
-          </h1>
-          <p className="text-[15px] text-[#97959a] leading-[1.2]">
-            At {usdShort(balances)} of user balances this loop pays you about{" "}
-            {usd.format(youKeep)} a year. Users earn {pct(usersShare)}, you keep{" "}
-            {pct(yourShare)} of roughly {pct(KAMINO_YIELD)} Kamino yield.
-            <br />
-            Rates float. The split is set in your contract.
-          </p>
-        </div>
-        <button
-          className="h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] transition-opacity hover:opacity-90"
-          type="button"
-        >
-          Continue with email
-        </button>
-      </section>
+      {signedIn ? null : (
+        <section className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center">
+          <div className="flex max-w-[540px] flex-col gap-4">
+            <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
+              Money that moves itself
+            </h1>
+            <p className="text-[15px] text-[#97959a] leading-[1.2]">
+              At {usdShort(balances)} of user balances this loop pays you about{" "}
+              {usd.format(youKeep)} a year. Users earn {pct(usersShare)}, you
+              keep {pct(yourShare)} of roughly {pct(KAMINO_YIELD)} Kamino yield.
+              <br />
+              Rates float. The split is set in your contract.
+            </p>
+          </div>
+          <button
+            className="h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] transition-opacity hover:opacity-90 disabled:opacity-60"
+            disabled={!ready}
+            onClick={() => login()}
+            type="button"
+          >
+            Continue with email
+          </button>
+        </section>
+      )}
 
       <section className="flex w-full justify-center px-6 py-4">
         <div className="relative w-full max-w-[1200px] lg:py-[60px]">
@@ -71,6 +91,9 @@ export function DemoStart() {
           <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
             <SchemeCard
               caption="User's spendable cash"
+              subtitle={
+                walletAddress ? <WalletBadge address={walletAddress} /> : null
+              }
               title="Privy wallet"
             />
             <SchemeCard
@@ -85,6 +108,42 @@ export function DemoStart() {
           </div>
         </div>
       </section>
+
+      {signedIn ? (
+        <>
+          <section className="flex w-full justify-center px-6 py-4">
+            <button
+              className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+              type="button"
+            >
+              <span className="font-bold text-[28px] uppercase leading-8">
+                Set up account
+              </span>
+              <span className="text-[#97959a] text-[16px] leading-5">
+                Privy asks for each approval. Loyal pays every fee
+              </span>
+            </button>
+          </section>
+          <section className="flex w-full justify-center px-6 py-4">
+            <div className="flex w-full max-w-[1200px] flex-col rounded-[32px] bg-[#1d1b20]">
+              <p className="px-6 py-[18px] font-semibold text-[20px] leading-6">
+                Transactions
+              </p>
+              <div className="flex flex-col items-center gap-4 pt-6 pb-12">
+                <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
+                <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
+                  Transactions will appear here
+                </p>
+              </div>
+              <p className="mx-auto max-w-[660px] px-6 pt-4 pb-6 text-center text-[#636067] text-[16px] leading-5 tracking-[-0.176px]">
+                Every receipt opens on Orb Markets. The backend accepts only
+                four fixed, pre-approved movements, never an arbitrary
+                transaction, amount, token, venue, or destination.
+              </p>
+            </div>
+          </section>
+        </>
+      ) : null}
 
       <section className="flex w-full flex-col items-center gap-12 px-6 py-24 lg:px-16">
         <h2 className="max-w-[474px] text-center font-bold text-[40px] uppercase leading-none md:text-[56px]">
@@ -180,17 +239,22 @@ export function DemoStart() {
 
 function SchemeCard({
   title,
+  subtitle,
   caption,
   dim,
 }: {
   title: string;
+  subtitle?: React.ReactNode;
   caption: string;
   dim?: boolean;
 }) {
   return (
     <div className="flex min-h-[200px] flex-col justify-between rounded-[32px] bg-[#1d1b20]">
       <div className="flex flex-col gap-0.5 p-6">
-        <p className="text-[#97959a] text-[16px] leading-5">{title}</p>
+        <div className="flex items-center gap-1 text-[#97959a] text-[16px] leading-5">
+          <p>{title}</p>
+          {subtitle}
+        </div>
         <div className="flex items-center gap-2">
           <Image
             alt="USDC"
@@ -212,6 +276,46 @@ function SchemeCard({
       <p className="p-6 text-[#97959a] text-[16px] leading-5">{caption}</p>
     </div>
   );
+}
+
+function WalletBadge({ address }: { address: string }) {
+  const short = `${address.slice(0, 4)}…${address.slice(-4)}`;
+  return (
+    <>
+      <span>·</span>
+      <span>{short}</span>
+      <button
+        aria-label="Copy wallet address"
+        className="text-[#97959a] transition-colors hover:text-[#e1e3e6]"
+        onClick={() => void navigator.clipboard.writeText(address)}
+        type="button"
+      >
+        <Copy size={16} strokeWidth={1.5} />
+      </button>
+    </>
+  );
+}
+
+// Privy's Solana wallet for the signed-in user. createOnLogin should make
+// one, but that also depends on the dashboard setting, so create on demand.
+function useDemoWallet(): string | null {
+  const { ready, authenticated, user } = usePrivy();
+  const { createWallet } = useCreateWallet();
+  const creating = useRef(false);
+  const wallet = user?.linkedAccounts.find(
+    (a) => a.type === "wallet" && a.chainType === "solana"
+  );
+  const address = wallet && "address" in wallet ? wallet.address : null;
+  useEffect(() => {
+    if (!ready || !authenticated || address || creating.current) return;
+    creating.current = true;
+    void createWallet()
+      .catch(() => undefined)
+      .finally(() => {
+        creating.current = false;
+      });
+  }, [address, authenticated, createWallet, ready]);
+  return address;
 }
 
 // Arrows between the three cards. Drawn over the card grid; hidden below lg
@@ -238,7 +342,11 @@ function Connectors() {
       >
         {/* Card centers x = 192, 600, 1008; cards span y 60..300. Source dots
             and arrowheads on the middle card are offset ±8px so they don't overlap. */}
-        <g stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke">
+        <g
+          stroke="currentColor"
+          strokeWidth="2"
+          vectorEffect="non-scaling-stroke"
+        >
           <path d="M192 60 V45 Q192 21 216 21 H568 Q592 21 592 45 V60" />
           <path d="M608 60 V45 Q608 21 632 21 H984 Q1008 21 1008 45 V60" />
           <path d="M1008 300 V315 Q1008 339 984 339 H632 Q608 339 608 315 V300" />
@@ -324,8 +432,8 @@ function StepSlider({
                 i === value
                   ? "bg-[#636067]"
                   : i < value
-                    ? "bg-white/60 scale-50"
-                    : "bg-[#636067] scale-50"
+                  ? "bg-white/60 scale-50"
+                  : "bg-[#636067] scale-50"
               )}
               key={i}
             />
