@@ -419,101 +419,110 @@ export function DemoStart() {
       </header>
       {mounted && !holdIntro ? (
         <div className="hidden w-full flex-col items-center lg:flex">
-          <AnimatePresence mode="popLayout">
-            {signedIn ? null : (
-              <motion.section
-                className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center"
-                key="hero"
-                {...RISE}
-              >
-                <div className="flex max-w-[540px] flex-col gap-4">
-                  <HeroTitle />
-                  <motion.div
-                    {...RISE}
-                    transition={{
-                      ...RISE.transition,
-                      delay: INTRO.copy,
-                    }}
-                  >
-                    <p className="text-[15px] text-[#97959a] leading-[1.2]">
-                      At {usdShort(userBalances)} of user balances this loop
-                      pays you about {usd.format(youKeep)} a year. Users earn{" "}
-                      {pct(usersShare)}, you keep {pct(yourShare)} of roughly{" "}
-                      {pct(KAMINO_YIELD)} Kamino yield.
-                      <br />
-                      Rates float. The split is set in your contract.
-                    </p>
-                  </motion.div>
-                  <motion.div
-                    {...RISE}
-                    transition={{
-                      ...RISE.transition,
-                      delay: INTRO.copy + 0.25,
-                    }}
-                  >
-                    <button
-                      className={cn(
-                        "mt-4 h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] hover:bg-white disabled:opacity-60",
-                        PRESS
-                      )}
-                      disabled={!ready}
-                      onClick={() => login()}
-                      type="button"
-                    >
-                      Continue with email
-                    </button>
-                  </motion.div>
-                </div>
-              </motion.section>
+          {/* Before sign-in the hero + scheme own the first viewport, so the
+              second title cannot start on tall monitors while the intro runs. */}
+          <div
+            className={cn(
+              "flex w-full flex-col items-center",
+              !signedIn && "min-h-[calc(100dvh-68px)] justify-center pb-16"
             )}
-          </AnimatePresence>
-
-          <section className="flex w-full justify-center px-6 py-4">
-            <div className="relative w-full max-w-[1200px] lg:py-[60px]">
-              <Connectors active={activeConnector} />
-              <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
-                <SchemeCard
-                  active={activeCard === 0}
-                  index={0}
-                  action={
-                    setup.phase === "done" && balances[0] > 0 ? (
+          >
+            <AnimatePresence mode="popLayout">
+              {signedIn ? null : (
+                <motion.section
+                  className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center"
+                  key="hero"
+                  {...RISE}
+                >
+                  <div className="flex max-w-[540px] flex-col gap-4">
+                    <HeroTitle />
+                    <motion.div
+                      {...RISE}
+                      transition={{
+                        ...RISE.transition,
+                        delay: INTRO.copy,
+                      }}
+                    >
+                      <p className="text-[15px] text-[#97959a] leading-[1.2]">
+                        At {usdShort(userBalances)} of user balances this loop
+                        pays you about {usd.format(youKeep)} a year. Users earn{" "}
+                        {pct(usersShare)}, you keep {pct(yourShare)} of roughly{" "}
+                        {pct(KAMINO_YIELD)} Kamino yield.
+                        <br />
+                        Rates float. The split is set in your contract.
+                      </p>
+                    </motion.div>
+                    <motion.div
+                      {...RISE}
+                      transition={{
+                        ...RISE.transition,
+                        delay: INTRO.copy + 0.25,
+                      }}
+                    >
                       <button
-                        className="flex h-9 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[14px] transition-colors hover:bg-white/[0.12]"
-                        onClick={() => setWithdrawOpen(true)}
+                        className={cn(
+                          "mt-4 h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] hover:bg-white disabled:opacity-60",
+                          PRESS
+                        )}
+                        disabled={!ready}
+                        onClick={() => login()}
                         type="button"
                       >
-                        <CircleArrowUp size={18} strokeWidth={1.5} />
-                        Withdraw
+                        Continue with email
                       </button>
-                    ) : null
-                  }
-                  caption="User's spendable cash"
-                  subtitle={
-                    walletAddress ? (
-                      <WalletBadge address={walletAddress} />
-                    ) : null
-                  }
-                  title="Privy wallet"
-                  value={balances[0]}
-                />
-                <SchemeCard
-                  active={activeCard === 1}
-                  index={1}
-                  caption="Programmable and policy-guarded account"
-                  title="Smart account"
-                  value={balances[1]}
-                />
-                <SchemeCard
-                  active={activeCard === 2}
-                  index={2}
-                  caption="Vault, where idle cash works"
-                  dim={balances[2] === 0}
-                  title="Kamino Main Market"
-                  value={balances[2]}
-                />
+                    </motion.div>
+                  </div>
+                </motion.section>
+              )}
+            </AnimatePresence>
+
+            <section className="flex w-full justify-center px-6 py-4">
+              <div className="relative w-full max-w-[1200px] lg:py-[60px]">
+                <Connectors active={activeConnector} />
+                <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
+                  <SchemeCard
+                    active={activeCard === 0}
+                    index={0}
+                    action={
+                      setup.phase === "done" && balances[0] > 0 ? (
+                        <button
+                          className="flex h-9 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[14px] transition-colors hover:bg-white/[0.12]"
+                          onClick={() => setWithdrawOpen(true)}
+                          type="button"
+                        >
+                          <CircleArrowUp size={18} strokeWidth={1.5} />
+                          Withdraw
+                        </button>
+                      ) : null
+                    }
+                    caption="User's spendable cash"
+                    subtitle={
+                      walletAddress ? (
+                        <WalletBadge address={walletAddress} />
+                      ) : null
+                    }
+                    title="Privy wallet"
+                    value={balances[0]}
+                  />
+                  <SchemeCard
+                    active={activeCard === 1}
+                    index={1}
+                    caption="Programmable and policy-guarded account"
+                    title="Smart account"
+                    value={balances[1]}
+                  />
+                  <SchemeCard
+                    active={activeCard === 2}
+                    index={2}
+                    caption="Vault, where idle cash works"
+                    dim={balances[2] === 0}
+                    title="Kamino Main Market"
+                    value={balances[2]}
+                  />
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
 
           <AnimatePresence initial={false}>
             {signedIn ? (
