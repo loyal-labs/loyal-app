@@ -14,6 +14,7 @@ import {
   CircleCheck,
   Copy,
   LoaderCircle,
+  Monitor,
   RefreshCw,
 } from "lucide-react";
 import Image from "next/image";
@@ -171,7 +172,16 @@ export function DemoStart() {
 
   return (
     <div className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]">
-      <header className="flex w-full justify-center px-6">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 pb-24 text-center lg:hidden">
+        <Monitor className="text-[#e1e3e6]" size={56} strokeWidth={1.5} />
+        <h1 className="mt-4 max-w-[360px] font-bold text-[28px] uppercase leading-8">
+          Loyal demo is only available on desktop
+        </h1>
+        <p className="max-w-[280px] text-[#97959a] text-[15px] leading-5">
+          If you&apos;re on a computer, try maximizing your browser window.
+        </p>
+      </div>
+      <header className="flex w-full justify-center px-6 max-lg:absolute max-lg:top-0">
         <div className="relative flex h-[68px] w-full max-w-[1200px] items-center justify-between">
           <Image
             alt="Loyal"
@@ -200,310 +210,313 @@ export function DemoStart() {
           ) : null}
         </div>
       </header>
+      <div className="hidden w-full flex-col items-center lg:flex">
+        {signedIn ? null : (
+          <section className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center">
+            <div className="flex max-w-[540px] flex-col gap-4">
+              <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
+                Money that moves itself
+              </h1>
+              <p className="text-[15px] text-[#97959a] leading-[1.2]">
+                At {usdShort(userBalances)} of user balances this loop pays you
+                about {usd.format(youKeep)} a year. Users earn {pct(usersShare)}
+                , you keep {pct(yourShare)} of roughly {pct(KAMINO_YIELD)}{" "}
+                Kamino yield.
+                <br />
+                Rates float. The split is set in your contract.
+              </p>
+            </div>
+            <button
+              className="h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] transition-opacity hover:opacity-90 disabled:opacity-60"
+              disabled={!ready}
+              onClick={() => login()}
+              type="button"
+            >
+              Continue with email
+            </button>
+          </section>
+        )}
 
-      {signedIn ? null : (
-        <section className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center">
-          <div className="flex max-w-[540px] flex-col gap-4">
-            <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
-              Money that moves itself
-            </h1>
-            <p className="text-[15px] text-[#97959a] leading-[1.2]">
-              At {usdShort(userBalances)} of user balances this loop pays you
-              about {usd.format(youKeep)} a year. Users earn {pct(usersShare)},
-              you keep {pct(yourShare)} of roughly {pct(KAMINO_YIELD)} Kamino
-              yield.
-              <br />
-              Rates float. The split is set in your contract.
-            </p>
+        <section className="flex w-full justify-center px-6 py-4">
+          <div className="relative w-full max-w-[1200px] lg:py-[60px]">
+            <Connectors active={activeConnector} />
+            <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
+              <SchemeCard
+                action={
+                  setup.phase === "done" && balances[0] > 0 ? (
+                    <button
+                      className="flex h-9 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[14px] transition-colors hover:bg-white/[0.12]"
+                      onClick={() => setWithdrawOpen(true)}
+                      type="button"
+                    >
+                      <CircleArrowUp size={18} strokeWidth={1.5} />
+                      Withdraw
+                    </button>
+                  ) : null
+                }
+                caption="User's spendable cash"
+                subtitle={
+                  walletAddress ? <WalletBadge address={walletAddress} /> : null
+                }
+                title="Privy wallet"
+                value={balances[0]}
+              />
+              <SchemeCard
+                caption="Programmable and policy-guarded account"
+                title="Smart account"
+                value={balances[1]}
+              />
+              <SchemeCard
+                caption="Vault, where idle cash works"
+                dim={balances[2] === 0}
+                title="Kamino Main Market"
+                value={balances[2]}
+              />
+            </div>
           </div>
-          <button
-            className="h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] transition-opacity hover:opacity-90 disabled:opacity-60"
-            disabled={!ready}
-            onClick={() => login()}
-            type="button"
-          >
-            Continue with email
-          </button>
         </section>
-      )}
 
-      <section className="flex w-full justify-center px-6 py-4">
-        <div className="relative w-full max-w-[1200px] lg:py-[60px]">
-          <Connectors active={activeConnector} />
-          <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
-            <SchemeCard
-              action={
-                setup.phase === "done" && balances[0] > 0 ? (
-                  <button
-                    className="flex h-9 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[14px] transition-colors hover:bg-white/[0.12]"
-                    onClick={() => setWithdrawOpen(true)}
-                    type="button"
-                  >
-                    <CircleArrowUp size={18} strokeWidth={1.5} />
-                    Withdraw
-                  </button>
-                ) : null
-              }
-              caption="User's spendable cash"
-              subtitle={
-                walletAddress ? <WalletBadge address={walletAddress} /> : null
-              }
-              title="Privy wallet"
-              value={balances[0]}
-            />
-            <SchemeCard
-              caption="Programmable and policy-guarded account"
-              title="Smart account"
-              value={balances[1]}
-            />
-            <SchemeCard
-              caption="Vault, where idle cash works"
-              dim={balances[2] === 0}
-              title="Kamino Main Market"
-              value={balances[2]}
-            />
-          </div>
-        </div>
-      </section>
-
-      {signedIn ? (
-        <>
-          <section className="flex w-full justify-center px-6 py-4">
-            {setup.phase === "idle" ? (
-              <button
-                className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-                onClick={setup.start}
-                type="button"
-              >
-                <span className="font-bold text-[28px] uppercase leading-8">
-                  Set up account
-                </span>
-                <span className="text-[#97959a] text-[16px] leading-5">
-                  Privy asks for each approval. Loyal pays every fee
-                </span>
-              </button>
-            ) : setup.phase === "running" ? (
-              <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
-                <Loader />
-                <span className="text-[16px] leading-5">
-                  {SETUP_STEPS[setup.step].status}
-                </span>
-              </div>
-            ) : loop.phase === "running" ? (
-              <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
-                <Loader />
-                <span className="text-[16px] leading-5">
-                  {LOOP_STEPS[loop.step].status}
-                </span>
-              </div>
-            ) : loop.phase === "done" ? (
-              <button
-                className="flex h-[164px] w-full max-w-[620px] items-center justify-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 font-bold text-[28px] uppercase leading-8 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-                onClick={loop.reset}
-                type="button"
-              >
-                <RefreshCw size={28} strokeWidth={2} />
-                Reset demo
-              </button>
-            ) : funded ? (
-              <button
-                className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-                onClick={loop.start}
-                type="button"
-              >
-                <span className="font-bold text-[28px] uppercase leading-8">
-                  Run the loop
-                </span>
-                <span className="text-[#97959a] text-[16px] leading-5">
-                  Pull 2 USDC, deposit to Kamino, withdraw 1 USDC back
-                </span>
-              </button>
-            ) : (
-              <div className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5">
+        {signedIn ? (
+          <>
+            <section className="flex w-full justify-center px-6 py-4">
+              {setup.phase === "idle" ? (
                 <button
-                  className="flex items-center gap-2 font-bold text-[28px] leading-8 transition-opacity hover:opacity-80"
-                  onClick={() =>
-                    walletAddress &&
-                    void navigator.clipboard.writeText(walletAddress)
-                  }
+                  className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+                  onClick={setup.start}
                   type="button"
                 >
-                  <Copy size={24} strokeWidth={1.5} />
-                  {walletAddress
-                    ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
-                    : "…"}
+                  <span className="font-bold text-[28px] uppercase leading-8">
+                    Set up account
+                  </span>
+                  <span className="text-[#97959a] text-[16px] leading-5">
+                    Privy asks for each approval. Loyal pays every fee
+                  </span>
                 </button>
-                <span className="flex items-center gap-1.5 text-[#97959a] text-[16px] leading-5">
-                  <LoaderCircle className="animate-spin" size={14} />
-                  Fund Privy wallet with at least 2 USDC
-                </span>
-              </div>
-            )}
-          </section>
-          <section className="flex w-full justify-center px-6 py-4">
-            <div className="flex w-full max-w-[1200px] flex-col rounded-[32px] bg-[#1d1b20]">
-              <p className="px-6 py-[18px] font-semibold text-[20px] leading-6">
-                Transactions
-              </p>
-              {txs.length === 0 ? (
-                <div className="flex flex-col items-center gap-4 pt-6 pb-12">
-                  <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
-                  <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
-                    Transactions will appear here
-                  </p>
+              ) : setup.phase === "running" ? (
+                <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
+                  <Loader />
+                  <span className="text-[16px] leading-5">
+                    {SETUP_STEPS[setup.step].status}
+                  </span>
                 </div>
+              ) : loop.phase === "running" ? (
+                <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
+                  <Loader />
+                  <span className="text-[16px] leading-5">
+                    {LOOP_STEPS[loop.step].status}
+                  </span>
+                </div>
+              ) : loop.phase === "done" ? (
+                <button
+                  className="flex h-[164px] w-full max-w-[620px] items-center justify-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 font-bold text-[28px] uppercase leading-8 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+                  onClick={loop.reset}
+                  type="button"
+                >
+                  <RefreshCw size={28} strokeWidth={2} />
+                  Reset demo
+                </button>
+              ) : funded ? (
+                <button
+                  className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+                  onClick={loop.start}
+                  type="button"
+                >
+                  <span className="font-bold text-[28px] uppercase leading-8">
+                    Run the loop
+                  </span>
+                  <span className="text-[#97959a] text-[16px] leading-5">
+                    Pull 2 USDC, deposit to Kamino, withdraw 1 USDC back
+                  </span>
+                </button>
               ) : (
-                <ul className="flex flex-col px-2">
-                  {txs.map((tx, i) => (
-                    <li
-                      className="flex items-center justify-between px-4 py-2.5"
-                      key={`${tx.title}-${i}`}
-                    >
-                      <div className="flex flex-1 flex-col gap-0.5">
-                        <p className="text-[16px] leading-5">{tx.title}</p>
-                        <p className="text-[#97959a] text-[13px] leading-4">
-                          {tx.time}
-                        </p>
-                      </div>
-                      {tx.route ? (
-                        <p className="flex flex-1 items-center gap-1.5 text-[14px] leading-5">
-                          {tx.route[0]}
-                          <CircleArrowUp
-                            className="rotate-90 text-[#636067]"
-                            size={14}
-                          />
-                          {tx.route[1]}
-                        </p>
-                      ) : null}
-                      <a
-                        className="flex items-center gap-1.5 font-mono text-[#97959a] text-[14px] leading-5 transition-colors hover:text-[#e1e3e6]"
-                        href={`https://orbmarkets.io/tx/${tx.signature}`}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        {tx.signature.slice(0, 4)} … {tx.signature.slice(-4)}
-                        <Copy size={16} strokeWidth={1.5} />
-                      </a>
-                    </li>
-                  ))}
-                </ul>
+                <div className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5">
+                  <button
+                    className="flex items-center gap-2 font-bold text-[28px] leading-8 transition-opacity hover:opacity-80"
+                    onClick={() =>
+                      walletAddress &&
+                      void navigator.clipboard.writeText(walletAddress)
+                    }
+                    type="button"
+                  >
+                    <Copy size={24} strokeWidth={1.5} />
+                    {walletAddress
+                      ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(
+                          -4
+                        )}`
+                      : "…"}
+                  </button>
+                  <span className="flex items-center gap-1.5 text-[#97959a] text-[16px] leading-5">
+                    <LoaderCircle className="animate-spin" size={14} />
+                    Fund Privy wallet with at least 2 USDC
+                  </span>
+                </div>
               )}
-              <p className="mx-auto max-w-[660px] px-6 pt-4 pb-6 text-center text-[#636067] text-[16px] leading-5 tracking-[-0.176px]">
-                Every receipt opens on Orb Markets. The backend accepts only
-                four fixed, pre-approved movements, never an arbitrary
-                transaction, amount, token, venue, or destination.
-              </p>
-            </div>
-          </section>
-        </>
-      ) : null}
+            </section>
+            <section className="flex w-full justify-center px-6 py-4">
+              <div className="flex w-full max-w-[1200px] flex-col rounded-[32px] bg-[#1d1b20]">
+                <p className="px-6 py-[18px] font-semibold text-[20px] leading-6">
+                  Transactions
+                </p>
+                {txs.length === 0 ? (
+                  <div className="flex flex-col items-center gap-4 pt-6 pb-12">
+                    <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
+                    <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
+                      Transactions will appear here
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="flex flex-col px-2">
+                    {txs.map((tx, i) => (
+                      <li
+                        className="flex items-center justify-between px-4 py-2.5"
+                        key={`${tx.title}-${i}`}
+                      >
+                        <div className="flex flex-1 flex-col gap-0.5">
+                          <p className="text-[16px] leading-5">{tx.title}</p>
+                          <p className="text-[#97959a] text-[13px] leading-4">
+                            {tx.time}
+                          </p>
+                        </div>
+                        {tx.route ? (
+                          <p className="flex flex-1 items-center gap-1.5 text-[14px] leading-5">
+                            {tx.route[0]}
+                            <CircleArrowUp
+                              className="rotate-90 text-[#636067]"
+                              size={14}
+                            />
+                            {tx.route[1]}
+                          </p>
+                        ) : null}
+                        <a
+                          className="flex items-center gap-1.5 font-mono text-[#97959a] text-[14px] leading-5 transition-colors hover:text-[#e1e3e6]"
+                          href={`https://orbmarkets.io/tx/${tx.signature}`}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          {tx.signature.slice(0, 4)} … {tx.signature.slice(-4)}
+                          <Copy size={16} strokeWidth={1.5} />
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mx-auto max-w-[660px] px-6 pt-4 pb-6 text-center text-[#636067] text-[16px] leading-5 tracking-[-0.176px]">
+                  Every receipt opens on Orb Markets. The backend accepts only
+                  four fixed, pre-approved movements, never an arbitrary
+                  transaction, amount, token, venue, or destination.
+                </p>
+              </div>
+            </section>
+          </>
+        ) : null}
 
-      {walletAddress ? (
-        <WithdrawModal
-          available={walletUsdc ?? 0}
-          from={walletAddress}
-          mint={usdcMint}
-          onOpenChange={setWithdrawOpen}
-          onSent={(signature) =>
-            setup.addTx({
-              title: `Withdraw ${usdc(walletUsdc ?? 0)} USDC`,
-              time: now(),
-              signature,
-              route: ["Privy wallet", "External wallet"],
-            })
-          }
-          open={withdrawOpen}
-        />
-      ) : null}
-
-      <section className="flex w-full flex-col items-center gap-12 px-6 py-24 lg:px-16">
-        <h2 className="max-w-[474px] text-center font-bold text-[40px] uppercase leading-none md:text-[56px]">
-          Make more money
-        </h2>
-        <div className="relative w-full max-w-[680px]">
-          <Image
-            alt=""
-            className="pointer-events-none absolute top-[-32px] left-[-64px] hidden size-64 md:block"
-            height={256}
-            src="/demo/dog-back.svg"
-            width={256}
+        {walletAddress ? (
+          <WithdrawModal
+            available={walletUsdc ?? 0}
+            from={walletAddress}
+            mint={usdcMint}
+            onOpenChange={setWithdrawOpen}
+            onSent={(signature) =>
+              setup.addTx({
+                title: `Withdraw ${usdc(walletUsdc ?? 0)} USDC`,
+                time: now(),
+                signature,
+                route: ["Privy wallet", "External wallet"],
+              })
+            }
+            open={withdrawOpen}
           />
-          <div className="relative flex h-[250px] flex-col items-center justify-center rounded-[32px] bg-[#1d1b20] p-6">
+        ) : null}
+
+        <section className="flex w-full flex-col items-center gap-12 px-6 py-24 lg:px-16">
+          <h2 className="max-w-[474px] text-center font-bold text-[40px] uppercase leading-none md:text-[56px]">
+            Make more money
+          </h2>
+          <div className="relative w-full max-w-[680px]">
             <Image
               alt=""
-              className="absolute top-0 right-0 size-[100px]"
-              height={100}
-              src="/demo/corner.svg"
-              width={100}
+              className="pointer-events-none absolute top-[-32px] left-[-64px] hidden size-64 md:block"
+              height={256}
+              src="/demo/dog-back.svg"
+              width={256}
             />
-            <div className="flex flex-col items-center gap-1 pb-6">
-              <p className="text-[#97959a] text-[20px] leading-6">You keep</p>
-              <div className="flex items-baseline gap-[7px] md:pl-9">
-                <p className="font-semibold text-[40px] leading-[64px] tracking-[-0.616px] md:text-[56px]">
-                  {usd.format(youKeep)}
-                </p>
-                <p className="text-[#97959a] text-[20px] leading-6">/year</p>
-              </div>
-            </div>
-          </div>
-          <div className="mx-8 h-[2px] border-[#1d1b20] border-t-2 border-dashed" />
-          <div className="relative flex flex-col gap-6 rounded-[32px] bg-[#1d1b20] p-6 md:flex-row">
-            <div className="flex flex-1 flex-col">
-              <div className="flex flex-col gap-1 px-2 pb-2">
-                <p className="text-[#97959a] text-[16px] leading-5">
-                  User balances
-                </p>
-                <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
-                  {usd.format(userBalances)}
-                </p>
-              </div>
-              <StepSlider
-                label="User balances"
-                onChange={setBalanceIdx}
-                stops={BALANCE_STOPS.length}
-                value={balanceIdx}
+            <div className="relative flex h-[250px] flex-col items-center justify-center rounded-[32px] bg-[#1d1b20] p-6">
+              <Image
+                alt=""
+                className="absolute top-0 right-0 size-[100px]"
+                height={100}
+                src="/demo/corner.svg"
+                width={100}
               />
-            </div>
-            <div className="flex flex-1 flex-col">
-              <div className="flex gap-2 px-2 pb-2">
-                <div className="flex flex-1 flex-col gap-1">
-                  <p className="text-[#97959a] text-[16px] leading-5">
-                    Your share
+              <div className="flex flex-col items-center gap-1 pb-6">
+                <p className="text-[#97959a] text-[20px] leading-6">You keep</p>
+                <div className="flex items-baseline gap-[7px] md:pl-9">
+                  <p className="font-semibold text-[40px] leading-[64px] tracking-[-0.616px] md:text-[56px]">
+                    {usd.format(youKeep)}
                   </p>
-                  <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
-                    {pct(yourShare)}
-                  </p>
-                </div>
-                <div className="flex flex-1 flex-col gap-1 text-right">
-                  <p className="text-[#97959a] text-[16px] leading-5">
-                    Users’ share
-                  </p>
-                  <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
-                    {pct(usersShare)}
-                  </p>
+                  <p className="text-[#97959a] text-[20px] leading-6">/year</p>
                 </div>
               </div>
-              <StepSlider
-                label="Your share"
-                onChange={setShareIdx}
-                stops={SHARE_STOPS.length}
-                value={shareIdx}
-              />
-              <p className="px-2 pt-2 text-[#97959a] text-[13px] leading-4">
-                Based on roughly {pct(KAMINO_YIELD)} Kamino yield. Rates float.
-                The split is set in your contract
-              </p>
             </div>
+            <div className="mx-8 h-[2px] border-[#1d1b20] border-t-2 border-dashed" />
+            <div className="relative flex flex-col gap-6 rounded-[32px] bg-[#1d1b20] p-6 md:flex-row">
+              <div className="flex flex-1 flex-col">
+                <div className="flex flex-col gap-1 px-2 pb-2">
+                  <p className="text-[#97959a] text-[16px] leading-5">
+                    User balances
+                  </p>
+                  <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
+                    {usd.format(userBalances)}
+                  </p>
+                </div>
+                <StepSlider
+                  label="User balances"
+                  onChange={setBalanceIdx}
+                  stops={BALANCE_STOPS.length}
+                  value={balanceIdx}
+                />
+              </div>
+              <div className="flex flex-1 flex-col">
+                <div className="flex gap-2 px-2 pb-2">
+                  <div className="flex flex-1 flex-col gap-1">
+                    <p className="text-[#97959a] text-[16px] leading-5">
+                      Your share
+                    </p>
+                    <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
+                      {pct(yourShare)}
+                    </p>
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1 text-right">
+                    <p className="text-[#97959a] text-[16px] leading-5">
+                      Users’ share
+                    </p>
+                    <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
+                      {pct(usersShare)}
+                    </p>
+                  </div>
+                </div>
+                <StepSlider
+                  label="Your share"
+                  onChange={setShareIdx}
+                  stops={SHARE_STOPS.length}
+                  value={shareIdx}
+                />
+                <p className="px-2 pt-2 text-[#97959a] text-[13px] leading-4">
+                  Based on roughly {pct(KAMINO_YIELD)} Kamino yield. Rates
+                  float. The split is set in your contract
+                </p>
+              </div>
+            </div>
+            <Image
+              alt=""
+              className="pointer-events-none absolute top-[-32px] left-[-64px] hidden size-64 md:block"
+              height={256}
+              src="/demo/dog-front.svg"
+              width={256}
+            />
           </div>
-          <Image
-            alt=""
-            className="pointer-events-none absolute top-[-32px] left-[-64px] hidden size-64 md:block"
-            height={256}
-            src="/demo/dog-front.svg"
-            width={256}
-          />
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }
