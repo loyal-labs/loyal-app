@@ -37,7 +37,7 @@ const config: ExpoConfig = {
   name: IS_DEV ? "Loyal (Dev)" : "Loyal",
   slug: "loyal-app",
   scheme: IS_DEV ? "loyal-dev" : "loyal",
-  version: "0.1.2",
+  version: "0.5.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   userInterfaceStyle: "light",
@@ -57,6 +57,8 @@ const config: ExpoConfig = {
     // package of the same name, which is the shipped dApp Store build and
     // stays as-is. Must never change after the first App Store release.
     bundleIdentifier: IS_DEV ? "com.askloyal.app.dev" : "com.askloyal.app",
+    // Sign in with Apple through Privy (expo-apple-authentication plugin).
+    usesAppleSignIn: true,
     // Answers App Store Connect's export-compliance question at build time.
     // Without it every upload lands in "Missing Compliance" and cannot be
     // distributed to any tester until a human answers the questionnaire, per
@@ -247,6 +249,7 @@ const config: ExpoConfig = {
     // Only `@react-native-firebase/app` exposes a config plugin; the
     // `analytics` module is autolinked natively from the dependency alone.
     ...(FIREBASE_ENABLED ? ["@react-native-firebase/app"] : []),
+    "expo-apple-authentication",
   ],
   experiments: {
     typedRoutes: true,

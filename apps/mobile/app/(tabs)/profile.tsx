@@ -14,6 +14,7 @@ import {
   Heart,
   Key,
   Lightbulb,
+  Mail,
   MessageSquare,
   RotateCcw,
   Trash2,
@@ -23,6 +24,7 @@ import { Alert, StyleSheet, Switch } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import { PrivyAccountCell } from "@/components/wallet/PrivyAccountCell";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { getShowTips, setShowTips } from "@/lib/settings";
 import { mmkv } from "@/lib/storage";
@@ -426,6 +428,14 @@ export default function ProfileScreen() {
             secret never leaves the vault). */}
         {isUnlocked && (
           <SettingsSection>
+            <PrivyAccountCell
+              render={(props) => (
+                <ProfileCell
+                  icon={<Mail size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+                  {...props}
+                />
+              )}
+            />
             {biometricsAvailable && !isVaultBacked && (
               <>
                 <ProfileCell

@@ -86,6 +86,22 @@ nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
     return { type: "empty" };
   }
 
+  // Privy pulls in `jose`, whose "import" export is a Node build that needs
+  // "crypto"; its "browser" build uses WebCrypto and works on device. Do NOT
+  // add "browser" to resolver.unstable_conditionNames for this: the Solana
+  // MWA packages list "browser" before "react-native" in their exports, so
+  // that setting silently swaps in their browser stubs and the Seeker wallet
+  // button stops doing anything.
+  if (moduleName === "jose") {
+    return {
+      type: "sourceFile",
+      filePath: path.join(
+        path.dirname(require.resolve("jose/package.json")),
+        "dist/browser/index.js",
+      ),
+    };
+  }
+
   const defaultResolve = (name) => {
     if (typeof nativewindResolveRequest === "function") {
       return nativewindResolveRequest(context, name, platform);

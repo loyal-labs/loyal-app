@@ -19,6 +19,8 @@ type Step = "pin" | "confirm" | "import";
 
 type Props = {
   onComplete: (keypair: Keypair, pin: string) => void;
+  /** Leave the import flow from its first step. */
+  onBack: () => void;
 };
 
 const HEX_REGEX = /^[0-9a-fA-F]+$/;
@@ -101,7 +103,7 @@ function parseSecretKey(
   };
 }
 
-export function ImportWalletScreen({ onComplete }: Props) {
+export function ImportWalletScreen({ onComplete, onBack }: Props) {
   const { importWallet } = useWallet();
 
   const [step, setStep] = useState<Step>("pin");
@@ -136,7 +138,9 @@ export function ImportWalletScreen({ onComplete }: Props) {
   }, [pin]);
 
   const handleBack = useCallback(() => {
-    if (step === "confirm") {
+    if (step === "pin") {
+      onBack();
+    } else if (step === "confirm") {
       setPin("");
       setConfirmError(null);
       setConfirmPin("");
@@ -146,7 +150,7 @@ export function ImportWalletScreen({ onComplete }: Props) {
       setHexKey("");
       setStep("confirm");
     }
-  }, [step]);
+  }, [step, onBack]);
 
   const handleImport = useCallback(async () => {
     const { bytes, error } = parseSecretKey(hexKey);
@@ -190,11 +194,9 @@ export function ImportWalletScreen({ onComplete }: Props) {
         <View className="flex-1 px-6 pt-4">
           {/* Header */}
           <View className="mb-8 flex-row items-center">
-            {step !== "pin" && (
-              <Pressable onPress={handleBack} hitSlop={12} className="mr-3">
-                <ArrowLeft size={24} color="#000" strokeWidth={1.5} />
-              </Pressable>
-            )}
+            <Pressable onPress={handleBack} hitSlop={12} className="mr-3">
+              <ArrowLeft size={24} color="#000" strokeWidth={1.5} />
+            </Pressable>
             <View className="flex-1" />
           </View>
 

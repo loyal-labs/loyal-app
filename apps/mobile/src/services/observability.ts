@@ -289,7 +289,9 @@ type LifecycleVariantMap = {
     | "seed_vault"
     | "wallet_adapter"
     | "import_wallet"
-    | "new_wallet";
+    | "new_wallet"
+    | "privy_email"
+    | "privy_oauth";
   "earn.deposit": "initial" | "top_up";
   "earn.withdrawal": "partial" | "full";
   "earn.autodeposit.configuration":

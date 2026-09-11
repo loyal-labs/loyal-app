@@ -6,6 +6,7 @@ import { DatadogInit } from "@/components/DatadogInit";
 import { ObservabilityInit } from "@/components/ObservabilityInit";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
+import { PrivyProviderRoot } from "@/components/wallet/PrivyProviderRoot";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
 import { initAnalytics, track } from "@/lib/analytics/analytics";
@@ -100,63 +101,65 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
-        <WalletProvider>
-          <SignApprovalProvider>
-            <DatadogInit />
-            <ObservabilityInit />
-            <PushTokenRegistrar />
-            <StatusBar style="auto" />
-            <WalletAuthGate />
-            <AppReadyProvider splashDone={!showSplash}>
-              <Stack
-                screenOptions={{
-                  headerBackButtonDisplayMode: "minimal",
-                }}
-              >
-                <Stack.Screen
-                  name="(tabs)"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  name="token/[mint]"
-                  options={{ headerShown: false }}
-                />
-                {/* Category pages morph out of the tapped wallet card. Use
-                    `containedTransparentModal` (NOT `transparentModal`): it stays
-                    transparent so the wallet shows behind, but is contained in the
-                    navigator rather than presented as a native modal — so there's
-                    no native present/dismiss slide that `animation: "none"` can't
-                    suppress (that slide was the jump at the end of close).
-                    CardExpandTransition drives the entire motion. */}
-                <Stack.Screen
-                  name="wallet/stablecoins"
-                  options={{
-                    headerShown: false,
-                    presentation: "containedTransparentModal",
-                    animation: "none",
-                    gestureEnabled: false,
+        <PrivyProviderRoot>
+          <WalletProvider>
+            <SignApprovalProvider>
+              <DatadogInit />
+              <ObservabilityInit />
+              <PushTokenRegistrar />
+              <StatusBar style="auto" />
+              <WalletAuthGate />
+              <AppReadyProvider splashDone={!showSplash}>
+                <Stack
+                  screenOptions={{
+                    headerBackButtonDisplayMode: "minimal",
                   }}
-                />
-                <Stack.Screen
-                  name="wallet/crypto"
-                  options={{
-                    headerShown: false,
-                    presentation: "containedTransparentModal",
-                    animation: "none",
-                    gestureEnabled: false,
-                  }}
-                />
-                <Stack.Screen
-                  name="browser/site"
-                  options={{ headerShown: false }}
-                />
-                {/* Summaries detail screen commented out — kept for potential reinstatement */}
-                {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
-              </Stack>
-            </AppReadyProvider>
-            <OtaUpdateBanner />
-          </SignApprovalProvider>
-        </WalletProvider>
+                >
+                  <Stack.Screen
+                    name="(tabs)"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    name="token/[mint]"
+                    options={{ headerShown: false }}
+                  />
+                  {/* Category pages morph out of the tapped wallet card. Use
+                      `containedTransparentModal` (NOT `transparentModal`): it stays
+                      transparent so the wallet shows behind, but is contained in the
+                      navigator rather than presented as a native modal — so there's
+                      no native present/dismiss slide that `animation: "none"` can't
+                      suppress (that slide was the jump at the end of close).
+                      CardExpandTransition drives the entire motion. */}
+                  <Stack.Screen
+                    name="wallet/stablecoins"
+                    options={{
+                      headerShown: false,
+                      presentation: "containedTransparentModal",
+                      animation: "none",
+                      gestureEnabled: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="wallet/crypto"
+                    options={{
+                      headerShown: false,
+                      presentation: "containedTransparentModal",
+                      animation: "none",
+                      gestureEnabled: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="browser/site"
+                    options={{ headerShown: false }}
+                  />
+                  {/* Summaries detail screen commented out — kept for potential reinstatement */}
+                  {/* <Stack.Screen name="summaries/[groupChatId]" /> */}
+                </Stack>
+              </AppReadyProvider>
+              <OtaUpdateBanner />
+            </SignApprovalProvider>
+          </WalletProvider>
+        </PrivyProviderRoot>
         {showSplash && <SplashAnimation onFinish={handleSplashFinish} />}
       </BottomSheetModalProvider>
     </GestureHandlerRootView>
