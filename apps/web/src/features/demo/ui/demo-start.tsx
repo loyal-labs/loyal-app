@@ -552,13 +552,10 @@ export function DemoStart() {
             </h2>
             <motion.div
               className="relative w-full max-w-[680px]"
-              initial={RISE.initial}
-              transition={{
-                ...RISE.transition,
-                delay: wordsDone("Make more money"),
-              }}
-              viewport={{ once: true, amount: 0.3 }}
-              whileInView={RISE.animate}
+              initial={{ opacity: 0, transform: "translateY(24px)" }}
+              transition={{ duration: 0.6, ease: EASE, delay: 0.2 }}
+              viewport={{ once: true, amount: 0.2 }}
+              whileInView={{ opacity: 1, transform: "translateY(0px)" }}
             >
               <Image
                 alt=""
@@ -581,8 +578,9 @@ export function DemoStart() {
                   </p>
                   <div className="flex items-baseline gap-[7px] md:pl-9">
                     <motion.span
+                      className="inline-block"
                       initial={FOCUS.initial}
-                      transition={{ ...FOCUS.transition, delay: 0.25 }}
+                      transition={{ ...FOCUS.transition, delay: 0.75 }}
                       viewport={{ once: true, amount: 0.6 }}
                       whileInView={FOCUS.animate}
                     >
