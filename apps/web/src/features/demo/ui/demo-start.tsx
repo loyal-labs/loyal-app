@@ -113,14 +113,14 @@ const wordsDone = (text: string, stagger = WORD_STAGGER_S) =>
 //   0.0  title words land (4 beats)
 //   0.5  cards rise, left to right, contents follow
 //   1.9  connectors draw, dots/arrows/pills with them
-//   3.3  body copy, then the Continue button
+//   2.6  body copy, then the Continue button (overlaps the last two lines)
 const INTRO = {
   cards: 0.5,
   cardStagger: 0.22,
   lines: 1.9,
   lineDraw: 0.7,
   lineStagger: 0.18,
-  copy: 3.3,
+  copy: 2.6,
 } as const;
 
 // pixel-point/animate-text "focus-blur-resolve": one block pulls from heavy
