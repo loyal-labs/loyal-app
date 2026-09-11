@@ -12,6 +12,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import type { AnimationItem } from "lottie-web";
 import {
   Check,
+  ChevronDown,
   CircleArrowUp,
   Copy,
   LoaderCircle,
@@ -355,6 +356,13 @@ export function DemoStart() {
   const activeCard =
     activeConnector === null ? null : [1, 2, 0, 1][activeConnector];
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  // "Make more money" starts as a small teaser at the foot of the first screen
+  // and morphs (shared layoutId) into the section title once scrolled to.
+  // useInView would bind before `mounted` renders the ref, so use the
+  // viewport callback on the slot itself.
+  const moreRef = useRef<HTMLDivElement>(null);
+  const [moreInView, setMoreInView] = useState(false);
+  const teaser = !signedIn && !moreInView;
   // Server HTML has the reveal classes but no JS to start them, so the
   // connectors and unstaggered bits flash before hydration. Render the
   // page only once mounted; the reveal then starts from a blank canvas.
@@ -423,10 +431,30 @@ export function DemoStart() {
               second title cannot start on tall monitors while the intro runs. */}
           <div
             className={cn(
-              "flex w-full flex-col items-center",
+              "relative flex w-full flex-col items-center",
               !signedIn && "min-h-[calc(100dvh-68px)] justify-center pb-16"
             )}
           >
+            {teaser ? (
+              <motion.button
+                animate={{ opacity: 1 }}
+                className="absolute bottom-4 flex flex-col items-center gap-1 font-bold text-[#97959a] text-[16px] uppercase leading-none hover:text-[#e1e3e6]"
+                initial={{ opacity: 0 }}
+                layoutId="make-more-money"
+                onClick={() =>
+                  moreRef.current?.scrollIntoView({ behavior: "smooth" })
+                }
+                transition={{
+                  duration: 0.5,
+                  ease: EASE,
+                  delay: INTRO.copy + 0.6,
+                }}
+                type="button"
+              >
+                Make more money
+                <ChevronDown className="animate-bounce" size={20} />
+              </motion.button>
+            ) : null}
             <AnimatePresence mode="popLayout">
               {signedIn ? null : (
                 <motion.section
@@ -642,9 +670,26 @@ export function DemoStart() {
           ) : null}
 
           <section className="flex w-full flex-col items-center gap-12 px-6 py-24 lg:px-16">
-            <h2 className="max-w-[474px] text-center font-bold text-[40px] uppercase leading-none md:text-[56px]">
-              <Words inView text="Make more money" />
-            </h2>
+            <motion.div
+              className="flex min-h-[112px] justify-center"
+              onViewportEnter={() => setMoreInView(true)}
+              ref={moreRef}
+              viewport={{ amount: 0.6, once: true }}
+            >
+              {teaser ? null : (
+                <motion.h2
+                  className="max-w-[474px] text-center font-bold text-[40px] uppercase leading-none md:text-[56px]"
+                  layoutId="make-more-money"
+                  transition={{ type: "spring", stiffness: 180, damping: 22 }}
+                >
+                  {signedIn ? (
+                    <Words inView text="Make more money" />
+                  ) : (
+                    "Make more money"
+                  )}
+                </motion.h2>
+              )}
+            </motion.div>
             <motion.div
               className="relative w-full max-w-[680px]"
               initial={{ opacity: 0, transform: "translateY(24px)" }}
