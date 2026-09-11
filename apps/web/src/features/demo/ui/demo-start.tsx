@@ -28,10 +28,6 @@ import {
   earnToast,
 } from "@/components/wallet-workspace/facelift/earn-toast";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
-import {
-  StaggerLine,
-  StaggerReveal,
-} from "@/components/wallet-workspace/facelift/stagger-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { cn } from "@/lib/utils";
@@ -385,7 +381,7 @@ export function DemoStart() {
           <section className="flex w-full justify-center px-6 py-4">
             <div className="relative w-full max-w-[1200px] lg:py-[60px]">
               <Connectors active={activeConnector} />
-              <StaggerReveal className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3 [&>.t-stagger-line]:h-full">
+              <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
                 <SchemeCard
                   active={activeCard === 0}
                   index={0}
@@ -425,7 +421,7 @@ export function DemoStart() {
                   title="Kamino Main Market"
                   value={balances[2]}
                 />
-              </StaggerReveal>
+              </div>
             </div>
           </section>
 
@@ -697,8 +693,25 @@ function SchemeCard({
   active?: boolean;
 }) {
   const [whole, frac] = usdc(value).split(".");
+  const reduce = useReducedMotion();
   return (
-    <StaggerLine index={index}>
+    <motion.div
+      animate={{ opacity: 1, transform: "translateY(0px) scale(1)" }}
+      className="h-full"
+      initial={
+        reduce
+          ? false
+          : { opacity: 0, transform: "translateY(28px) scale(0.94)" }
+      }
+      transition={{
+        type: "spring",
+        stiffness: 220,
+        damping: 22,
+        mass: 1,
+        delay: index * 0.22,
+        opacity: { duration: 0.35, ease: EASE, delay: index * 0.22 },
+      }}
+    >
       <div
         className={cn(
           "flex h-full min-h-[200px] flex-col justify-between rounded-[32px] bg-[#1d1b20] ring-1 ring-transparent transition-[box-shadow] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -706,7 +719,18 @@ function SchemeCard({
             "shadow-[0_0_48px_-8px_rgba(255,80,80,0.45)] ring-[#ff5050]/60"
         )}
       >
-        <div className="flex flex-col gap-0.5 p-6">
+        <motion.div
+          animate={{ opacity: 1, transform: "translateY(0px)" }}
+          className="flex flex-col gap-0.5 p-6"
+          initial={
+            reduce ? false : { opacity: 0, transform: "translateY(8px)" }
+          }
+          transition={{
+            duration: 0.45,
+            ease: EASE,
+            delay: index * 0.22 + 0.25,
+          }}
+        >
           <div className="flex items-center gap-1 text-[#97959a] text-[16px] leading-5">
             <p>{title}</p>
             <AnimatePresence>{subtitle}</AnimatePresence>
@@ -745,10 +769,17 @@ function SchemeCard({
               </motion.div>
             ) : null}
           </AnimatePresence>
-        </div>
-        <p className="p-6 text-[#97959a] text-[16px] leading-5">{caption}</p>
+        </motion.div>
+        <motion.p
+          animate={{ opacity: 1 }}
+          className="p-6 text-[#97959a] text-[16px] leading-5"
+          initial={reduce ? false : { opacity: 0 }}
+          transition={{ duration: 0.45, ease: EASE, delay: index * 0.22 + 0.4 }}
+        >
+          {caption}
+        </motion.p>
       </div>
-    </StaggerLine>
+    </motion.div>
   );
 }
 
@@ -1135,22 +1166,57 @@ function useDemoWallet(): string | null {
 // connector rows; `vectorEffect` keeps the strokes 2px while the arcs
 // stretch with the layout.
 // Connector index: 0 pull, 1 deposit, 2 withdraw to wallet, 3 withdraw from Kamino.
+// Card centers x = 192, 600, 1008; cards span y 60..300. Source dots and
+// arrowheads on the middle card are offset ±8px so they don't overlap.
+// Paths run source -> arrowhead so stroke-draw and the travelling dot both
+// follow the money.
+const CONNECTORS: {
+  d: string;
+  dot: [number, number];
+  arrow: string;
+  pill: string;
+  label: string;
+}[] = [
+  {
+    d: "M192 60 V45 Q192 21 216 21 H568 Q592 21 592 45 V60",
+    dot: [192, 61],
+    arrow: "M585 52 L592 59 L599 52",
+    pill: "top-[2px] left-[calc(33.333%-12px)]",
+    label: "Pull 2 USDC · recurring",
+  },
+  {
+    d: "M608 60 V45 Q608 21 632 21 H984 Q1008 21 1008 45 V60",
+    dot: [608, 61],
+    arrow: "M1001 52 L1008 59 L1015 52",
+    pill: "top-[2px] left-[calc(66.666%-12px)]",
+    label: "Deposit · 2 USDC",
+  },
+  {
+    d: "M592 300 V315 Q592 339 568 339 H216 Q192 339 192 315 V300",
+    dot: [592, 299],
+    arrow: "M185 308 L192 301 L199 308",
+    pill: "bottom-[2px] left-[calc(33.333%-12px)]",
+    label: "Withdraw · 1 USDC",
+  },
+  {
+    d: "M1008 300 V315 Q1008 339 984 339 H632 Q608 339 608 315 V300",
+    dot: [1008, 299],
+    arrow: "M601 308 L608 301 L615 308",
+    pill: "bottom-[2px] left-[calc(66.666%-12px)]",
+    label: "Withdraw · 1 USDC",
+  },
+];
+// Intro choreography (seconds): cards land first, then each line draws from
+// its dot, the arrowhead pops when the line arrives, and the pill drops on.
+const CARDS_DONE_S = 0.9;
+const LINE_DRAW_S = 0.7;
+const LINE_STAGGER_S = 0.18;
+const lineStart = (i: number) => CARDS_DONE_S + i * LINE_STAGGER_S;
+
 function Connectors({ active }: { active: number | null }) {
-  const top: [string, string][] = [
-    ["Pull 2 USDC · recurring", "left-[calc(33.333%-12px)]"],
-    ["Deposit · 2 USDC", "left-[calc(66.666%-12px)]"],
-  ];
-  const bottom: [string, string][] = [
-    ["Withdraw · 1 USDC", "left-[calc(33.333%-12px)]"],
-    ["Withdraw · 1 USDC", "left-[calc(66.666%-12px)]"],
-  ];
+  const reduce = useReducedMotion();
   return (
-    <motion.div
-      animate={{ opacity: 1 }}
-      className="pointer-events-none absolute inset-0 hidden lg:block"
-      initial={{ opacity: 0 }}
-      transition={{ duration: 0.6, ease: EASE, delay: 0.35 }}
-    >
+    <div className="pointer-events-none absolute inset-0 hidden lg:block">
       <svg
         aria-hidden
         className="absolute inset-0 size-full text-[#4b4950]"
@@ -1158,56 +1224,93 @@ function Connectors({ active }: { active: number | null }) {
         preserveAspectRatio="none"
         viewBox="0 0 1200 360"
       >
-        {/* Card centers x = 192, 600, 1008; cards span y 60..300. Source dots
-            and arrowheads on the middle card are offset ±8px so they don't overlap. */}
-        <g
-          stroke="currentColor"
-          strokeWidth="2"
-          vectorEffect="non-scaling-stroke"
-        >
-          <path d="M192 60 V45 Q192 21 216 21 H568 Q592 21 592 45 V60" />
-          <path d="M608 60 V45 Q608 21 632 21 H984 Q1008 21 1008 45 V60" />
-          <path d="M1008 300 V315 Q1008 339 984 339 H632 Q608 339 608 315 V300" />
-          <path d="M592 300 V315 Q592 339 568 339 H216 Q192 339 192 315 V300" />
-        </g>
-        <g fill="currentColor">
-          <circle cx="192" cy="61" r="5" />
-          <circle cx="608" cy="61" r="5" />
-          <circle cx="1008" cy="299" r="5" />
-          <circle cx="592" cy="299" r="5" />
-        </g>
-        <g
-          fill="none"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeWidth="2"
-          vectorEffect="non-scaling-stroke"
-        >
-          <path d="M585 52 L592 59 L599 52" />
-          <path d="M1001 52 L1008 59 L1015 52" />
-          <path d="M601 308 L608 301 L615 308" />
-          <path d="M185 308 L192 301 L199 308" />
-        </g>
+        {CONNECTORS.map((c, i) => {
+          const isActive = active === i;
+          const t0 = lineStart(i);
+          return (
+            <g key={c.d}>
+              {/* base line, drawn in once */}
+              <motion.path
+                animate={{ pathLength: 1, opacity: 1 }}
+                d={c.d}
+                initial={reduce ? false : { pathLength: 0, opacity: 0 }}
+                stroke="currentColor"
+                strokeWidth="2"
+                transition={{
+                  pathLength: { duration: LINE_DRAW_S, ease: EASE, delay: t0 },
+                  opacity: { duration: 0.1, delay: t0 },
+                }}
+                vectorEffect="non-scaling-stroke"
+              />
+              {/* red overlay while money moves along it */}
+              <motion.path
+                animate={{ opacity: isActive ? 1 : 0 }}
+                d={c.d}
+                initial={false}
+                stroke="#ff5050"
+                strokeWidth="2"
+                transition={{ duration: 0.3, ease: EASE }}
+                vectorEffect="non-scaling-stroke"
+              />
+              <motion.circle
+                animate={{ scale: 1, opacity: 1 }}
+                cx={c.dot[0]}
+                cy={c.dot[1]}
+                fill={isActive ? "#ff5050" : "currentColor"}
+                initial={reduce ? false : { scale: 0, opacity: 0 }}
+                r="5"
+                style={{ originX: `${c.dot[0]}px`, originY: `${c.dot[1]}px` }}
+                transition={{
+                  type: "spring",
+                  stiffness: 500,
+                  damping: 20,
+                  delay: t0,
+                }}
+              />
+              {isActive && !reduce ? (
+                <circle className="demo-flow-dot" fill="#ff5050" r="6">
+                  <animateMotion
+                    dur="1.4s"
+                    path={c.d}
+                    repeatCount="indefinite"
+                    calcMode="spline"
+                    keySplines="0.45 0 0.55 1"
+                    keyTimes="0;1"
+                  />
+                </circle>
+              ) : null}
+              <motion.path
+                animate={{ pathLength: 1, opacity: 1 }}
+                d={c.arrow}
+                initial={reduce ? false : { pathLength: 0, opacity: 0 }}
+                stroke={isActive ? "#ff5050" : "currentColor"}
+                strokeLinecap="round"
+                strokeWidth="2"
+                transition={{
+                  pathLength: {
+                    duration: 0.25,
+                    ease: EASE,
+                    delay: t0 + LINE_DRAW_S - 0.05,
+                  },
+                  opacity: { duration: 0.05, delay: t0 + LINE_DRAW_S - 0.05 },
+                }}
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          );
+        })}
       </svg>
-      {top.map(([text, left], i) => (
+      {CONNECTORS.map((c, i) => (
         <Pill
           active={active === i}
-          className={cn("top-[2px]", left)}
-          key={left}
+          className={c.pill}
+          delay={lineStart(i) + LINE_DRAW_S * 0.5}
+          key={c.pill}
         >
-          {text}
+          {c.label}
         </Pill>
       ))}
-      {bottom.map(([text, left], i) => (
-        <Pill
-          active={active === i + 2}
-          className={cn("bottom-[2px]", left)}
-          key={left}
-        >
-          {text}
-        </Pill>
-      ))}
-    </motion.div>
+    </div>
   );
 }
 
@@ -1215,24 +1318,49 @@ function Pill({
   children,
   className,
   active,
+  delay,
 }: {
   children: string;
   className: string;
   active: boolean;
+  delay: number;
 }) {
+  const reduce = useReducedMotion();
+  // Delay only the mount drop-in; later active toggles must react at once.
+  const initialDelay = useRef(delay);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      initialDelay.current = 0;
+    }, (delay + 0.6) * 1000);
+    return () => clearTimeout(id);
+  }, [delay]);
   return (
     <motion.span
       animate={{
+        opacity: 1,
         transform: active
-          ? "translateX(-50%) scale(1.06)"
-          : "translateX(-50%) scale(1)",
+          ? "translateX(-50%) translateY(0px) scale(1.06)"
+          : "translateX(-50%) translateY(0px) scale(1)",
       }}
+      initial={
+        reduce
+          ? false
+          : {
+              opacity: 0,
+              transform: "translateX(-50%) translateY(-10px) scale(0.9)",
+            }
+      }
       className={cn(
         "absolute flex items-center whitespace-nowrap rounded-full px-5 py-2.5 text-[16px] leading-5 tracking-[-0.176px] transition-colors duration-300",
         active ? "bg-[#ff5050] text-white" : "bg-[#333036]",
         className
       )}
-      transition={{ type: "spring", duration: 0.45, bounce: 0.3 }}
+      transition={{
+        type: "spring",
+        duration: 0.45,
+        bounce: 0.3,
+        delay: initialDelay.current,
+      }}
     >
       <AnimatePresence initial={false}>
         {active ? (
