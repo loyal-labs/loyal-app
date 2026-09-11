@@ -2,11 +2,44 @@
 
 import { usePrivy } from "@privy-io/react-auth";
 import { useCreateWallet } from "@privy-io/react-auth/solana";
+import type { AnimationItem } from "lottie-web";
 import { Copy } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
+
+// Scripted setup: each step shows its status for STEP_MS, then appends a
+// transaction row. Signatures are placeholders until the steps call the real
+// smart-account routes.
+// ponytail: fake signatures; swap each step for a real prepare/confirm call.
+const STEP_MS = 2000;
+const SETUP_STEPS = [
+  { status: "Creating smart account…", tx: "Sponsored smart account creation" },
+  { status: "Funding setup costs…", tx: "Account setup funding" },
+  { status: "Authorizing autodeposit…", tx: "Autodeposit authorization" },
+  { status: "Creating autodeposit policy…", tx: "Autodeposit policy creation" },
+  {
+    status: "Setting up recurring autodeposit…",
+    tx: "Recurring autodeposit setup",
+  },
+  {
+    status: "Creating Kamino routing policy…",
+    tx: "Kamino routing policy creation",
+  },
+  {
+    status: "Creating Kamino routing policy…",
+    tx: "Kamino setup policy creation",
+  },
+  {
+    status: "Setting 10 USDC daily wallet exit limit…",
+    tx: "10 USDC Daily wallet exit limit creation",
+  },
+];
+const FAKE_SIGNATURE =
+  "2wsvQm3k7hZp9xL4nR8tB6yC1dF5gH0jK2mN4pQ6rS8tU1vW3xY5zA7bC9dE1fG3hn2m";
+
+type DemoTx = { title: string; time: string; signature: string };
 
 const KAMINO_YIELD = 0.08;
 const BALANCE_STOPS = [
@@ -37,6 +70,7 @@ export function DemoStart() {
   const { ready, authenticated, user, login, logout } = usePrivy();
   const walletAddress = useDemoWallet();
   const signedIn = ready && authenticated && user !== null;
+  const setup = useScriptedSetup();
 
   return (
     <div className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]">
@@ -51,7 +85,10 @@ export function DemoStart() {
           {signedIn ? (
             <button
               className="h-11 rounded-full bg-[rgba(249,54,60,0.14)] px-5 font-medium text-[16px] leading-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-              onClick={() => void logout()}
+              onClick={() => {
+                setup.reset();
+                void logout();
+              }}
               type="button"
             >
               Sign out
@@ -112,29 +149,85 @@ export function DemoStart() {
       {signedIn ? (
         <>
           <section className="flex w-full justify-center px-6 py-4">
-            <button
-              className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-              type="button"
-            >
-              <span className="font-bold text-[28px] uppercase leading-8">
-                Set up account
-              </span>
-              <span className="text-[#97959a] text-[16px] leading-5">
-                Privy asks for each approval. Loyal pays every fee
-              </span>
-            </button>
+            {setup.phase === "idle" ? (
+              <button
+                className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+                onClick={setup.start}
+                type="button"
+              >
+                <span className="font-bold text-[28px] uppercase leading-8">
+                  Set up account
+                </span>
+                <span className="text-[#97959a] text-[16px] leading-5">
+                  Privy asks for each approval. Loyal pays every fee
+                </span>
+              </button>
+            ) : setup.phase === "running" ? (
+              <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
+                <Loader />
+                <span className="text-[16px] leading-5">
+                  {SETUP_STEPS[setup.step].status}
+                </span>
+              </div>
+            ) : (
+              <div className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5">
+                <button
+                  className="flex items-center gap-2 font-bold text-[28px] leading-8 transition-opacity hover:opacity-80"
+                  onClick={() =>
+                    walletAddress &&
+                    void navigator.clipboard.writeText(walletAddress)
+                  }
+                  type="button"
+                >
+                  <Copy size={24} strokeWidth={1.5} />
+                  {walletAddress
+                    ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
+                    : "…"}
+                </button>
+                <span className="text-[#97959a] text-[16px] leading-5">
+                  Fund Privy wallet with at least 2 USDC
+                </span>
+              </div>
+            )}
           </section>
           <section className="flex w-full justify-center px-6 py-4">
             <div className="flex w-full max-w-[1200px] flex-col rounded-[32px] bg-[#1d1b20]">
               <p className="px-6 py-[18px] font-semibold text-[20px] leading-6">
                 Transactions
               </p>
-              <div className="flex flex-col items-center gap-4 pt-6 pb-12">
-                <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
-                <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
-                  Transactions will appear here
-                </p>
-              </div>
+              {setup.txs.length === 0 ? (
+                <div className="flex flex-col items-center gap-4 pt-6 pb-12">
+                  <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
+                  <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
+                    Transactions will appear here
+                  </p>
+                </div>
+              ) : (
+                <ul className="flex flex-col px-2">
+                  {setup.txs.map((tx, i) => (
+                    <li
+                      className="flex items-center justify-between px-4 py-2.5"
+                      key={`${tx.title}-${i}`}
+                    >
+                      <div className="flex flex-col gap-0.5">
+                        <p className="text-[16px] leading-5">{tx.title}</p>
+                        <p className="text-[#97959a] text-[13px] leading-4">
+                          {tx.time}
+                        </p>
+                      </div>
+                      <a
+                        className="flex items-center gap-1.5 font-mono text-[#97959a] text-[14px] leading-5 transition-colors hover:text-[#e1e3e6]"
+                        href={`https://orbmarkets.io/tx/${tx.signature}`}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {tx.signature.slice(0, 4)} … {tx.signature.slice(-4)}
+                        <Copy size={16} strokeWidth={1.5} />
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <p className="mx-auto max-w-[660px] px-6 pt-4 pb-6 text-center text-[#636067] text-[16px] leading-5 tracking-[-0.176px]">
                 Every receipt opens on Orb Markets. The backend accepts only
                 four fixed, pre-approved movements, never an arbitrary
@@ -294,6 +387,70 @@ function WalletBadge({ address }: { address: string }) {
       </button>
     </>
   );
+}
+
+function useScriptedSetup() {
+  const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
+  const [step, setStep] = useState(0);
+  const [txs, setTxs] = useState<DemoTx[]>([]);
+
+  useEffect(() => {
+    if (phase !== "running") return;
+    const id = setTimeout(() => {
+      const time = new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      setTxs((prev) => [
+        { title: SETUP_STEPS[step].tx, time, signature: FAKE_SIGNATURE },
+        ...prev,
+      ]);
+      if (step + 1 < SETUP_STEPS.length) setStep(step + 1);
+      else setPhase("done");
+    }, STEP_MS);
+    return () => clearTimeout(id);
+  }, [phase, step]);
+
+  return {
+    phase,
+    step,
+    txs,
+    start: () => {
+      setTxs([]);
+      setStep(0);
+      setPhase("running");
+    },
+    reset: () => {
+      setTxs([]);
+      setStep(0);
+      setPhase("idle");
+    },
+  };
+}
+
+function Loader() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let anim: AnimationItem | null = null;
+    let cancelled = false;
+    void import("lottie-web/build/player/lottie_light").then((mod) => {
+      if (cancelled) return;
+      anim = (mod.default ?? mod).loadAnimation({
+        autoplay: true,
+        container: el,
+        loop: true,
+        path: "/demo/loader.json",
+        renderer: "svg",
+      });
+    });
+    return () => {
+      cancelled = true;
+      anim?.destroy();
+    };
+  }, []);
+  return <div className="size-8" ref={ref} />;
 }
 
 // Privy's Solana wallet for the signed-in user. createOnLogin should make
