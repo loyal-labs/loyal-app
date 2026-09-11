@@ -287,6 +287,14 @@ export function DemoStart() {
   // page only once mounted; the reveal then starts from a blank canvas.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // Google sign-in is a full-page redirect back to /demo?privy_oauth_code=…
+  // Privy then exchanges the code and flips `authenticated`. Until that
+  // resolves the page must not replay the intro behind Privy's dialog.
+  const oauthReturning =
+    mounted &&
+    !authenticated &&
+    new URLSearchParams(window.location.search).has("privy_oauth_code");
+  const holdIntro = !ready || oauthReturning;
 
   return (
     <div className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]">
@@ -325,7 +333,7 @@ export function DemoStart() {
           ) : null}
         </div>
       </header>
-      {mounted ? (
+      {mounted && !holdIntro ? (
         <div className="hidden w-full flex-col items-center lg:flex">
           <AnimatePresence mode="popLayout">
             {signedIn ? null : (
