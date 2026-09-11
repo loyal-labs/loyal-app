@@ -93,7 +93,15 @@ export async function verifyPolicyAccountsClosed(args: {
         args.accounts.map((account) => new PublicKey(account)),
         { commitment: "confirmed", minContextSlot: args.minContextSlot }
       );
-    if (context.slot < args.minContextSlot) {
+    if (
+      !Number.isSafeInteger(args.minContextSlot) ||
+      args.minContextSlot < 0 ||
+      !Number.isSafeInteger(context.slot) ||
+      context.slot < args.minContextSlot ||
+      args.accounts.length === 0 ||
+      value.length !== args.accounts.length ||
+      Array.from(value).some((account) => account === undefined)
+    ) {
       throw new EarnCleanupConfirmError(
         503,
         "full_exit_verification_retryable",
@@ -123,7 +131,7 @@ export async function assertEarnFullExitProven(args: {
   policyAccounts: string[];
   programId: PublicKey;
   settingsPda: PublicKey;
-}): Promise<void> {
+}): Promise<bigint> {
   try {
     const proof = await verifyEarnFullExitZeroBalances({
       cluster: args.cluster,
@@ -147,8 +155,9 @@ export async function assertEarnFullExitProven(args: {
     await verifyPolicyAccountsClosed({
       accounts: args.policyAccounts,
       connection: args.connection,
-      minContextSlot: args.minContextSlot,
+      minContextSlot: Number(proof.observedSlot),
     });
+    return BigInt(proof.observedSlot);
   } catch (error) {
     if (error instanceof EarnCleanupConfirmError) {
       throw error;

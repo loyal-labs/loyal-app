@@ -13,13 +13,17 @@ import type { Connection, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 
 import {
+  deriveEarnVaultPda,
   fetchEarnRpcHoldingsSnapshot,
   type EarnRpcHolding,
   type EarnRpcHoldingsSnapshot,
   type EarnRpcPolicyMetadata,
 } from "./earn-rpc-holdings.client";
 import { getEarnProductAssetsForCluster } from "./earn-product-mints.shared";
-import { EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW } from "./yield-deposit-repository.server";
+import {
+  EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW,
+  type UserYieldPositionRecord,
+} from "./yield-deposit-repository.server";
 
 const SLOT_LAG_ATTEMPTS = 3;
 const SLOT_LAG_RETRY_DELAY_MS = 500;
@@ -136,19 +140,34 @@ function classifyZeroProof(args: {
       "Earn full-exit proof was observed before the withdrawal confirmation slot."
     );
   }
-  if (args.vaultSnapshot.observedSlot < args.minContextSlot) {
+  if (
+    !Number.isSafeInteger(args.vaultSnapshot.observedSlot) ||
+    args.vaultSnapshot.observedSlot < args.minContextSlot
+  ) {
     throw new Error(
       "Earn vault token inventory was observed before the withdrawal confirmation slot."
     );
   }
 
-  const remainingReserveHoldings = args.holdingsSnapshot.holdings.filter(
-    (holding) =>
-      holding.kind === "kamino" &&
-      positiveAmountRaw(holding.amountRaw) > BigInt(0)
-  );
+  const assets = getEarnProductAssetsForCluster(args.cluster);
+  const blockingHoldings = args.holdingsSnapshot.holdings.filter((holding) => {
+    const amount = positiveAmountRaw(holding.amountRaw);
+    if (amount === BigInt(0)) return false;
+    // Inventory and holdings can come from different banks. Positive holdings
+    // must block closure even when the token inventory has not caught up.
+    const isCanonicalIdle =
+      holding.kind === "idle" &&
+      assets.some(
+        (asset) =>
+          asset.mint.toBase58() === holding.liquidityMint &&
+          asset.tokenProgramId.toBase58() === holding.tokenProgramId
+      );
+    return (
+      !isCanonicalIdle || amount >= EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW
+    );
+  });
   const idleAssetByTokenAccount = new Map(
-    getEarnProductAssetsForCluster(args.cluster).map((asset) => [
+    assets.map((asset) => [
       getAssociatedTokenAddressSync(
         asset.mint,
         args.vaultSnapshot.vaultPda,
@@ -190,14 +209,17 @@ function classifyZeroProof(args: {
       tokenProgramId: account.tokenProgramId.toBase58(),
     }));
   const status =
-    remainingReserveHoldings.length === 0 && blockingTokenAccounts.length === 0
+    blockingHoldings.length === 0 && blockingTokenAccounts.length === 0
       ? "policy_close_required"
       : "full_exit_incomplete";
 
   return {
     blockingTokenAccounts,
     cleanupTokenAccounts,
-    observedSlot: String(observedSlot),
+    // The holdings reader reports its newest chunk, not the oldest evidence.
+    // Only the requested floor is guaranteed across every holdings/inventory
+    // read; advertising a newer slot could tombstone an intervening deposit.
+    observedSlot: String(args.minContextSlot),
     remainingHoldings: args.holdingsSnapshot.holdings.filter(
       (holding) => positiveAmountRaw(holding.amountRaw) > BigInt(0)
     ),
@@ -205,7 +227,7 @@ function classifyZeroProof(args: {
   };
 }
 
-export async function verifyEarnFullExitZeroBalances(
+async function readFullExitSnapshots(
   args: {
     cluster: LoyalCluster;
     connection: Connection;
@@ -215,7 +237,7 @@ export async function verifyEarnFullExitZeroBalances(
     settingsPda: PublicKey;
   },
   dependencies: EarnFullExitZeroProofDependencies = {}
-): Promise<EarnFullExitZeroProof> {
+) {
   if (!Number.isSafeInteger(args.minContextSlot) || args.minContextSlot < 0) {
     throw new Error("Earn full-exit minContextSlot is outside the safe range.");
   }
@@ -276,10 +298,81 @@ export async function verifyEarnFullExitZeroBalances(
     sleep,
   });
 
-  return classifyZeroProof({
+  // Validate both independent context fences even for funded display reads.
+  const proof = classifyZeroProof({
     cluster: args.cluster,
     holdingsSnapshot,
     minContextSlot: args.minContextSlot,
     vaultSnapshot,
   });
+  return { holdingsSnapshot, proof, vaultSnapshot };
+}
+
+export async function verifyEarnFullExitZeroBalances(
+  args: Parameters<typeof readFullExitSnapshots>[0],
+  dependencies: EarnFullExitZeroProofDependencies = {}
+): Promise<EarnFullExitZeroProof> {
+  return (await readFullExitSnapshots(args, dependencies)).proof;
+}
+
+// Funded totals belong to the vault's assets, not the sum of accounting
+// lifecycles. Scan the entire supported product universe, independent of a
+// lagging/replacement policy. Unknown inventory or unreadable reserves must
+// reject this replacement total rather than silently hide another product.
+export async function fetchEarnFullVaultHoldingsSnapshot(
+  args: Omit<Parameters<typeof readFullExitSnapshots>[0], "policy"> & {
+    accountingPositions: readonly Pick<
+      UserYieldPositionRecord,
+      "currentLiquidityMint" | "currentMarket"
+    >[];
+  }
+): Promise<EarnRpcHoldingsSnapshot> {
+  const assets = getEarnProductAssetsForCluster(args.cluster);
+  const markets = getRiskBasketMarketsForCluster(
+    args.cluster,
+    RiskBasket.Safe
+  ).map((market) => market.toBase58());
+  if (
+    args.accountingPositions.some(
+      (row) =>
+        !assets.some(
+          (asset) => asset.mint.toBase58() === row.currentLiquidityMint
+        ) ||
+        (row.currentMarket !== null && !markets.includes(row.currentMarket))
+    )
+  ) {
+    throw new Error(
+      "Earn accounting includes an unsupported product or venue."
+    );
+  }
+  const { holdingsSnapshot, vaultSnapshot } = await readFullExitSnapshots({
+    ...args,
+    policy: {
+      account: args.settingsPda.toBase58(),
+      seed: "0",
+      vaultIndex: 1,
+      vaultPubkey: deriveEarnVaultPda(args).toBase58(),
+      stableMints: assets.map((asset) => asset.mint.toBase58()),
+      kaminoLiquidityMints: assets.map((asset) => asset.mint.toBase58()),
+      kaminoMarkets: markets,
+    },
+  });
+  for (const account of vaultSnapshot.tokenAccounts) {
+    if (account.amountRaw === BigInt(0)) continue;
+    const holding = holdingsSnapshot.holdings.find(
+      (item) =>
+        item.kind === "idle" &&
+        item.provenance.tokenAccount === account.address.toBase58() &&
+        item.liquidityMint === account.mint.toBase58() &&
+        item.tokenProgramId === account.tokenProgramId.toBase58()
+    );
+    if (!holding || BigInt(holding.amountRaw) !== account.amountRaw) {
+      throw new Error("Earn inventory is unknown or disagrees with holdings.");
+    }
+  }
+  return {
+    ...holdingsSnapshot,
+    // Every balance-defining read established this floor, not the max chunk.
+    observedSlot: String(args.minContextSlot),
+  };
 }

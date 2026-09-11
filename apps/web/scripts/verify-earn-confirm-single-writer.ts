@@ -23,6 +23,7 @@ const behavioralTests = [
   "apps/web/src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts",
 ] as const;
 const mockIsolatedBehavioralTests = new Set([
+  "apps/web/src/lib/yield-optimization/earn-confirm-single-writer.server.test.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/prepare/route.test.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.test.ts",
   "apps/web/src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts",

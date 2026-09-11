@@ -94,6 +94,7 @@ export default function WalletScreen() {
     isLoading: isEarnLoading,
     hasLoaded: earnLoaded,
     refreshEarnPosition,
+    markEarnMutation,
   } = useEarnPosition(walletAddress);
   // The Earn balance reads from a lagging read-model, so skeleton the card's
   // figure until a read settles (and again while one is in flight) instead of
@@ -344,13 +345,23 @@ export default function WalletScreen() {
       if (!signer || !isWalletUnlocked(state)) {
         throw new Error("Unlock your wallet to deposit.");
       }
-      await executeEarnDeposit({ signer, amountUsd, mint });
+      markEarnMutation({ pendingDeposit: true });
+      try {
+        const deposit = await executeEarnDeposit({ signer, amountUsd, mint });
+        markEarnMutation({ confirmedDeposit: {
+          amountRaw: (BigInt(earnPosition?.currentAmountRaw ?? "0") + BigInt(Math.round(amountUsd * 1e6))).toString(),
+          observedSlot: deposit.confirmedSlot,
+        } });
+      } catch (error) {
+        markEarnMutation();
+        throw error;
+      }
       void refreshEarnPosition();
       // The confirm also records quest progress — check now so a completion
       // celebrates immediately instead of on the watcher's next poll tick.
       nudgeQuestProgressCheck();
     },
-    [signer, state, refreshEarnPosition],
+    [signer, state, earnPosition, markEarnMutation, refreshEarnPosition],
   );
 
   const showTopUpAction = useMemo(

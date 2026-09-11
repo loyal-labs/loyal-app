@@ -6,6 +6,7 @@ import {
   applyEarnRpcSnapshotToPosition,
   calculateWeightedEarnApyBps,
   isActiveEarnPosition,
+  shouldKeepCurrentPositionOverConfirmed,
 } from "./use-active-earn-position";
 
 function holding(
@@ -32,6 +33,49 @@ function holding(
 }
 
 describe("multi-source Earn portfolio state", () => {
+  test("closure proof clears stale RPC holdings but preserves a later deposit", () => {
+    const current = {
+      currentHolding: { observedSlot: "500" },
+      holdings: [
+        {
+          ...holding("100", "kamino", "1000", "reserve:a"),
+          provenance: { source: "rpc_getMultipleAccounts" },
+        },
+      ],
+    } as unknown as ActiveEarnPosition;
+    expect(
+      shouldKeepCurrentPositionOverConfirmed({ current, confirmed: null })
+    ).toBe(true);
+    expect(
+      shouldKeepCurrentPositionOverConfirmed({
+        current,
+        confirmed: null,
+        closedPositionObservedSlot: "not-a-slot",
+      })
+    ).toBe(true);
+    expect(
+      shouldKeepCurrentPositionOverConfirmed({
+        current,
+        confirmed: null,
+        closedPositionObservedSlot: "500",
+      })
+    ).toBe(false);
+    expect(
+      shouldKeepCurrentPositionOverConfirmed({
+        current,
+        confirmed: null,
+        closedPositionObservedSlot: "600",
+      })
+    ).toBe(false);
+    expect(
+      shouldKeepCurrentPositionOverConfirmed({
+        current,
+        confirmed: null,
+        closedPositionObservedSlot: "499",
+      })
+    ).toBe(true);
+  });
+
   test("weights reserve APY by nominal exposure and gives idle a zero rate", () => {
     expect(
       calculateWeightedEarnApyBps([

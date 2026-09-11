@@ -29,6 +29,7 @@ import {
   sumEarnAutodepositCurrentPeriodDeposits,
   type CurrentEarnAutodepositState,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { findUserFacingEarnPosition } from "@/lib/yield-optimization/earn-position-read.server";
 import { findEarnCrossMintSnapshot } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
 import {
   serializeEarnDepositOnboardingState,
@@ -42,7 +43,6 @@ import {
   findCurrentEarnDepositOnboardingAttempt,
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
-  findReconciledActiveYieldPositionForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -341,7 +341,7 @@ export async function GET(request: Request) {
     autoswapResult,
   ] = await Promise.all([
     loadEarnStatePart("position", () =>
-      findReconciledActiveYieldPositionForVault({
+      findUserFacingEarnPosition({
         cluster,
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
@@ -500,7 +500,7 @@ export async function GET(request: Request) {
       })
     ),
   ]);
-  const position = positionResult.data;
+  const position = positionResult.data?.position ?? null;
   const policyPair = policyResult.data;
   const policy = policyPair?.routePolicy ?? null;
   const onboarding = onboardingResult.data;
@@ -553,6 +553,8 @@ export async function GET(request: Request) {
     policy: policy
       ? serializeRoutePolicyState(policy, policyPair?.setupPolicy ?? null)
       : null,
+    closedPositionObservedSlot:
+      positionResult.data?.closedPositionObservedSlot ?? null,
     position: position
       ? serializePosition(position, currentTotalAmountRaw)
       : null,

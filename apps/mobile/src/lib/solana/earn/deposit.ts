@@ -52,6 +52,7 @@ function usdToStableRaw(amountUsd: number): string {
 }
 
 export type EarnDepositResult = {
+  confirmedSlot: string;
   depositSignature: string;
 };
 
@@ -157,7 +158,7 @@ async function signSendAndConfirmDeposit(args: {
   track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
 
   args.flow.complete("ui_commit");
-  return { depositSignature: deposit.signature };
+  return { depositSignature: deposit.signature, confirmedSlot: deposit.confirmedSlot };
 }
 
 // Policies are immutable permission records, so a legacy (classic-token-only)
@@ -350,7 +351,7 @@ async function runEarnDeposit(
       });
       track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
       flow.complete("ui_commit");
-      return { depositSignature: confirmations.deposit.signature };
+      return { depositSignature: confirmations.deposit.signature, confirmedSlot: confirmations.deposit.confirmedSlot };
     }
     return signSendAndConfirmDeposit({
       signer: args.signer,

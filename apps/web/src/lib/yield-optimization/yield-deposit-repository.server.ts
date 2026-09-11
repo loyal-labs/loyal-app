@@ -2906,6 +2906,22 @@ export async function findYieldPosition(
   return position ?? null;
 }
 
+// The yield-owned cluster column is intentionally outside the app's partial
+// policy model. Tie fallback accounting rows to their own policy generation,
+// including inactive policies: the current vault pointer alone is insufficient.
+function positionPolicyScope(input: ActiveYieldPositionForVaultLookupInput) {
+  return sql`exists (
+    select 1 from loyal_yield.route_policies as position_policy
+    where position_policy.id = ${userYieldPositions.policyId}
+      and position_policy.policy_account = ${userYieldPositions.policyAccount}
+      and position_policy.cluster = ${normalizeLoyalCluster(input.cluster)}
+      and position_policy.authority = ${input.walletAddress}
+      and position_policy.settings = ${input.settings}
+      and position_policy.vault_index = ${input.vaultIndex}
+      and position_policy.vault_pubkey = ${userYieldPositions.vaultPubkey}
+  )`;
+}
+
 export async function findActiveYieldPositionForVault(
   input: ActiveYieldPositionForVaultLookupInput,
   dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
@@ -2915,6 +2931,7 @@ export async function findActiveYieldPositionForVault(
   const position =
     await dependencies.client.db.query.userYieldPositions.findFirst({
       where: and(
+        positionPolicyScope(input),
         eq(userYieldPositions.settings, input.settings),
         ...(input.liquidityMint
           ? [eq(userYieldPositions.initialLiquidityMint, input.liquidityMint)]
@@ -2940,6 +2957,7 @@ export async function findActiveYieldPositionsForVault(
 ): Promise<UserYieldPositionRecord[]> {
   return dependencies.client.db.query.userYieldPositions.findMany({
     where: and(
+      positionPolicyScope(input),
       eq(userYieldPositions.settings, input.settings),
       ...(input.liquidityMint
         ? [eq(userYieldPositions.initialLiquidityMint, input.liquidityMint)]
