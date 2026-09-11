@@ -5,11 +5,13 @@ import {
   resolveLoyalClusterForSolanaEnv,
   Stablecoin,
 } from "@loyal-labs/actions";
+import NumberFlow from "@number-flow/react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCreateWallet } from "@privy-io/react-auth/solana";
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { AnimationItem } from "lottie-web";
 import {
+  Check,
   CircleArrowUp,
   CircleCheck,
   Copy,
@@ -20,10 +22,29 @@ import {
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { AnimatePresence, motion } from "motion/react";
+
+import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import {
+  StaggerLine,
+  StaggerReveal,
+} from "@/components/wallet-workspace/facelift/stagger-reveal";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { cn } from "@/lib/utils";
 
 import { WithdrawModal } from "./withdraw-modal";
+
+// transitions.dev house ease (globals.css --stagger-ease / --modal-ease).
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+const RISE = {
+  initial: { opacity: 0, transform: "translateY(12px)", filter: "blur(3px)" },
+  animate: { opacity: 1, transform: "translateY(0px)", filter: "blur(0px)" },
+  exit: { opacity: 0, transform: "translateY(0px)", filter: "blur(0px)" },
+  transition: { duration: 0.5, ease: EASE },
+} as const;
+const PRESS =
+  "transition-transform duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98]";
 
 // Scripted setup: each step shows its status for STEP_MS, then appends a
 // transaction row. Signatures are placeholders until the steps call the real
@@ -100,6 +121,7 @@ const LOOP_STEPS: {
 ];
 
 type DemoTx = {
+  id: number;
   title: string;
   time: string;
   signature: string;
@@ -168,6 +190,10 @@ export function DemoStart() {
   const balances: Balances = loop.balances ?? [walletUsdc ?? 0, 0, 0];
   const activeConnector =
     loop.phase === "running" ? LOOP_STEPS[loop.step].connector : null;
+  // Destination card per connector: pull -> smart account, deposit -> kamino,
+  // withdraw-to-wallet -> wallet, withdraw-from-kamino -> smart account.
+  const activeCard =
+    activeConnector === null ? null : [1, 2, 0, 1][activeConnector];
   const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   return (
@@ -189,15 +215,38 @@ export function DemoStart() {
             src="/landing/figma/header-logotype.svg"
             width={56}
           />
-          {loop.phase === "done" ? (
-            <span className="absolute left-1/2 flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full bg-[#e1e3e6] px-3 font-medium text-[#0f0d13] text-[13px]">
-              <CircleCheck size={16} strokeWidth={2} />
-              Money moved itself!
-            </span>
-          ) : null}
+          <AnimatePresence>
+            {loop.phase === "done" ? (
+              <motion.span
+                animate={{
+                  opacity: 1,
+                  transform: "translate(-50%, 0px) scale(1)",
+                }}
+                className="absolute left-1/2 flex h-8 items-center gap-1.5 rounded-full bg-[#e1e3e6] px-3 font-medium text-[#0f0d13] text-[13px]"
+                exit={{
+                  opacity: 0,
+                  transform: "translate(-50%, 0px) scale(0.96)",
+                }}
+                initial={{
+                  opacity: 0,
+                  transform: "translate(-50%, -8px) scale(0.96)",
+                }}
+                key="badge"
+                transition={{ type: "spring", duration: 0.5, bounce: 0.25 }}
+              >
+                <span className="t-success-check" data-state="in">
+                  <CircleCheck size={16} strokeWidth={2} />
+                </span>
+                Money moved itself!
+              </motion.span>
+            ) : null}
+          </AnimatePresence>
           {signedIn ? (
             <button
-              className="h-11 rounded-full bg-[rgba(249,54,60,0.14)] px-5 font-medium text-[16px] leading-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
+              className={cn(
+                "h-11 rounded-full bg-[rgba(249,54,60,0.14)] px-5 font-medium text-[16px] leading-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]",
+                PRESS
+              )}
               onClick={() => {
                 setup.reset();
                 loop.reset();
@@ -211,37 +260,54 @@ export function DemoStart() {
         </div>
       </header>
       <div className="hidden w-full flex-col items-center lg:flex">
-        {signedIn ? null : (
-          <section className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center">
-            <div className="flex max-w-[540px] flex-col gap-4">
-              <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
-                Money that moves itself
-              </h1>
-              <p className="text-[15px] text-[#97959a] leading-[1.2]">
-                At {usdShort(userBalances)} of user balances this loop pays you
-                about {usd.format(youKeep)} a year. Users earn {pct(usersShare)}
-                , you keep {pct(yourShare)} of roughly {pct(KAMINO_YIELD)}{" "}
-                Kamino yield.
-                <br />
-                Rates float. The split is set in your contract.
-              </p>
-            </div>
-            <button
-              className="h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] transition-opacity hover:opacity-90 disabled:opacity-60"
-              disabled={!ready}
-              onClick={() => login()}
-              type="button"
+        <AnimatePresence initial={false} mode="popLayout">
+          {signedIn ? null : (
+            <motion.section
+              className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center"
+              key="hero"
+              {...RISE}
             >
-              Continue with email
-            </button>
-          </section>
-        )}
+              <StaggerReveal className="flex max-w-[540px] flex-col gap-4">
+                <StaggerLine index={0}>
+                  <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
+                    Money that moves itself
+                  </h1>
+                </StaggerLine>
+                <StaggerLine index={1}>
+                  <p className="text-[15px] text-[#97959a] leading-[1.2]">
+                    At {usdShort(userBalances)} of user balances this loop pays
+                    you about {usd.format(youKeep)} a year. Users earn{" "}
+                    {pct(usersShare)}, you keep {pct(yourShare)} of roughly{" "}
+                    {pct(KAMINO_YIELD)} Kamino yield.
+                    <br />
+                    Rates float. The split is set in your contract.
+                  </p>
+                </StaggerLine>
+                <StaggerLine index={2}>
+                  <button
+                    className={cn(
+                      "mt-4 h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] hover:bg-white disabled:opacity-60",
+                      PRESS
+                    )}
+                    disabled={!ready}
+                    onClick={() => login()}
+                    type="button"
+                  >
+                    Continue with email
+                  </button>
+                </StaggerLine>
+              </StaggerReveal>
+            </motion.section>
+          )}
+        </AnimatePresence>
 
         <section className="flex w-full justify-center px-6 py-4">
           <div className="relative w-full max-w-[1200px] lg:py-[60px]">
             <Connectors active={activeConnector} />
-            <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
+            <StaggerReveal className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3 [&>.t-stagger-line]:h-full">
               <SchemeCard
+                active={activeCard === 0}
+                index={0}
                 action={
                   setup.phase === "done" && balances[0] > 0 ? (
                     <button
@@ -262,153 +328,120 @@ export function DemoStart() {
                 value={balances[0]}
               />
               <SchemeCard
+                active={activeCard === 1}
+                index={1}
                 caption="Programmable and policy-guarded account"
                 title="Smart account"
                 value={balances[1]}
               />
               <SchemeCard
+                active={activeCard === 2}
+                index={2}
                 caption="Vault, where idle cash works"
                 dim={balances[2] === 0}
                 title="Kamino Main Market"
                 value={balances[2]}
               />
-            </div>
+            </StaggerReveal>
           </div>
         </section>
 
-        {signedIn ? (
-          <>
-            <section className="flex w-full justify-center px-6 py-4">
-              {setup.phase === "idle" ? (
-                <button
-                  className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-                  onClick={setup.start}
-                  type="button"
-                >
-                  <span className="font-bold text-[28px] uppercase leading-8">
-                    Set up account
-                  </span>
-                  <span className="text-[#97959a] text-[16px] leading-5">
-                    Privy asks for each approval. Loyal pays every fee
-                  </span>
-                </button>
-              ) : setup.phase === "running" ? (
-                <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
-                  <Loader />
-                  <span className="text-[16px] leading-5">
-                    {SETUP_STEPS[setup.step].status}
-                  </span>
-                </div>
-              ) : loop.phase === "running" ? (
-                <div className="flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center gap-4 rounded-full bg-[#1d1b20] px-12">
-                  <Loader />
-                  <span className="text-[16px] leading-5">
-                    {LOOP_STEPS[loop.step].status}
-                  </span>
-                </div>
-              ) : loop.phase === "done" ? (
-                <button
-                  className="flex h-[164px] w-full max-w-[620px] items-center justify-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 font-bold text-[28px] uppercase leading-8 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-                  onClick={loop.reset}
-                  type="button"
-                >
-                  <RefreshCw size={28} strokeWidth={2} />
-                  Reset demo
-                </button>
-              ) : funded ? (
-                <button
-                  className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5 transition-colors hover:bg-[rgba(249,54,60,0.22)]"
-                  onClick={loop.start}
-                  type="button"
-                >
-                  <span className="font-bold text-[28px] uppercase leading-8">
-                    Run the loop
-                  </span>
-                  <span className="text-[#97959a] text-[16px] leading-5">
-                    Pull 2 USDC, deposit to Kamino, withdraw 1 USDC back
-                  </span>
-                </button>
-              ) : (
-                <div className="flex w-full max-w-[620px] flex-col items-center gap-3 rounded-full bg-[rgba(249,54,60,0.14)] px-12 py-5">
-                  <button
-                    className="flex items-center gap-2 font-bold text-[28px] leading-8 transition-opacity hover:opacity-80"
-                    onClick={() =>
-                      walletAddress &&
-                      void navigator.clipboard.writeText(walletAddress)
-                    }
-                    type="button"
-                  >
-                    <Copy size={24} strokeWidth={1.5} />
-                    {walletAddress
-                      ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(
-                          -4
-                        )}`
-                      : "…"}
-                  </button>
-                  <span className="flex items-center gap-1.5 text-[#97959a] text-[16px] leading-5">
-                    <LoaderCircle className="animate-spin" size={14} />
-                    Fund Privy wallet with at least 2 USDC
-                  </span>
-                </div>
-              )}
-            </section>
-            <section className="flex w-full justify-center px-6 py-4">
-              <div className="flex w-full max-w-[1200px] flex-col rounded-[32px] bg-[#1d1b20]">
-                <p className="px-6 py-[18px] font-semibold text-[20px] leading-6">
-                  Transactions
-                </p>
-                {txs.length === 0 ? (
-                  <div className="flex flex-col items-center gap-4 pt-6 pb-12">
-                    <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
-                    <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
-                      Transactions will appear here
-                    </p>
-                  </div>
-                ) : (
-                  <ul className="flex flex-col px-2">
-                    {txs.map((tx, i) => (
-                      <li
-                        className="flex items-center justify-between px-4 py-2.5"
-                        key={`${tx.title}-${i}`}
+        <AnimatePresence initial={false}>
+          {signedIn ? (
+            <motion.div
+              className="flex w-full flex-col items-center"
+              key="signed-in"
+              {...RISE}
+            >
+              <section className="flex w-full justify-center px-6 py-4">
+                <ControlPill
+                  funded={funded}
+                  loop={loop}
+                  setup={setup}
+                  walletAddress={walletAddress}
+                />
+              </section>
+              <section className="flex w-full justify-center px-6 py-4">
+                <div className="flex w-full max-w-[1200px] flex-col rounded-[32px] bg-[#1d1b20]">
+                  <p className="px-6 py-[18px] font-semibold text-[20px] leading-6">
+                    Transactions
+                  </p>
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {txs.length === 0 ? (
+                      <motion.div
+                        className="flex flex-col items-center gap-4 pt-6 pb-12"
+                        key="empty"
+                        {...RISE}
                       >
-                        <div className="flex flex-1 flex-col gap-0.5">
-                          <p className="text-[16px] leading-5">{tx.title}</p>
-                          <p className="text-[#97959a] text-[13px] leading-4">
-                            {tx.time}
-                          </p>
-                        </div>
-                        {tx.route ? (
-                          <p className="flex flex-1 items-center gap-1.5 text-[14px] leading-5">
-                            {tx.route[0]}
-                            <CircleArrowUp
-                              className="rotate-90 text-[#636067]"
-                              size={14}
-                            />
-                            {tx.route[1]}
-                          </p>
-                        ) : null}
-                        <a
-                          className="flex items-center gap-1.5 font-mono text-[#97959a] text-[14px] leading-5 transition-colors hover:text-[#e1e3e6]"
-                          href={`https://orbmarkets.io/tx/${tx.signature}`}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          {tx.signature.slice(0, 4)} … {tx.signature.slice(-4)}
-                          <Copy size={16} strokeWidth={1.5} />
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <p className="mx-auto max-w-[660px] px-6 pt-4 pb-6 text-center text-[#636067] text-[16px] leading-5 tracking-[-0.176px]">
-                  Every receipt opens on Orb Markets. The backend accepts only
-                  four fixed, pre-approved movements, never an arbitrary
-                  transaction, amount, token, venue, or destination.
-                </p>
-              </div>
-            </section>
-          </>
-        ) : null}
+                        <span className="size-11 rounded-full border-2 border-[#636067] border-dashed" />
+                        <p className="text-[#97959a] text-[16px] leading-5 tracking-[-0.176px]">
+                          Transactions will appear here
+                        </p>
+                      </motion.div>
+                    ) : (
+                      <motion.ul
+                        className="flex flex-col px-2"
+                        key="list"
+                        layout
+                      >
+                        <AnimatePresence initial={false}>
+                          {txs.map((tx) => (
+                            <motion.li
+                              className="flex items-center justify-between px-4 py-2.5"
+                              key={tx.id}
+                              layout
+                              {...RISE}
+                            >
+                              <div className="flex flex-1 flex-col gap-0.5">
+                                <p className="text-[16px] leading-5">
+                                  {tx.title}
+                                </p>
+                                <p className="text-[#97959a] text-[13px] leading-4">
+                                  {tx.time}
+                                </p>
+                              </div>
+                              {tx.route ? (
+                                <p className="flex flex-1 items-center gap-1.5 text-[14px] leading-5">
+                                  {tx.route[0]}
+                                  <CircleArrowUp
+                                    className="rotate-90 text-[#636067]"
+                                    size={14}
+                                  />
+                                  {tx.route[1]}
+                                </p>
+                              ) : null}
+                              <span className="flex items-center gap-1.5 font-mono text-[#97959a] text-[14px] leading-5">
+                                <a
+                                  className="transition-colors hover:text-[#e1e3e6]"
+                                  href={`https://orbmarkets.io/tx/${tx.signature}`}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                >
+                                  {tx.signature.slice(0, 4)} …{" "}
+                                  {tx.signature.slice(-4)}
+                                </a>
+                                <CopyButton
+                                  label="Copy signature"
+                                  size={16}
+                                  text={tx.signature}
+                                />
+                              </span>
+                            </motion.li>
+                          ))}
+                        </AnimatePresence>
+                      </motion.ul>
+                    )}
+                  </AnimatePresence>
+                  <p className="mx-auto max-w-[660px] px-6 pt-4 pb-6 text-center text-[#636067] text-[16px] leading-5 tracking-[-0.176px]">
+                    Every receipt opens on Orb Markets. The backend accepts only
+                    four fixed, pre-approved movements, never an arbitrary
+                    transaction, amount, token, venue, or destination.
+                  </p>
+                </div>
+              </section>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {walletAddress ? (
           <WithdrawModal
@@ -418,6 +451,7 @@ export function DemoStart() {
             onOpenChange={setWithdrawOpen}
             onSent={(signature) =>
               setup.addTx({
+                id: Date.now(),
                 title: `Withdraw ${usdc(walletUsdc ?? 0)} USDC`,
                 time: now(),
                 signature,
@@ -429,10 +463,22 @@ export function DemoStart() {
         ) : null}
 
         <section className="flex w-full flex-col items-center gap-12 px-6 py-24 lg:px-16">
-          <h2 className="max-w-[474px] text-center font-bold text-[40px] uppercase leading-none md:text-[56px]">
+          <motion.h2
+            className="max-w-[474px] text-center font-bold text-[40px] uppercase leading-none md:text-[56px]"
+            initial={RISE.initial}
+            transition={RISE.transition}
+            viewport={{ once: true, amount: 0.6 }}
+            whileInView={RISE.animate}
+          >
             Make more money
-          </h2>
-          <div className="relative w-full max-w-[680px]">
+          </motion.h2>
+          <motion.div
+            className="relative w-full max-w-[680px]"
+            initial={RISE.initial}
+            transition={{ ...RISE.transition, delay: 0.08 }}
+            viewport={{ once: true, amount: 0.3 }}
+            whileInView={RISE.animate}
+          >
             <Image
               alt=""
               className="pointer-events-none absolute top-[-32px] left-[-64px] hidden size-64 md:block"
@@ -451,9 +497,15 @@ export function DemoStart() {
               <div className="flex flex-col items-center gap-1 pb-6">
                 <p className="text-[#97959a] text-[20px] leading-6">You keep</p>
                 <div className="flex items-baseline gap-[7px] md:pl-9">
-                  <p className="font-semibold text-[40px] leading-[64px] tracking-[-0.616px] md:text-[56px]">
-                    {usd.format(youKeep)}
-                  </p>
+                  <NumberFlow
+                    className="font-semibold text-[40px] leading-[64px] tracking-[-0.616px] md:text-[56px]"
+                    format={{
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 0,
+                    }}
+                    value={youKeep}
+                  />
                   <p className="text-[#97959a] text-[20px] leading-6">/year</p>
                 </div>
               </div>
@@ -465,9 +517,15 @@ export function DemoStart() {
                   <p className="text-[#97959a] text-[16px] leading-5">
                     User balances
                   </p>
-                  <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
-                    {usd.format(userBalances)}
-                  </p>
+                  <NumberFlow
+                    className="font-semibold text-[24px] leading-7 tracking-[-0.264px]"
+                    format={{
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 0,
+                    }}
+                    value={userBalances}
+                  />
                 </div>
                 <StepSlider
                   label="User balances"
@@ -482,17 +540,21 @@ export function DemoStart() {
                     <p className="text-[#97959a] text-[16px] leading-5">
                       Your share
                     </p>
-                    <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
-                      {pct(yourShare)}
-                    </p>
+                    <NumberFlow
+                      className="font-semibold text-[24px] leading-7 tracking-[-0.264px]"
+                      format={{ style: "percent", maximumFractionDigits: 0 }}
+                      value={yourShare}
+                    />
                   </div>
                   <div className="flex flex-1 flex-col gap-1 text-right">
                     <p className="text-[#97959a] text-[16px] leading-5">
                       Users’ share
                     </p>
-                    <p className="font-semibold text-[24px] leading-7 tracking-[-0.264px]">
-                      {pct(usersShare)}
-                    </p>
+                    <NumberFlow
+                      className="font-semibold text-[24px] leading-7 tracking-[-0.264px]"
+                      format={{ style: "percent", maximumFractionDigits: 0 }}
+                      value={usersShare}
+                    />
                   </div>
                 </div>
                 <StepSlider
@@ -514,76 +576,267 @@ export function DemoStart() {
               src="/demo/dog-front.svg"
               width={256}
             />
-          </div>
+          </motion.div>
         </section>
       </div>
     </div>
   );
 }
 
+// Balance digits pop in on change (transitions.dev number pop-in); the
+// active card gets a soft red ring while money moves through it.
 function SchemeCard({
+  index,
   title,
   subtitle,
   caption,
   dim,
   value,
   action,
+  active,
 }: {
+  index: number;
   title: string;
   subtitle?: React.ReactNode;
   caption: string;
   dim?: boolean;
   value: number;
   action?: React.ReactNode;
+  active?: boolean;
 }) {
   const [whole, frac] = usdc(value).split(".");
   return (
-    <div className="flex min-h-[200px] flex-col justify-between rounded-[32px] bg-[#1d1b20]">
-      <div className="flex flex-col gap-0.5 p-6">
-        <div className="flex items-center gap-1 text-[#97959a] text-[16px] leading-5">
-          <p>{title}</p>
-          {subtitle}
+    <StaggerLine index={index}>
+      <div
+        className={cn(
+          "flex h-full min-h-[200px] flex-col justify-between rounded-[32px] bg-[#1d1b20] ring-1 ring-transparent transition-[box-shadow] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+          active &&
+            "shadow-[0_0_48px_-8px_rgba(255,80,80,0.45)] ring-[#ff5050]/60"
+        )}
+      >
+        <div className="flex flex-col gap-0.5 p-6">
+          <div className="flex items-center gap-1 text-[#97959a] text-[16px] leading-5">
+            <p>{title}</p>
+            <AnimatePresence>{subtitle}</AnimatePresence>
+          </div>
+          <div className="flex items-center gap-2">
+            <Image
+              alt="USDC"
+              className="size-9 rounded-full"
+              height={36}
+              src="/demo/usdc.png"
+              width={36}
+            />
+            <p
+              className={cn(
+                "font-semibold text-[40px] leading-[48px] tracking-[-0.44px] [font-variant-numeric:tabular-nums]",
+                dim && "text-[#636067]"
+              )}
+            >
+              <PopDigits
+                segments={[
+                  { text: whole },
+                  { text: `.${frac}`, color: "#636067" },
+                ]}
+              />
+            </p>
+          </div>
+          <AnimatePresence>
+            {action ? (
+              <motion.div
+                className="pt-3"
+                key="action"
+                {...RISE}
+                transition={{ duration: 0.35, ease: EASE }}
+              >
+                {action}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
-        <div className="flex items-center gap-2">
-          <Image
-            alt="USDC"
-            className="size-9 rounded-full"
-            height={36}
-            src="/demo/usdc.png"
-            width={36}
-          />
-          <p
-            className={cn(
-              "font-semibold text-[40px] leading-[48px] tracking-[-0.44px]",
-              dim && "text-[#636067]"
-            )}
-          >
-            {whole}
-            <span className="text-[#636067]">.{frac}</span>
-          </p>
-        </div>
-        {action ? <div className="pt-3">{action}</div> : null}
+        <p className="p-6 text-[#97959a] text-[16px] leading-5">{caption}</p>
       </div>
-      <p className="p-6 text-[#97959a] text-[16px] leading-5">{caption}</p>
-    </div>
+    </StaggerLine>
   );
 }
 
 function WalletBadge({ address }: { address: string }) {
   const short = `${address.slice(0, 4)}…${address.slice(-4)}`;
   return (
-    <>
+    <motion.span className="flex items-center gap-1" {...RISE}>
       <span>·</span>
       <span>{short}</span>
-      <button
-        aria-label="Copy wallet address"
-        className="text-[#97959a] transition-colors hover:text-[#e1e3e6]"
-        onClick={() => void navigator.clipboard.writeText(address)}
-        type="button"
-      >
-        <Copy size={16} strokeWidth={1.5} />
-      </button>
-    </>
+      <CopyButton label="Copy wallet address" size={16} text={address} />
+    </motion.span>
+  );
+}
+
+// Copy icon crossfades to a check for a beat after a click.
+function CopyButton({
+  text,
+  label,
+  size,
+  className,
+}: {
+  text: string;
+  label: string;
+  size: number;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      aria-label={label}
+      className={cn(
+        "relative text-[#97959a] transition-colors hover:text-[#e1e3e6]",
+        copied && "text-[#30d158]",
+        className
+      )}
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      style={{ width: size, height: size }}
+      type="button"
+    >
+      <Copy
+        className="absolute inset-0 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
+        size={size}
+        strokeWidth={1.5}
+        style={{
+          opacity: copied ? 0 : 1,
+          transform: copied ? "scale(0.8)" : "scale(1)",
+        }}
+      />
+      <Check
+        className="absolute inset-0 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]"
+        size={size}
+        strokeWidth={2}
+        style={{
+          opacity: copied ? 1 : 0,
+          transform: copied ? "scale(1)" : "scale(0.8)",
+        }}
+      />
+    </button>
+  );
+}
+// One pill, many states. Contents crossfade+rise; the running label swaps
+// text in place (transitions.dev text-states-swap) so the pill never jumps.
+function ControlPill({
+  setup,
+  loop,
+  funded,
+  walletAddress,
+}: {
+  setup: ReturnType<typeof useScriptedSetup>;
+  loop: ReturnType<typeof useScriptedLoop>;
+  funded: boolean;
+  walletAddress: string | null;
+}) {
+  const running = setup.phase === "running" || loop.phase === "running";
+  const state =
+    setup.phase === "idle"
+      ? "setup"
+      : running
+      ? "running"
+      : loop.phase === "done"
+      ? "reset"
+      : funded
+      ? "run"
+      : "fund";
+  const status =
+    setup.phase === "running"
+      ? SETUP_STEPS[setup.step].status
+      : loop.phase === "running"
+      ? LOOP_STEPS[loop.step].status
+      : "";
+  const isButton = state === "setup" || state === "run" || state === "reset";
+  const onClick =
+    state === "setup" ? setup.start : state === "run" ? loop.start : loop.reset;
+  const Tag = isButton ? motion.button : motion.div;
+  return (
+    <Tag
+      className={cn(
+        "relative flex h-[164px] w-full max-w-[620px] flex-col items-center justify-center overflow-hidden rounded-full px-12 transition-[background-color] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        state === "running" ? "bg-[#1d1b20]" : "bg-[rgba(249,54,60,0.14)]",
+        isButton && cn("hover:bg-[rgba(249,54,60,0.22)]", PRESS)
+      )}
+      layout
+      onClick={isButton ? onClick : undefined}
+      type={isButton ? "button" : undefined}
+    >
+      <AnimatePresence initial={false} mode="popLayout">
+        {state === "running" ? (
+          <motion.div
+            className="flex flex-col items-center gap-4"
+            key="running"
+            {...RISE}
+          >
+            <Loader />
+            <TextSwap className="text-[16px] leading-5" text={status} />
+          </motion.div>
+        ) : state === "setup" ? (
+          <motion.div
+            className="flex flex-col items-center gap-3"
+            key="setup"
+            {...RISE}
+          >
+            <span className="font-bold text-[28px] uppercase leading-8">
+              Set up account
+            </span>
+            <span className="text-[#97959a] text-[16px] leading-5">
+              Privy asks for each approval. Loyal pays every fee
+            </span>
+          </motion.div>
+        ) : state === "run" ? (
+          <motion.div
+            className="flex flex-col items-center gap-3"
+            key="run"
+            {...RISE}
+          >
+            <span className="font-bold text-[28px] uppercase leading-8">
+              Run the loop
+            </span>
+            <span className="text-[#97959a] text-[16px] leading-5">
+              Pull 2 USDC, deposit to Kamino, withdraw 1 USDC back
+            </span>
+          </motion.div>
+        ) : state === "reset" ? (
+          <motion.div
+            className="flex items-center gap-3 font-bold text-[28px] uppercase leading-8"
+            key="reset"
+            {...RISE}
+          >
+            <RefreshCw size={28} strokeWidth={2} />
+            Reset demo
+          </motion.div>
+        ) : (
+          <motion.div
+            className="flex flex-col items-center gap-3"
+            key="fund"
+            {...RISE}
+          >
+            <span className="flex items-center gap-2 font-bold text-[28px] leading-8">
+              {walletAddress ? (
+                <CopyButton
+                  label="Copy wallet address"
+                  size={24}
+                  text={walletAddress}
+                />
+              ) : null}
+              {walletAddress
+                ? `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`
+                : "…"}
+            </span>
+            <span className="flex items-center gap-1.5 text-[#97959a] text-[16px] leading-5">
+              <LoaderCircle className="animate-spin" size={14} />
+              Fund Privy wallet with at least 2 USDC
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </Tag>
   );
 }
 
@@ -596,7 +849,12 @@ function useScriptedSetup() {
     if (phase !== "running") return;
     const id = setTimeout(() => {
       setTxs((prev) => [
-        { title: SETUP_STEPS[step].tx, time: now(), signature: FAKE_SIGNATURE },
+        {
+          id: Date.now(),
+          title: SETUP_STEPS[step].tx,
+          time: now(),
+          signature: FAKE_SIGNATURE,
+        },
         ...prev,
       ]);
       if (step + 1 < SETUP_STEPS.length) setStep(step + 1);
@@ -635,7 +893,13 @@ function useScriptedLoop(walletUsdc: number | null) {
     const id = setTimeout(() => {
       const s = LOOP_STEPS[step];
       setTxs((prev) => [
-        { title: s.tx, time: now(), signature: FAKE_SIGNATURE, route: s.route },
+        {
+          id: Date.now(),
+          title: s.tx,
+          time: now(),
+          signature: FAKE_SIGNATURE,
+          route: s.route,
+        },
         ...prev,
       ]);
       setBalances(s.after(startWallet.current));
@@ -840,16 +1104,35 @@ function Pill({
   active: boolean;
 }) {
   return (
-    <span
+    <motion.span
+      animate={{
+        transform: active
+          ? "translateX(-50%) scale(1.06)"
+          : "translateX(-50%) scale(1)",
+      }}
       className={cn(
-        "absolute flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full px-5 py-2.5 text-[16px] leading-5 tracking-[-0.176px] transition-colors",
+        "absolute flex items-center whitespace-nowrap rounded-full px-5 py-2.5 text-[16px] leading-5 tracking-[-0.176px] transition-colors duration-300",
         active ? "bg-[#ff5050] text-white" : "bg-[#333036]",
         className
       )}
+      transition={{ type: "spring", duration: 0.45, bounce: 0.3 }}
     >
-      {active ? <LoaderCircle className="animate-spin" size={16} /> : null}
+      <AnimatePresence initial={false}>
+        {active ? (
+          <motion.span
+            animate={{ opacity: 1, width: 16, marginRight: 8 }}
+            className="flex overflow-hidden"
+            exit={{ opacity: 0, width: 0, marginRight: 0 }}
+            initial={{ opacity: 0, width: 0, marginRight: 0 }}
+            key="spin"
+            transition={{ duration: 0.25, ease: EASE }}
+          >
+            <LoaderCircle className="animate-spin" size={16} />
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
       {children}
-    </span>
+    </motion.span>
   );
 }
 
@@ -870,14 +1153,14 @@ function StepSlider({
     <div className="p-2">
       <div className="relative h-6 rounded-full bg-white/[0.04]">
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-[#ff5050]"
+          className="absolute inset-y-0 left-0 rounded-full bg-[#ff5050] transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{ width: `calc(${fill} + (100% - ${fill}) * 0.1)` }}
         />
         <div className="absolute inset-0 flex items-center justify-between px-2">
           {Array.from({ length: stops }, (_, i) => (
             <span
               className={cn(
-                "size-2 rounded-full",
+                "size-2 rounded-full transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 i === value
                   ? "bg-[#636067]"
                   : i < value
@@ -889,7 +1172,7 @@ function StepSlider({
           ))}
         </div>
         <div
-          className="pointer-events-none absolute top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/[0.12] bg-white"
+          className="pointer-events-none absolute top-1/2 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/[0.12] bg-white transition-[left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{ left: `calc(14px + (100% - 28px) * ${value / max})` }}
         />
         <input
