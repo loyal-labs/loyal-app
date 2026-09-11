@@ -17,10 +17,12 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { cn } from "@/lib/utils";
+
+import { WithdrawModal } from "./withdraw-modal";
 
 // Scripted setup: each step shows its status for STEP_MS, then appends a
 // transaction row. Signatures are placeholders until the steps call the real
@@ -103,6 +105,12 @@ type DemoTx = {
   route?: [string, string];
 };
 
+const now = () =>
+  new Date().toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 const usdc = (v: number, min = 2) =>
   v.toLocaleString("en-US", {
     minimumFractionDigits: min,
@@ -139,8 +147,19 @@ export function DemoStart() {
   const walletAddress = useDemoWallet();
   const signedIn = ready && authenticated && user !== null;
   const setup = useScriptedSetup();
+  const { solanaEnv, solanaRpcEndpoint } = usePublicEnv();
+  const usdcMint = useMemo(
+    () =>
+      getStablecoinMintForCluster(
+        resolveLoyalClusterForSolanaEnv(solanaEnv),
+        Stablecoin.USDC
+      ),
+    [solanaEnv]
+  );
   const walletUsdc = useUsdcBalance(
-    setup.phase === "done" ? walletAddress : null
+    setup.phase === "done" ? walletAddress : null,
+    usdcMint,
+    solanaRpcEndpoint
   );
   const loop = useScriptedLoop(setup.phase === "done" ? walletUsdc : null);
   const funded = walletUsdc !== null && walletUsdc >= MIN_FUNDING_USDC;
@@ -148,6 +167,7 @@ export function DemoStart() {
   const balances: Balances = loop.balances ?? [walletUsdc ?? 0, 0, 0];
   const activeConnector =
     loop.phase === "running" ? LOOP_STEPS[loop.step].connector : null;
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   return (
     <div className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]">
@@ -216,6 +236,7 @@ export function DemoStart() {
                 setup.phase === "done" && balances[0] > 0 ? (
                   <button
                     className="flex h-9 items-center gap-1.5 rounded-full bg-white/[0.08] px-3 text-[14px] transition-colors hover:bg-white/[0.12]"
+                    onClick={() => setWithdrawOpen(true)}
                     type="button"
                   >
                     <CircleArrowUp size={18} strokeWidth={1.5} />
@@ -375,6 +396,24 @@ export function DemoStart() {
             </div>
           </section>
         </>
+      ) : null}
+
+      {walletAddress ? (
+        <WithdrawModal
+          available={walletUsdc ?? 0}
+          from={walletAddress}
+          mint={usdcMint}
+          onOpenChange={setWithdrawOpen}
+          onSent={(signature) =>
+            setup.addTx({
+              title: `Withdraw ${usdc(walletUsdc ?? 0)} USDC`,
+              time: now(),
+              signature,
+              route: ["Privy wallet", "External wallet"],
+            })
+          }
+          open={withdrawOpen}
+        />
       ) : null}
 
       <section className="flex w-full flex-col items-center gap-12 px-6 py-24 lg:px-16">
@@ -543,12 +582,8 @@ function useScriptedSetup() {
   useEffect(() => {
     if (phase !== "running") return;
     const id = setTimeout(() => {
-      const time = new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
       setTxs((prev) => [
-        { title: SETUP_STEPS[step].tx, time, signature: FAKE_SIGNATURE },
+        { title: SETUP_STEPS[step].tx, time: now(), signature: FAKE_SIGNATURE },
         ...prev,
       ]);
       if (step + 1 < SETUP_STEPS.length) setStep(step + 1);
@@ -561,6 +596,7 @@ function useScriptedSetup() {
     phase,
     step,
     txs,
+    addTx: (tx: DemoTx) => setTxs((prev) => [tx, ...prev]),
     start: () => {
       setTxs([]);
       setStep(0);
@@ -585,12 +621,8 @@ function useScriptedLoop(walletUsdc: number | null) {
     if (phase !== "running") return;
     const id = setTimeout(() => {
       const s = LOOP_STEPS[step];
-      const time = new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
       setTxs((prev) => [
-        { title: s.tx, time, signature: FAKE_SIGNATURE, route: s.route },
+        { title: s.tx, time: now(), signature: FAKE_SIGNATURE, route: s.route },
         ...prev,
       ]);
       setBalances(s.after(startWallet.current));
@@ -622,19 +654,18 @@ function useScriptedLoop(walletUsdc: number | null) {
 }
 
 // Real USDC balance of the Privy wallet, polled while an address is given.
-function useUsdcBalance(address: string | null): number | null {
-  const { solanaEnv, solanaRpcEndpoint } = usePublicEnv();
+function useUsdcBalance(
+  address: string | null,
+  mint: PublicKey,
+  rpcEndpoint: string
+): number | null {
   const [balance, setBalance] = useState<number | null>(null);
   useEffect(() => {
     if (!address) {
       setBalance(null);
       return;
     }
-    const connection = new Connection(solanaRpcEndpoint, "confirmed");
-    const mint = getStablecoinMintForCluster(
-      resolveLoyalClusterForSolanaEnv(solanaEnv),
-      Stablecoin.USDC
-    );
+    const connection = new Connection(rpcEndpoint, "confirmed");
     const owner = new PublicKey(address);
     let cancelled = false;
     const read = async () => {
@@ -659,7 +690,7 @@ function useUsdcBalance(address: string | null): number | null {
       cancelled = true;
       clearInterval(id);
     };
-  }, [address, solanaEnv, solanaRpcEndpoint]);
+  }, [address, mint, rpcEndpoint]);
   return balance;
 }
 
