@@ -861,7 +861,8 @@ export type EarnPosition = {
   currentObservedSlot?: string;
   currentAmountRaw: string;
   currentSupplyApyBps: string | null;
-  principalAmountRaw: string;
+  // A newer live holding can precede accounting for its lifecycle.
+  principalAmountRaw: string | null;
   status: string;
 };
 

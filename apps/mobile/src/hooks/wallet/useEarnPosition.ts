@@ -186,13 +186,69 @@ export function useEarnPosition(walletAddress: string | null) {
         // A wallet prompt/pending deposit is not an empty lifecycle. No response
         // started before the mutation may commit, even if it finishes afterwards.
         if (pendingDepositRef.current || scopedMutation?.pending) return;
-        if (proofSlot !== null) {
-          closedSlots.set(
-            scope,
-            closedSlot !== null && closedSlot > proofSlot
-              ? closedSlot
-              : proofSlot
+        const closureFloor =
+          proofSlot !== null && (closedSlot === null || proofSlot > closedSlot)
+            ? proofSlot
+            : closedSlot;
+        if (closureFloor !== null) closedSlots.set(scope, closureFloor);
+        const accountingFresh =
+          state.position !== null &&
+          (closureFloor === null ||
+            (nextSlot !== null && nextSlot > closureFloor)) &&
+          (currentSlot === null ||
+            (nextSlot !== null && nextSlot >= currentSlot));
+        // The two endpoints can observe different lifecycles. Evaluate funded
+        // RPC evidence BEFORE rejecting older/null accounting, otherwise a
+        // replacement deposit stays hidden (or keeps the old withdrawal source).
+        if (
+          !accountingFresh &&
+          live &&
+          liveSlot !== null &&
+          /^\d+$/.test(live.currentTotalAmountRaw) &&
+          BigInt(live.currentTotalAmountRaw) > BigInt(0) &&
+          (currentSlot === null || liveSlot >= currentSlot) &&
+          (nextSlot === null || liveSlot >= nextSlot) &&
+          (closureFloor === null || liveSlot > closureFloor) &&
+          (Date.now() - mutatedAtRef.current >= MUTATION_TRUST_MS ||
+            (localSlot !== null && liveSlot >= localSlot))
+        ) {
+          const accounting =
+            nextSlot !== null &&
+            (closureFloor === null || nextSlot > closureFloor)
+              ? state.position
+              : null;
+          const retained =
+            positionSlot !== null &&
+            (closureFloor === null || positionSlot > closureFloor)
+              ? currentRef.current
+              : null;
+          const next: EarnPosition = {
+            currentAmountRaw: live.currentTotalAmountRaw,
+            currentObservedSlot: live.observedSlot ?? undefined,
+            currentSupplyApyBps:
+              accounting?.currentSupplyApyBps ??
+              retained?.currentSupplyApyBps ??
+              null,
+            // Holdings prove the current value, not the new lifecycle's cost
+            // basis. Do not copy principal from a closed generation or invent it.
+            principalAmountRaw:
+              accounting?.principalAmountRaw ??
+              retained?.principalAmountRaw ??
+              null,
+            status: "active",
+          };
+          currentRef.current = next;
+          setPosition(next);
+          setHoldings(live.holdings);
+          setPolicyMissing(false);
+          setAcceptedPolicies(
+            accounting
+              ? state.policyAccounts?.slice().sort().join(",") ?? null
+              : null
           );
+          return;
+        }
+        if (proofSlot !== null) {
           if (
             (currentSlot !== null && currentSlot > proofSlot) ||
             (liveSlot !== null &&

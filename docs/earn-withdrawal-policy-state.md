@@ -25,6 +25,24 @@ cd apps/web
 bun test src/app/api/smart-accounts/yield-optimization/withdrawals/prepare/route.test.ts
 ```
 
+## Deposit setup confirmation after a full exit
+
+Deposit preparation selects an eligible Safe reserve for the selected supported
+product; policy confirmation must validate that same product/Safe-market contract,
+not require the historical fixed USDC reserve. Both route-policy and setup-policy
+confirmation retain authenticated wallet/settings, canonical policy and vault PDAs,
+seeds, configured cluster, successful signature and exact-slot checks. These endpoints
+only acknowledge verified setup; they do not write the financial projection or send
+a deposit. A setup-confirmation failure therefore does not mean USDC was deposited.
+After refreshing, preparation can resume the already-created policy setup.
+
+Regression coverage (including unsupported products/markets and failed signatures):
+
+```sh
+cd apps/web
+bun test src/lib/yield-optimization/earn-confirm-single-writer.server.test.ts
+```
+
 ## Stale position after confirmed cleanup
 
 The original fix only changed the error to “This Earn policy is no longer active.
@@ -106,15 +124,23 @@ slot may replace a lagging aggregate even during the mutation grace period; pend
 or unfenced mutations retain the grace safeguard. Balance changes invalidate cached
 withdrawal sources, and a changed total cannot retain old detail amounts when its
 independent holdings read failed. Ordinary read failures retain the last valid balance.
+Newer scoped positive holdings are evaluated before rejecting stale/null accounting:
+a closure at slot 600 cannot hide funded holdings at 700 behind accounting at 500,
+either before or after accepting the closure. The live observation must meet both
+current/local and accounting slot fences and exceed the closure floor. Pending
+mutations and scope checks still apply. Live holdings establish current value, not
+cost basis; principal is nullable until accounting for the new lifecycle is available,
+rather than copying principal from the closed generation.
 
 Server changes are additive for released mobile clients, but those clients do not
 consume the new ordering metadata. Updated hook/source/pending-deposit behavior needs
 an approved compatible mobile JS rollout (OTA only for the appropriate runtime/channel,
 otherwise a binary). Deploy compatible server code first. Browser/device canaries and
 the resulting Vercel deployment are separate gates; no deployed incident resolution is
-implied by local hook simulations. Routing PR #232 remains a separate, unmerged and
-undeployed prerequisite at this review; verify its actual rollout and processing health
-before claiming durable backend convergence.
+implied by local hook simulations. Routing PR #232 was merged and its immutable
+image deployed only to the Earn monitor on September 11, 2026 (merge
+`2363318e524a36626a14344ef6f1a46821ce569a`). New-instance completions were verified;
+this does not establish client adoption or repair the older unprovable jobs.
 
 Focused checks (also run scoped lint and web typecheck):
 
@@ -125,6 +151,8 @@ bun test src/lib/yield-optimization/earn-position-read.server.test.ts
 bun test src/hooks/use-active-earn-position.test.ts
 bun test src/hooks/use-active-earn-position-races.test.ts
 bun test src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts
+cd ../mobile
+bunx jest --runInBand src/hooks/wallet/__tests__/useEarnPosition-lifecycle.test.ts
 ```
 
 After deployment, test both a fresh load and an already-open stale tab after full

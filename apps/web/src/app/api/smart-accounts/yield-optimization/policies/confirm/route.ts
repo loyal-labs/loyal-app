@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  getKaminoUsdcEarnTargetForCluster,
   normalizeLoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
@@ -13,6 +12,8 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
+import { assertSafeEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import { type ConfirmedYieldRoutePolicyInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_POLICY_VAULT_INDEX = 1;
@@ -74,19 +75,33 @@ function createCanonicalPolicyInput(
     settingsPda: settings,
     accountIndex: EARN_POLICY_VAULT_INDEX,
   })[0];
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
+  // Prepare selects an eligible Safe reserve for the chosen product. Policy
+  // setup does not deposit into the old hard-coded USDC reserve: requiring that
+  // reserve here strands an already-confirmed setup before the deposit is sent.
+  // Match the same supported-mint/Safe-market contract as deposit confirmation.
+  const product = resolveEarnProductAsset({
+    cluster,
+    mint: requestInput.liquidityMint,
+  });
+  const earnTarget = assertSafeEarnReserveMetadata({
+    cluster,
+    expectedLiquidityMint: product.mint.toBase58(),
+    liquidityMint: requestInput.liquidityMint,
+    market: requestInput.market,
+    targetReserve: requestInput.targetReserve,
+  });
   const canonicalInput = {
     ...normalizedRequestInput,
     cluster,
-    liquidityMint: earnTarget.liquidityMint.toBase58(),
-    market: earnTarget.market.toBase58(),
+    liquidityMint: earnTarget.liquidityMint,
+    market: earnTarget.market,
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
     setupPolicyAccount: expectedSetupPolicyAccount.toBase58(),
     setupPolicyId: expectedSetupPolicySeed,
     setupPolicySeed: expectedSetupPolicySeed,
-    targetReserve: earnTarget.reserve.toBase58(),
+    targetReserve: earnTarget.targetReserve,
     vaultIndex: EARN_POLICY_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };
