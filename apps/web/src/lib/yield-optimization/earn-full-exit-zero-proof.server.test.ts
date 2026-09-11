@@ -52,6 +52,7 @@ function createHolding(args: {
     provenance: {},
     reserve: args.reserve ?? null,
     supplyApyBps: null,
+    tokenProgramId: TOKEN_PROGRAM_ID.toBase58(),
   };
 }
 
@@ -171,6 +172,57 @@ describe("Earn full-exit zero proof", () => {
     expect(proof.remainingHoldings).toEqual([
       expect.objectContaining({ amountRaw: "25", reserve: secondReserve }),
     ]);
+  });
+
+  test("blocks a later idle deposit even when the older inventory is empty", async () => {
+    for (const amountRaw of ["10000", "100000000"]) {
+      const proof = await verifyEarnFullExitZeroBalances(createInput(), {
+        fetchHoldingsSnapshot: async () =>
+          createHoldingsSnapshot(
+            [
+              {
+                ...createHolding({ amountRaw, kind: "idle" }),
+                observedSlot: "600",
+              },
+            ],
+            "600"
+          ) as never,
+        fetchVaultSnapshot: async () =>
+          createVaultSnapshot({ observedSlot: 500 }),
+      });
+      expect(proof.status).toBe("full_exit_incomplete");
+    }
+  });
+
+  test("never promotes the newest holdings chunk to a closure watermark", async () => {
+    // Both inventory programs and every holdings chunk are fenced at 500.
+    // The holdings snapshot reports its MAX context; 600 is not a zero proof
+    // for an intervening deposit at 550, even if inventory is newer still.
+    for (const inventorySlot of [500, 700]) {
+      const proof = await verifyEarnFullExitZeroBalances(createInput(), {
+        fetchHoldingsSnapshot: async () =>
+          createHoldingsSnapshot([], "600") as never,
+        fetchVaultSnapshot: async () =>
+          createVaultSnapshot({ observedSlot: inventorySlot }),
+      });
+      expect(proof.status).toBe("policy_close_required");
+      expect(BigInt(proof.observedSlot)).toBe(BigInt(500));
+      expect(BigInt(proof.observedSlot)).toBeLessThan(BigInt(550));
+    }
+  });
+
+  test("does not treat unknown idle assets as permitted dust", async () => {
+    const proof = await verifyEarnFullExitZeroBalances(createInput(), {
+      fetchHoldingsSnapshot: async () =>
+        createHoldingsSnapshot([
+          {
+            ...createHolding({ amountRaw: "1", kind: "idle" }),
+            liquidityMint: collateralMint.toBase58(),
+          },
+        ]) as never,
+      fetchVaultSnapshot: async () => createVaultSnapshot({}),
+    });
+    expect(proof.status).toBe("full_exit_incomplete");
   });
 
   test("rejects a stale RPC context instead of authorizing closure", async () => {

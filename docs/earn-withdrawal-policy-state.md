@@ -34,7 +34,12 @@ position left behind by the worker.
 Web `/earn-state` and `/position` now read the inactive **current** policy generation
 and verify full-exit zero holdings (including complete reserve reads and both token
 programs) plus closed policy accounts on-chain. Proof is fenced at the position's
-observed slot and the policies' last-seen slots. Only successful proof returns
+observed slot and the policies' last-seen slots. Positive reserve holdings, positive
+unknown assets, and canonical idle balances at or above the existing 10,000-raw
+unit dust threshold block closure, even when a separate token inventory is empty.
+The closure watermark is the requested minimum context slot shared by **all**
+proof reads, not the newest holdings chunk or inventory response; this conservative
+floor cannot supersede an intervening deposit observed above it. Only successful proof returns
 `position: null` with `closedPositionObservedSlot`; inactive metadata, remaining
 funds, missing projection, and RPC failures do not clear a position. These reads
 do not repair the database.
@@ -43,13 +48,21 @@ The position hook accepts this closure proof over older cached/RPC holdings, but
 retains a deposit observed after the proof slot. A plain null without proof keeps
 its existing conservative behavior. Explicit refresh now queries `/position` when
 no policy is available for a direct RPC read; local mutations and accepted closure
-proofs invalidate outstanding reads.
+proofs invalidate outstanding reads. The hook retains a wallet/cluster/settings-scoped
+closure watermark for subsequent refreshes: RPC reads are fenced strictly after
+closure (and at least at any newer displayed deposit), and stale RPC/HTTP responses
+cannot repopulate either position cache. Scope changes reset that watermark and
+invalidate responses from the previous scope. Later deposits remain visible; no
+persistent projection or database writes are added.
 
 Focused checks (also run scoped lint and web typecheck):
 
 ```sh
 cd apps/web
-bun test src/lib/yield-optimization/earn-position-read.server.test.ts src/hooks/use-active-earn-position.test.ts
+# Separate processes isolate Bun module mocks.
+bun test src/lib/yield-optimization/earn-position-read.server.test.ts
+bun test src/hooks/use-active-earn-position.test.ts
+bun test src/hooks/use-active-earn-position-races.test.ts
 bun test src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts
 ```
 

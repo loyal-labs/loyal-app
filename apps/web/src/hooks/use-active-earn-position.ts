@@ -90,6 +90,7 @@ type EarnPositionConnection = Pick<
   Partial<Pick<Connection, "onAccountChange" | "removeAccountChangeListener">>;
 
 type RpcPositionRead = {
+  observedSlot: string;
   position: ActiveEarnPosition | null;
   watchedAccounts: EarnRpcWatchedAccount[];
 };
@@ -469,6 +470,7 @@ export function useActiveEarnPosition({
   const reconcileRequestKeyRef = useRef<string | null>(null);
   const refreshDirtyRef = useRef(false);
   const refreshGenerationRef = useRef(0);
+  const closedPositionSlotRef = useRef<bigint | null>(null);
   const positionScope = [
     enabled ? "enabled" : "disabled",
     solanaEnv,
@@ -487,6 +489,7 @@ export function useActiveEarnPosition({
   // newly selected wallet/settings scope (including a rapid A -> B -> A).
   if (activePositionScopeRef.current !== positionScope) {
     activePositionScopeRef.current = positionScope;
+    closedPositionSlotRef.current = null;
     refreshGenerationRef.current += 1;
     refreshDirtyRef.current = false;
     refreshInFlightRef.current = null;
@@ -537,15 +540,27 @@ export function useActiveEarnPosition({
         return null;
       }
 
+      const closedSlot = closedPositionSlotRef.current;
+      const currentSlot = parseEarnObservedSlot(positionRef.current);
+      const minContextSlot =
+        closedSlot === null
+          ? undefined
+          : Number(
+              currentSlot !== null && currentSlot > closedSlot
+                ? currentSlot
+                : closedSlot + BigInt(1)
+            );
       const snapshot = await fetchEarnRpcHoldingsSnapshot({
         cluster: resolveLoyalClusterForSolanaEnv(resolveSolanaEnv(solanaEnv)),
         connection,
+        minContextSlot,
         policy: earnPolicy,
         programId: new PublicKey(programId),
         settingsPda: new PublicKey(settingsPda),
       });
 
       return {
+        observedSlot: snapshot.observedSlot,
         position: applyEarnRpcSnapshotToPosition(basePosition, snapshot),
         watchedAccounts: snapshot.provenance.watchedAccounts,
       };
@@ -556,6 +571,19 @@ export function useActiveEarnPosition({
   const commitRpcPosition = useCallback(
     (next: RpcPositionRead) => {
       if (activePositionScopeRef.current !== positionScope) {
+        return;
+      }
+      const closedSlot = closedPositionSlotRef.current;
+      const observedSlot = parseEarnRawAmount(next.observedSlot);
+      const currentSlot = parseEarnObservedSlot(positionRef.current);
+      if (
+        closedSlot !== null &&
+        (observedSlot === null ||
+          observedSlot <= closedSlot ||
+          (currentSlot !== null && observedSlot < currentSlot))
+      ) {
+        setHasResolved(true);
+        setIsLoading(false);
         return;
       }
       if (walletAddress && settingsPda) {
@@ -583,7 +611,24 @@ export function useActiveEarnPosition({
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
+      const proofSlot =
+        nextPosition === null
+          ? parseEarnRawAmount(closedPositionObservedSlot)
+          : null;
       if (
+        proofSlot !== null &&
+        proofSlot < BigInt(Number.MAX_SAFE_INTEGER) &&
+        (closedPositionSlotRef.current === null ||
+          proofSlot > closedPositionSlotRef.current)
+      ) {
+        closedPositionSlotRef.current = proofSlot;
+      }
+      const closedSlot = closedPositionSlotRef.current;
+      const nextSlot = parseEarnObservedSlot(nextPosition);
+      if (
+        (nextPosition !== null &&
+          closedSlot !== null &&
+          (nextSlot === null || nextSlot <= closedSlot)) ||
         shouldKeepCurrentPositionOverConfirmed({
           current: positionRef.current,
           confirmed: nextPosition,
@@ -646,7 +691,7 @@ export function useActiveEarnPosition({
             }
             if (next) {
               commitRpcPosition(next);
-              result = next.position;
+              result = positionRef.current;
             } else {
               const confirmed = await fetchConfirmedEarnPosition();
               if (

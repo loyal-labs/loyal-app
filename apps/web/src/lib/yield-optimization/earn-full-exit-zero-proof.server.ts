@@ -136,19 +136,34 @@ function classifyZeroProof(args: {
       "Earn full-exit proof was observed before the withdrawal confirmation slot."
     );
   }
-  if (args.vaultSnapshot.observedSlot < args.minContextSlot) {
+  if (
+    !Number.isSafeInteger(args.vaultSnapshot.observedSlot) ||
+    args.vaultSnapshot.observedSlot < args.minContextSlot
+  ) {
     throw new Error(
       "Earn vault token inventory was observed before the withdrawal confirmation slot."
     );
   }
 
-  const remainingReserveHoldings = args.holdingsSnapshot.holdings.filter(
-    (holding) =>
-      holding.kind === "kamino" &&
-      positiveAmountRaw(holding.amountRaw) > BigInt(0)
-  );
+  const assets = getEarnProductAssetsForCluster(args.cluster);
+  const blockingHoldings = args.holdingsSnapshot.holdings.filter((holding) => {
+    const amount = positiveAmountRaw(holding.amountRaw);
+    if (amount === BigInt(0)) return false;
+    // Inventory and holdings can come from different banks. Positive holdings
+    // must block closure even when the token inventory has not caught up.
+    const isCanonicalIdle =
+      holding.kind === "idle" &&
+      assets.some(
+        (asset) =>
+          asset.mint.toBase58() === holding.liquidityMint &&
+          asset.tokenProgramId.toBase58() === holding.tokenProgramId
+      );
+    return (
+      !isCanonicalIdle || amount >= EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW
+    );
+  });
   const idleAssetByTokenAccount = new Map(
-    getEarnProductAssetsForCluster(args.cluster).map((asset) => [
+    assets.map((asset) => [
       getAssociatedTokenAddressSync(
         asset.mint,
         args.vaultSnapshot.vaultPda,
@@ -190,14 +205,17 @@ function classifyZeroProof(args: {
       tokenProgramId: account.tokenProgramId.toBase58(),
     }));
   const status =
-    remainingReserveHoldings.length === 0 && blockingTokenAccounts.length === 0
+    blockingHoldings.length === 0 && blockingTokenAccounts.length === 0
       ? "policy_close_required"
       : "full_exit_incomplete";
 
   return {
     blockingTokenAccounts,
     cleanupTokenAccounts,
-    observedSlot: String(observedSlot),
+    // The holdings reader reports its newest chunk, not the oldest evidence.
+    // Only the requested floor is guaranteed across every holdings/inventory
+    // read; advertising a newer slot could tombstone an intervening deposit.
+    observedSlot: String(args.minContextSlot),
     remainingHoldings: args.holdingsSnapshot.holdings.filter(
       (holding) => positiveAmountRaw(holding.amountRaw) > BigInt(0)
     ),
