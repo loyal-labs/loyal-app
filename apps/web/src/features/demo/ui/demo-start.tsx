@@ -362,6 +362,9 @@ export function DemoStart() {
   // viewport callback on the slot itself.
   const moreRef = useRef<HTMLDivElement>(null);
   const [moreInView, setMoreInView] = useState(false);
+  // The scheme stays mounted across sign-in/out, so its draw-in only plays
+  // once. Bump this on sign-out to remount it and replay the intro.
+  const [schemeRun, setSchemeRun] = useState(0);
   const teaser = !signedIn && !moreInView;
   // Server HTML has the reveal classes but no JS to start them, so the
   // connectors and unstaggered bits flash before hydration. Render the
@@ -416,6 +419,8 @@ export function DemoStart() {
               onClick={() => {
                 setup.reset();
                 loop.reset();
+                setMoreInView(false);
+                setSchemeRun((n) => n + 1);
                 void logout();
               }}
               type="button"
@@ -504,7 +509,10 @@ export function DemoStart() {
               )}
             </AnimatePresence>
 
-            <section className="flex w-full justify-center px-6 py-4">
+            <section
+              className="flex w-full justify-center px-6 py-4"
+              key={schemeRun}
+            >
               <div className="relative w-full max-w-[1200px] lg:py-[60px]">
                 <Connectors active={activeConnector} />
                 <div className="grid grid-cols-1 gap-6 lg:h-[240px] lg:grid-cols-3">
