@@ -1,5 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { ArrowUp, Plus, SlidersHorizontal } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, StyleSheet, useWindowDimensions } from "react-native";
@@ -963,6 +964,8 @@ export default function EarnScreen() {
 
   return (
     <View style={styles.root}>
+      {/* Black tab: the root's `auto` (dark) icons vanish here. */}
+      {isFocused && <StatusBar style="light" />}
       <View style={[styles.topArea, { paddingTop: insets.top + 8 }]}>
         {hasDeposit ? (
           <Animated.View style={[styles.fundedLayer, fundedLayerStyle]}>

@@ -1,5 +1,6 @@
 import { Redirect, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { StatusBar } from "expo-status-bar";
+import { useCallback, useEffect, useState } from "react";
 import { useWindowDimensions } from "react-native";
 import Animated, {
   cancelAnimation,
@@ -13,19 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EarnDog } from "@/components/earn/EarnDog";
 import { QUESTS_ENABLED } from "@/lib/feature-flags";
-import {
-  fetchSolanaWeekQuestProgress,
-  type SolanaWeekQuestKind,
-  type SolanaWeekQuestProgressItem,
-  type SolanaWeekQuestStatus,
-} from "@/lib/solana/earn/earn-api";
-import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Text, View } from "@/tw";
 
-import AutodepositIcon from "../../assets/images/quests/autodeposit_icon_40.svg";
-import CheckIcon from "../../assets/images/quests/check_64.svg";
 import CoinIcon from "../../assets/images/quests/coin_58.svg";
-import DepositIcon from "../../assets/images/quests/deposit_icon_40.svg";
 
 // The Quests header mirrors Figma 219-56235 at a 400-wide artboard. We scale
 // every dog/coin metric by (screenWidth / 400) so the framing holds on any
@@ -43,59 +34,30 @@ const COIN_DROP_DELAY_MS = REVEAL_START_DELAY_MS + 200;
 const COIN_DROP_MS = 650;
 const COIN_EASING = Easing.bezier(0.34, 1.56, 0.64, 1);
 
-// Card face is 180×240 in the design (a 3:4 portrait).
-const CARD_ASPECT = 180 / 240;
-
-function statusOf(
-  items: SolanaWeekQuestProgressItem[] | null,
-  kind: SolanaWeekQuestKind,
-): SolanaWeekQuestStatus {
-  return items?.find((q) => q.kind === kind)?.status ?? "not_started";
-}
-
-// Round 1 ended 2026-07-15: cards are display-only — no press handler, no
-// chevron/lock affordances. Finishers still see their completed check.
-function TaskCard({
-  icon,
-  title,
-  complete,
-}: {
-  icon: ReactNode;
-  title: string;
-  complete: boolean;
-}) {
+// Round 1 ended 2026-07-15. The task cards are gone; one teaser holds the
+// slot until Round 2 ships.
+function TeaserCard() {
   return (
-    <View style={{ flex: 1 }}>
-      <View
+    <View
+      style={{
+        borderRadius: 24,
+        backgroundColor: "#f7f7f7",
+        padding: 20,
+        alignItems: "center",
+      }}
+    >
+      <CoinIcon width={29} height={49} />
+      <Text
         style={{
-          width: "100%",
-          aspectRatio: CARD_ASPECT,
-          borderRadius: 24,
-          backgroundColor: "#f7f7f7",
-          padding: 16,
-          justifyContent: "space-between",
-          overflow: "hidden",
+          fontFamily: "Geist_500Medium",
+          fontSize: 20,
+          lineHeight: 24,
+          color: "#000",
+          marginTop: 12,
         }}
       >
-        {complete ? (
-          <View style={{ gap: 4, alignItems: "center" }}>
-            <View style={{ width: "100%", flexDirection: "row" }}>{icon}</View>
-            <CheckIcon width={64} height={64} />
-          </View>
-        ) : (
-          <View style={{ flexDirection: "row" }}>{icon}</View>
-        )}
-        <Text
-          style={{
-            fontFamily: "Geist_500Medium",
-            fontSize: 20,
-            lineHeight: 22,
-            color: complete ? "rgba(60,60,67,0.4)" : "#000",
-          }}
-        >
-          {title}
-        </Text>
-      </View>
+        New quests are coming!
+      </Text>
     </View>
   );
 }
@@ -113,9 +75,6 @@ export default function QuestsScreen() {
 function QuestsScreenContent() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { publicKey } = useWallet();
-
-  const [items, setItems] = useState<SolanaWeekQuestProgressItem[] | null>(null);
   const [runId, setRunId] = useState(0);
 
   const scale = width / ART_WIDTH;
@@ -133,29 +92,15 @@ function QuestsScreenContent() {
   const coinSlide = insets.top + coinTop + coinHeight + 20;
   const coinY = useSharedValue(-coinSlide);
 
-  const load = useCallback(async () => {
-    if (!publicKey) {
-      setItems(null);
-      return;
-    }
-    try {
-      const res = await fetchSolanaWeekQuestProgress(publicKey);
-      setItems(res.quests);
-    } catch {
-      // Keep the last good snapshot; the card states just won't advance.
-    }
-  }, [publicKey]);
-
-  // Replay the reveal + refresh progress every time the tab gains focus.
+  // Replay the reveal every time the tab gains focus.
   useFocusEffect(
     useCallback(() => {
-      void load();
       setRunId((id) => id + 1);
       return () => {
         riseY.value = sink;
         coinY.value = -coinSlide;
       };
-    }, [load, riseY, sink, coinY, coinSlide]),
+    }, [riseY, sink, coinY, coinSlide]),
   );
 
   useEffect(() => {
@@ -185,12 +130,10 @@ function QuestsScreenContent() {
     transform: [{ translateY: coinY.value }],
   }));
 
-  const task1Complete = statusOf(items, "earn_deposit") === "reported";
-  const task2Complete =
-    statusOf(items, "first_autodeposit_sweep") === "reported";
-
   return (
     <View className="flex-1" style={{ backgroundColor: "#000" }}>
+      {/* Black header: the root's `auto` (dark) icons vanish here. */}
+      {runId > 0 && <StatusBar style="light" />}
       {/* Dog header */}
       <View
         style={{
@@ -258,24 +201,9 @@ function QuestsScreenContent() {
         <View style={{ flex: 1 }} />
 
         <View
-          className="flex-row"
-          style={{
-            gap: 8,
-            paddingHorizontal: 16,
-            paddingBottom: insets.bottom + 84,
-            alignItems: "flex-end",
-          }}
+          style={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 84 }}
         >
-          <TaskCard
-            icon={<DepositIcon width={40} height={40} />}
-            title="Deposit $5 to Earn with Seeker Wallet"
-            complete={task1Complete}
-          />
-          <TaskCard
-            icon={<AutodepositIcon width={40} height={40} />}
-            title="Set up Autodeposit and let it make its first deposit"
-            complete={task2Complete}
-          />
+          <TeaserCard />
         </View>
       </View>
     </View>
