@@ -105,19 +105,78 @@ function Words({
     </span>
   );
 }
+// "MONEY THAT / MOVES" lands word by word; when the connectors start drawing
+// ITSELF slams in from the right and shoves MOVES over to make room.
+function HeroTitle() {
+  const reduce = useReducedMotion();
+  const [itself, setItself] = useState(false);
+  useEffect(() => {
+    if (reduce) {
+      setItself(true);
+      return;
+    }
+    const t = setTimeout(() => setItself(true), INTRO.itself * 1000);
+    return () => clearTimeout(t);
+  }, [reduce]);
+  return (
+    <h1
+      aria-label="Money that moves itself"
+      className="font-bold text-[40px] uppercase leading-none md:text-[56px]"
+    >
+      <span className="block">
+        <Words text="Money that" />
+      </span>
+      <span className="flex justify-center gap-[0.25em]">
+        <motion.span
+          className="inline-block"
+          layout="position"
+          transition={{ type: "spring", stiffness: 320, damping: 16, mass: 1 }}
+        >
+          <Words delay={2 * WORD_STAGGER_S} text="Moves" />
+        </motion.span>
+        {itself ? (
+          <motion.span
+            animate={{
+              opacity: 1,
+              x: 0,
+              scale: 1,
+              filter: "blur(0px)",
+            }}
+            aria-hidden
+            className="inline-block will-change-transform"
+            initial={
+              reduce
+                ? false
+                : { opacity: 0, x: "0.8em", scale: 0.6, filter: "blur(10px)" }
+            }
+            transition={{
+              ...WORD_SPRING,
+              opacity: { duration: 0.3, ease: EASE },
+              filter: { duration: 0.4, ease: EASE },
+            }}
+          >
+            Itself
+          </motion.span>
+        ) : null}
+      </span>
+    </h1>
+  );
+}
 // Seconds until the last word of `text` has started landing.
 const wordsDone = (text: string, stagger = WORD_STAGGER_S) =>
   text.split(" ").length * stagger + 0.15;
 
 // Start-page intro, one focus at a time (seconds):
-//   0.0  title words land (4 beats)
+//   0.0  title words land: MONEY THAT / MOVES (3 beats)
 //   0.5  cards rise, left to right, contents follow
-//   1.9  connectors draw, dots/arrows/pills with them
+//   1.9  connectors draw, dots/arrows/pills with them; ITSELF lands and
+//        pushes MOVES aside
 //   2.6  body copy, then the Continue button (overlaps the last two lines)
 const INTRO = {
   cards: 0.5,
   cardStagger: 0.22,
   lines: 1.9,
+  itself: 1.9,
   lineDraw: 0.7,
   lineStagger: 0.18,
   copy: 2.6,
@@ -368,9 +427,7 @@ export function DemoStart() {
                 {...RISE}
               >
                 <div className="flex max-w-[540px] flex-col gap-4">
-                  <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
-                    <Words text="Money that moves itself" />
-                  </h1>
+                  <HeroTitle />
                   <motion.div
                     {...RISE}
                     transition={{
