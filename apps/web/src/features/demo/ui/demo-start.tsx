@@ -132,20 +132,13 @@ const SETUP_STEPS = [
     tx: "Kamino routing policy creation",
   },
   {
-    status: "Creating Kamino setup policy…",
+    status: "Creating Kamino routing policy…",
     tx: "Kamino setup policy creation",
   },
   {
     status: "Setting 10 USDC daily wallet exit limit…",
     tx: "10 USDC Daily wallet exit limit creation",
   },
-];
-const SETUP_TOAST_STEPS = SETUP_STEPS.map((s) => s.status.replace(/…$/, ""));
-const LOOP_TOAST_STEPS = [
-  "Pull 2 USDC",
-  "Deposit to Kamino",
-  "Withdraw from Kamino",
-  "Send to wallet",
 ];
 const FAKE_SIGNATURE =
   "2wsvQm3k7hZp9xL4nR8tB6yC1dF5gH0jK2mN4pQ6rS8tU1vW3xY5zA7bC9dE1fG3hn2m";
@@ -276,10 +269,7 @@ export function DemoStart() {
   useEffect(() => setMounted(true), []);
 
   return (
-    <div
-      className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]"
-      style={{ ["--earn-toast-card-width" as never]: "320px" }}
-    >
+    <div className="dark flex min-h-screen w-full flex-col items-center bg-[#141218] font-sans text-[#e1e3e6]">
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 pb-24 text-center lg:hidden">
         <Monitor className="text-[#e1e3e6]" size={56} strokeWidth={1.5} />
         <h1 className="mt-4 max-w-[360px] font-bold text-[28px] uppercase leading-8">
@@ -317,7 +307,7 @@ export function DemoStart() {
       </header>
       {mounted ? (
         <div className="hidden w-full flex-col items-center lg:flex">
-          <AnimatePresence initial={false} mode="popLayout">
+          <AnimatePresence mode="popLayout">
             {signedIn ? null : (
               <motion.section
                 className="flex w-full flex-col items-center gap-8 px-6 pt-6 pb-12 text-center"
@@ -831,7 +821,7 @@ function ControlPill({
       onClick={isButton ? onClick : undefined}
       type={isButton ? "button" : undefined}
     >
-      <AnimatePresence initial={false} mode="popLayout">
+      <AnimatePresence mode="popLayout">
         {state === "running" ? (
           <motion.div
             className="flex flex-col items-center gap-4"
@@ -912,7 +902,6 @@ function useScriptedSetup() {
 
   useEffect(() => {
     if (phase !== "running") return;
-    earnToast.loading(SETUP_TOAST_STEPS[step]);
     const id = setTimeout(() => {
       setTxs((prev) => [
         {
@@ -926,7 +915,7 @@ function useScriptedSetup() {
       if (step + 1 < SETUP_STEPS.length) setStep(step + 1);
       else {
         setPhase("done");
-        earnToast.success("Account ready");
+        earnToast.success("Account is set up");
       }
     }, STEP_MS);
     return () => clearTimeout(id);
@@ -940,7 +929,6 @@ function useScriptedSetup() {
     start: () => {
       setTxs([]);
       setStep(0);
-      earnToast.begin(SETUP_TOAST_STEPS);
       setPhase("running");
     },
     reset: () => {
@@ -960,7 +948,6 @@ function useScriptedLoop(walletUsdc: number | null) {
 
   useEffect(() => {
     if (phase !== "running") return;
-    earnToast.loading(LOOP_TOAST_STEPS[step]);
     const id = setTimeout(() => {
       const s = LOOP_STEPS[step];
       setTxs((prev) => [
@@ -993,7 +980,6 @@ function useScriptedLoop(walletUsdc: number | null) {
       setTxs([]);
       setStep(0);
       setBalances(null);
-      earnToast.begin(LOOP_TOAST_STEPS);
       setPhase("running");
     },
     reset: () => {

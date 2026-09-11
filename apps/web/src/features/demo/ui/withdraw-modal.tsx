@@ -21,6 +21,7 @@ import Image from "next/image";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useState } from "react";
 
+import { earnToast } from "@/components/wallet-workspace/facelift/earn-toast";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { cn } from "@/lib/utils";
@@ -99,8 +100,10 @@ export function WithdrawModal({
       onSent(bs58.encode(signature));
       onOpenChange(false);
       setTo("");
+      earnToast.success("Withdrawal sent");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      earnToast.error("Withdrawal failed");
     } finally {
       setBusy(false);
     }

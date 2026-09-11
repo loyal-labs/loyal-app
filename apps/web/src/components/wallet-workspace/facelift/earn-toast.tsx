@@ -31,7 +31,7 @@ export type EarnFlowId =
   | "withdraw";
 
 type EarnToastListener = {
-  begin: (flow: EarnFlowId | readonly string[]) => void;
+  begin: (flow: EarnFlowId) => void;
   settle: () => void;
   show: (detail: EarnToastDetail) => void;
   signed: () => void;
@@ -111,9 +111,8 @@ const FLOW_STEPS: Record<EarnFlowId, readonly string[]> = {
 export const earnToast = {
   // Arm the step script for the flow that is about to start. The following
   // loading()/success()/error()/settle() calls need no changes — messages
-  // resolve to steps, terminal calls end the flow. Callers outside the Earn
-  // flows (the /demo page) pass their own step list.
-  begin(flow: EarnFlowId | readonly string[]) {
+  // resolve to steps, terminal calls end the flow.
+  begin(flow: EarnFlowId) {
     listener?.begin(flow);
   },
   error(message: string) {
@@ -212,7 +211,7 @@ export function EarnToastHost() {
     };
     listener = {
       begin: (flow) => {
-        stepsRef.current = typeof flow === "string" ? FLOW_STEPS[flow] : flow;
+        stepsRef.current = FLOW_STEPS[flow];
         setSteps(stepsRef.current);
         setStepIndex(-1);
       },
@@ -264,11 +263,7 @@ export function EarnToastHost() {
           height: isCard
             ? CARD_PADDING_Y_PX * 2 + steps.length * STEP_ROW_HEIGHT_PX
             : PILL_HEIGHT_PX,
-          // Hosts with longer step labels (the /demo page) widen the card
-          // through --earn-toast-card-width.
-          width: isCard
-            ? `var(--earn-toast-card-width, ${CARD_WIDTH_PX}px)`
-            : undefined,
+          width: isCard ? CARD_WIDTH_PX : undefined,
         }}
       >
         {isCard ? (
