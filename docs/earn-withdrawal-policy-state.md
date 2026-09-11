@@ -35,12 +35,21 @@ seeds, configured cluster, successful signature and exact-slot checks. These end
 only acknowledge verified setup; they do not write the financial projection or send
 a deposit. A setup-confirmation failure therefore does not mean USDC was deposited.
 After refreshing, preparation can resume the already-created policy setup.
+A retry may reuse the route policy but still prepare a new setup-policy/finalize
+transaction. Both sequential and batch web deposit confirmation delegate the old
+route-policy citation to the existing server recovery path while retaining the new
+finalize signature and slot; they must not ask the retry to supply a route signature
+it never signed. Newly created route policies still require their own signature and
+slot, and a prepared finalize still requires its new confirmation before proceeding.
+Only the web caller opts into server citation recovery; the mobile confirm handler's
+existing explicit recovery/default validation is unchanged.
 
 Regression coverage (including unsupported products/markets and failed signatures):
 
 ```sh
 cd apps/web
 bun test src/lib/yield-optimization/earn-confirm-single-writer.server.test.ts
+bun test src/lib/yield-optimization/earn-deposit-flow.shared.test.ts
 ```
 
 ## Stale position after confirmed cleanup

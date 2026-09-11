@@ -12,7 +12,7 @@ export type EarnDepositPolicySignatureSource = {
 export type EarnDepositPolicySignatureResolution =
   | {
       policyConfirmedSlot?: string;
-      policySignature: string;
+      policySignature?: string;
       setupPolicyConfirmedSlot?: string;
       setupPolicySignature?: string;
     }
@@ -71,20 +71,15 @@ export function getEarnDepositReviewStagePosition(args: {
   };
 }
 
-// A top-up signs no policy transaction: the policy already exists on-chain and
-// the deposit just routes through it. Its "policy signature" is therefore only
-// a citation of where we last saw that policy — a server fact, resolvable from
-// the DB row or, when there is none, from the chain. The DB row legitimately
-// goes missing (a full Earn exit releases the pair; a failed confirm never
-// wrote one), and a browser cannot read the chain, so the client must never
-// gate a top-up on being able to cite it. Callers that can reach the chain
-// (the confirm routes) resolve it themselves.
+// The route policy can already exist even when the setup-policy/finalize stage
+// still needs signing after an interrupted first deposit. Its old signature is
+// a server-resolved citation, not a transaction this attempt must sign again.
+// Reusing the route policy does NOT waive proof for a newly signed finalize.
 export function isReusedEarnDepositPolicy(
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit
 ): boolean {
   return (
     !preparedDeposit.policySetupPrepared &&
-    !preparedDeposit.policyFinalizePrepared &&
     preparedDeposit.persistence.policyInitialization === "reuse"
   );
 }
@@ -94,6 +89,8 @@ export function resolveEarnDepositConfirmPolicySignature(args: {
   policyConfirmedSlot?: string | null;
   policySignature?: string | null;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  // Only clients whose confirm endpoint resolves reused citations may omit one.
+  resolveReusedPolicyOnServer?: boolean;
   setupPolicyConfirmedSlot?: string | null;
   setupPolicySignature?: string | null;
 }): EarnDepositPolicySignatureResolution {
@@ -101,6 +98,28 @@ export function resolveEarnDepositConfirmPolicySignature(args: {
   const providedPolicyConfirmedSlot = args.policyConfirmedSlot?.trim();
   const providedSetup = args.setupPolicySignature?.trim();
   const providedSetupConfirmedSlot = args.setupPolicyConfirmedSlot?.trim();
+  if (
+    args.resolveReusedPolicyOnServer &&
+    isReusedEarnDepositPolicy(args.preparedDeposit)
+  ) {
+    if (
+      args.preparedDeposit.policyFinalizePrepared &&
+      (!providedSetup || !providedSetupConfirmedSlot)
+    ) {
+      return {
+        error:
+          "Confirming this first Earn deposit requires the setup policy signature. Review the deposit again before signing.",
+      };
+    }
+    // Do not borrow the old route citation from potentially stale onboarding
+    // state. The web confirm route resolves it for the requested policy PDA.
+    return args.preparedDeposit.policyFinalizePrepared
+      ? {
+          setupPolicySignature: providedSetup,
+          setupPolicyConfirmedSlot: providedSetupConfirmedSlot,
+        }
+      : {};
+  }
   if (provided) {
     const requiresPolicySetup = Boolean(
       args.preparedDeposit.policySetupPrepared

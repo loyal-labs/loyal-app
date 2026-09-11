@@ -117,7 +117,6 @@ import {
   buildEarnWithdrawalConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
-  isReusedEarnDepositPolicy,
   resolveEarnDepositConfirmPolicySignature,
 } from "@/lib/yield-optimization/earn-deposit-flow.shared";
 import {
@@ -6758,22 +6757,19 @@ export function useSmartAccountSidebarData(
                 return;
               }
 
-              // A top-up signs no policy transaction, so the confirm route
-              // resolves the reused policy's citation itself (DB row, else
-              // chain). Citing it here would dead-end every wallet whose row is
-              // gone — e.g. after a full Earn exit.
-              const policySignatureResolution = isReusedEarnDepositPolicy(
-                request.preparedDeposit
-              )
-                ? null
-                : resolveEarnDepositConfirmPolicySignature({
-                    activePolicy: currentEarnState?.policy ?? null,
-                    policyConfirmedSlot,
-                    policySignature,
-                    preparedDeposit: request.preparedDeposit,
-                    setupPolicyConfirmedSlot,
-                    setupPolicySignature,
-                  });
+              // A resumed finalize can reuse the route policy even though this
+              // attempt signs a new setup policy. Preserve that new proof while
+              // the confirm route resolves the old route citation.
+              const policySignatureResolution =
+                resolveEarnDepositConfirmPolicySignature({
+                  activePolicy: currentEarnState?.policy ?? null,
+                  policyConfirmedSlot,
+                  policySignature,
+                  preparedDeposit: request.preparedDeposit,
+                  resolveReusedPolicyOnServer: true,
+                  setupPolicyConfirmedSlot,
+                  setupPolicySignature,
+                });
               if (
                 policySignatureResolution &&
                 "error" in policySignatureResolution
@@ -6997,28 +6993,26 @@ export function useSmartAccountSidebarData(
         const onboarding = currentEarnState?.onboarding;
         // See the staged flow above: the confirm route owns the reused policy's
         // citation, so a top-up must not be blocked on the browser's copy of it.
-        const policySignatureResolution = isReusedEarnDepositPolicy(
-          preparedDeposit
-        )
-          ? null
-          : resolveEarnDepositConfirmPolicySignature({
-              activePolicy: currentEarnState?.policy ?? null,
-              policyConfirmedSlot:
-                request.policyConfirmedSlot ??
-                onboarding?.policy?.lastSeenSlot ??
-                currentEarnState?.policy?.lastSeenSlot,
-              policySignature:
-                request.policySignature ??
-                onboarding?.policy?.lastSeenSignature ??
-                currentEarnState?.policy?.lastSeenSignature,
-              preparedDeposit,
-              setupPolicyConfirmedSlot:
-                request.setupPolicyConfirmedSlot ??
-                onboarding?.setupPolicy?.lastSeenSlot,
-              setupPolicySignature:
-                request.setupPolicySignature ??
-                onboarding?.setupPolicy?.lastSeenSignature,
-            });
+        const policySignatureResolution =
+          resolveEarnDepositConfirmPolicySignature({
+            activePolicy: currentEarnState?.policy ?? null,
+            policyConfirmedSlot:
+              request.policyConfirmedSlot ??
+              onboarding?.policy?.lastSeenSlot ??
+              currentEarnState?.policy?.lastSeenSlot,
+            policySignature:
+              request.policySignature ??
+              onboarding?.policy?.lastSeenSignature ??
+              currentEarnState?.policy?.lastSeenSignature,
+            preparedDeposit,
+            resolveReusedPolicyOnServer: true,
+            setupPolicyConfirmedSlot:
+              request.setupPolicyConfirmedSlot ??
+              onboarding?.setupPolicy?.lastSeenSlot,
+            setupPolicySignature:
+              request.setupPolicySignature ??
+              onboarding?.setupPolicy?.lastSeenSignature,
+          });
         if (policySignatureResolution && "error" in policySignatureResolution) {
           return {
             success: false,
