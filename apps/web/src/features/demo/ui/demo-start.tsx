@@ -49,35 +49,56 @@ const RISE = {
 const PRESS =
   "transition-transform duration-[120ms] ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98]";
 
-// pixel-point/animate-text "spring-scale-in": words pop in with an
-// overshoot (cubic-bezier(0.34,1.56,0.64,1), 360ms, 95ms stagger).
-const WORD_SPRING: [number, number, number, number] = [0.34, 1.56, 0.64, 1];
+// Cinematic word-by-word title, after pixel-point/animate-text
+// "spring-scale-in" but slowed down: each word lands on a heavy, underdamped
+// spring (visible overshoot) with a long pause before the next one, so the
+// phrase reads one beat at a time.
+const WORD_SPRING = {
+  type: "spring",
+  stiffness: 260,
+  damping: 14,
+  mass: 1.1,
+} as const;
+const WORD_STAGGER_S = 0.32;
 function Words({
   text,
   className,
   delay = 0,
   inView = false,
+  stagger = WORD_STAGGER_S,
 }: {
   text: string;
   className?: string;
   delay?: number;
   inView?: boolean;
+  stagger?: number;
 }) {
   const reduce = useReducedMotion();
-  const target = { opacity: 1, transform: "scale(1)" };
+  const target = {
+    opacity: 1,
+    transform: "translateY(0px) scale(1)",
+    filter: "blur(0px)",
+  };
+  const from = {
+    opacity: 0,
+    transform: "translateY(0.35em) scale(0.55)",
+    filter: "blur(10px)",
+  };
   return (
     <span aria-label={text} className={className} role="text">
       {text.split(" ").map((word, i) => (
         <motion.span
           animate={inView ? undefined : target}
           aria-hidden
-          className="inline-block [&:not(:last-child)]:mr-[0.25em]"
-          initial={reduce ? target : { opacity: 0, transform: "scale(0.7)" }}
+          className="inline-block will-change-transform [&:not(:last-child)]:mr-[0.25em]"
+          initial={reduce ? target : from}
           key={`${word}-${i}`}
           transition={{
-            duration: 0.36,
-            ease: WORD_SPRING,
-            delay: delay + i * 0.095,
+            ...WORD_SPRING,
+            delay: delay + i * stagger,
+            // Blur/opacity ride a plain ease so only the transform bounces.
+            opacity: { duration: 0.35, ease: EASE, delay: delay + i * stagger },
+            filter: { duration: 0.45, ease: EASE, delay: delay + i * stagger },
           }}
           viewport={inView ? { once: true, amount: 0.6 } : undefined}
           whileInView={inView ? target : undefined}
@@ -88,6 +109,9 @@ function Words({
     </span>
   );
 }
+// Seconds until the last word of `text` has started landing.
+const wordsDone = (text: string, stagger = WORD_STAGGER_S) =>
+  text.split(" ").length * stagger + 0.15;
 
 // pixel-point/animate-text "focus-blur-resolve": one block pulls from heavy
 // blur into focus (760ms). Used for the big numbers that answer a question.
@@ -314,11 +338,17 @@ export function DemoStart() {
                 key="hero"
                 {...RISE}
               >
-                <StaggerReveal className="flex max-w-[540px] flex-col gap-4">
+                <div className="flex max-w-[540px] flex-col gap-4">
                   <h1 className="font-bold text-[40px] uppercase leading-none md:text-[56px]">
                     <Words text="Money that moves itself" />
                   </h1>
-                  <StaggerLine index={1}>
+                  <motion.div
+                    {...RISE}
+                    transition={{
+                      ...RISE.transition,
+                      delay: wordsDone("Money that moves itself"),
+                    }}
+                  >
                     <p className="text-[15px] text-[#97959a] leading-[1.2]">
                       At {usdShort(userBalances)} of user balances this loop
                       pays you about {usd.format(youKeep)} a year. Users earn{" "}
@@ -327,8 +357,14 @@ export function DemoStart() {
                       <br />
                       Rates float. The split is set in your contract.
                     </p>
-                  </StaggerLine>
-                  <StaggerLine index={2}>
+                  </motion.div>
+                  <motion.div
+                    {...RISE}
+                    transition={{
+                      ...RISE.transition,
+                      delay: wordsDone("Money that moves itself") + 0.12,
+                    }}
+                  >
                     <button
                       className={cn(
                         "mt-4 h-14 rounded-full bg-[#e1e3e6] px-6 font-medium text-[#0f0d13] text-[20px] hover:bg-white disabled:opacity-60",
@@ -340,8 +376,8 @@ export function DemoStart() {
                     >
                       Continue with email
                     </button>
-                  </StaggerLine>
-                </StaggerReveal>
+                  </motion.div>
+                </div>
               </motion.section>
             )}
           </AnimatePresence>
@@ -517,7 +553,10 @@ export function DemoStart() {
             <motion.div
               className="relative w-full max-w-[680px]"
               initial={RISE.initial}
-              transition={{ ...RISE.transition, delay: 0.08 }}
+              transition={{
+                ...RISE.transition,
+                delay: wordsDone("Make more money"),
+              }}
               viewport={{ once: true, amount: 0.3 }}
               whileInView={RISE.animate}
             >
@@ -838,11 +877,18 @@ function ControlPill({
             {...RISE}
           >
             <span className="font-bold text-[28px] uppercase leading-8">
-              <Words text="Set up account" />
+              <Words stagger={0.16} text="Set up account" />
             </span>
-            <span className="text-[#97959a] text-[16px] leading-5">
+            <motion.span
+              className="text-[#97959a] text-[16px] leading-5"
+              {...RISE}
+              transition={{
+                ...RISE.transition,
+                delay: wordsDone("Set up account", 0.16),
+              }}
+            >
               Privy asks for each approval. Loyal pays every fee
-            </span>
+            </motion.span>
           </motion.div>
         ) : state === "run" ? (
           <motion.div
@@ -851,11 +897,18 @@ function ControlPill({
             {...RISE}
           >
             <span className="font-bold text-[28px] uppercase leading-8">
-              <Words text="Run the loop" />
+              <Words stagger={0.16} text="Run the loop" />
             </span>
-            <span className="text-[#97959a] text-[16px] leading-5">
+            <motion.span
+              className="text-[#97959a] text-[16px] leading-5"
+              {...RISE}
+              transition={{
+                ...RISE.transition,
+                delay: wordsDone("Run the loop", 0.16),
+              }}
+            >
               Pull 2 USDC, deposit to Kamino, withdraw 1 USDC back
-            </span>
+            </motion.span>
           </motion.div>
         ) : state === "reset" ? (
           <motion.div
@@ -864,7 +917,7 @@ function ControlPill({
             {...RISE}
           >
             <RefreshCw size={28} strokeWidth={2} />
-            <Words text="Reset demo" />
+            <Words stagger={0.16} text="Reset demo" />
           </motion.div>
         ) : (
           <motion.div
