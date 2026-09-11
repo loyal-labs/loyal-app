@@ -211,16 +211,16 @@ function WalletProviderCore({
   // Initialize — check if a wallet exists (external-wallet metadata wins over
   // local encrypted storage; they are mutually exclusive on disk because
   // resetWallet clears all of them).
-  // Privy-only users have no on-device wallet metadata, so wait for the SDK
-  // before deciding "noWallet". Legacy metadata wins when both exist: that
-  // is the address the user holds funds on.
+  // Legacy wallets (MWA, deeplink, Seed Vault, local keypair) boot from
+  // on-device metadata alone and never wait for Privy: its readiness needs
+  // the hidden auth WebView to load from the network, so gating on it would
+  // hang existing users on the spinner offline. Only the "nothing on device"
+  // case needs Privy, to tell an embedded-wallet user from a new one.
   const privyReady = privy === null || privy.isReady;
   const privyEmbedded = privy?.wallet.wallets?.[0] ?? null;
   const privyHasUser = privy?.user != null;
-  const initialized = useRef(false);
+  const [noLegacyWallet, setNoLegacyWallet] = useState(false);
   useEffect(() => {
-    if (!privyReady || initialized.current) return;
-    initialized.current = true;
     (async () => {
       const mwa = await loadMwaAccount();
       if (mwa) {
@@ -271,11 +271,18 @@ function WalletProviderCore({
         // device — land on the lock screen and let the PIN unlock it.
         setPublicKey(await getStoredPublicKey());
         setState("locked");
-      } else if (
-        privyHasUser &&
-        privyEmbedded &&
-        mmkv.getBoolean(PRIVY_EMBEDDED_KEY)
-      ) {
+      } else {
+        setNoLegacyWallet(true);
+      }
+    })();
+  }, []);
+
+  const privyBootDone = useRef(false);
+  useEffect(() => {
+    if (!noLegacyWallet || !privyReady || privyBootDone.current) return;
+    privyBootDone.current = true;
+    (async () => {
+      if (privyHasUser && privyEmbedded && mmkv.getBoolean(PRIVY_EMBEDDED_KEY)) {
         // Only after a sign-in on this device ended on the embedded wallet.
         // A Privy session alone is not enough: a login that stopped at the
         // external-wallet handoff would otherwise resurface as the embedded
@@ -290,8 +297,8 @@ function WalletProviderCore({
         setState("noWallet");
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once, after Privy is ready
-  }, [privyReady]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once, when Privy is ready
+  }, [noLegacyWallet, privyReady]);
 
   // Auto-lock with 30s grace period — local signers only.
   // Vault-backed signers do not auto-lock; the vault prompts for each signature
