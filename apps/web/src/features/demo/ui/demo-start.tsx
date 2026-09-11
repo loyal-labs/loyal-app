@@ -109,6 +109,20 @@ function Words({
 const wordsDone = (text: string, stagger = WORD_STAGGER_S) =>
   text.split(" ").length * stagger + 0.15;
 
+// Start-page intro, one focus at a time (seconds):
+//   0.0  title words land (4 beats)
+//   0.5  cards rise, left to right, contents follow
+//   1.9  connectors draw, dots/arrows/pills with them
+//   3.3  body copy, then the Continue button
+const INTRO = {
+  cards: 0.5,
+  cardStagger: 0.22,
+  lines: 1.9,
+  lineDraw: 0.7,
+  lineStagger: 0.18,
+  copy: 3.3,
+} as const;
+
 // pixel-point/animate-text "focus-blur-resolve": one block pulls from heavy
 // blur into focus (760ms). Used for the big numbers that answer a question.
 // Knob: a real spring so a step change overshoots a touch and settles.
@@ -287,6 +301,17 @@ export function DemoStart() {
   // page only once mounted; the reveal then starts from a blank canvas.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // Privy portals its modal to <body>, outside this page's .dark root, and
+  // globals.css keys the dark Privy overrides on html.dark. Force it here
+  // (the demo is always dark) and put the visitor's theme back on leave.
+  useEffect(() => {
+    const root = document.documentElement;
+    const had = root.classList.contains("dark");
+    root.classList.add("dark");
+    return () => {
+      if (!had) root.classList.remove("dark");
+    };
+  }, []);
   // Google sign-in is a full-page redirect back to /demo?privy_oauth_code=…
   // Privy then exchanges the code and flips `authenticated`. Until that
   // resolves the page must not replay the intro behind Privy's dialog.
@@ -350,7 +375,7 @@ export function DemoStart() {
                     {...RISE}
                     transition={{
                       ...RISE.transition,
-                      delay: wordsDone("Money that moves itself"),
+                      delay: INTRO.copy,
                     }}
                   >
                     <p className="text-[15px] text-[#97959a] leading-[1.2]">
@@ -366,7 +391,7 @@ export function DemoStart() {
                     {...RISE}
                     transition={{
                       ...RISE.transition,
-                      delay: wordsDone("Money that moves itself") + 0.12,
+                      delay: INTRO.copy + 0.25,
                     }}
                   >
                     <button
@@ -716,8 +741,12 @@ function SchemeCard({
         stiffness: 220,
         damping: 22,
         mass: 1,
-        delay: index * 0.22,
-        opacity: { duration: 0.35, ease: EASE, delay: index * 0.22 },
+        delay: INTRO.cards + index * INTRO.cardStagger,
+        opacity: {
+          duration: 0.35,
+          ease: EASE,
+          delay: INTRO.cards + index * INTRO.cardStagger,
+        },
       }}
     >
       <div
@@ -736,7 +765,7 @@ function SchemeCard({
           transition={{
             duration: 0.45,
             ease: EASE,
-            delay: index * 0.22 + 0.25,
+            delay: INTRO.cards + index * INTRO.cardStagger + 0.25,
           }}
         >
           <div className="flex items-center gap-1 text-[#97959a] text-[16px] leading-5">
@@ -782,7 +811,11 @@ function SchemeCard({
           animate={{ opacity: 1 }}
           className="p-6 text-[#97959a] text-[16px] leading-5"
           initial={reduce ? false : { opacity: 0 }}
-          transition={{ duration: 0.45, ease: EASE, delay: index * 0.22 + 0.4 }}
+          transition={{
+            duration: 0.45,
+            ease: EASE,
+            delay: INTRO.cards + index * INTRO.cardStagger + 0.4,
+          }}
         >
           {caption}
         </motion.p>
@@ -1214,12 +1247,10 @@ const CONNECTORS: {
     label: "Withdraw · 1 USDC",
   },
 ];
-// Intro choreography (seconds): cards land first, then each line draws from
-// its dot, the arrowhead pops when the line arrives, and the pill drops on.
-const CARDS_DONE_S = 0.9;
-const LINE_DRAW_S = 0.7;
-const LINE_STAGGER_S = 0.18;
-const lineStart = (i: number) => CARDS_DONE_S + i * LINE_STAGGER_S;
+// Each line draws from its dot, the arrowhead pops when the line arrives,
+// and the pill drops on mid-draw. Timing comes from INTRO.
+const LINE_DRAW_S = INTRO.lineDraw;
+const lineStart = (i: number) => INTRO.lines + i * INTRO.lineStagger;
 
 function Connectors({ active }: { active: number | null }) {
   const reduce = useReducedMotion();
