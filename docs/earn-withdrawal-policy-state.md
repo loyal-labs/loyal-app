@@ -31,7 +31,8 @@ The original fix only changed the error to “This Earn policy is no longer acti
 Refresh Earn before withdrawing.” Refresh alone cannot repair a stale active
 position left behind by the worker.
 
-Web `/earn-state` and `/position` now read the inactive **current** policy generation
+Web `/earn-state` and `/position`, and the public wallet-keyed mobile `/state`,
+read the inactive **current** policy generation
 and verify full-exit zero holdings (including complete reserve reads and both token
 programs) plus closed policy accounts on-chain. Proof is fenced at the position's
 observed slot and the policies' last-seen slots. Positive reserve holdings, positive
@@ -51,9 +52,69 @@ no policy is available for a direct RPC read; local mutations and accepted closu
 proofs invalidate outstanding reads. The hook retains a wallet/cluster/settings-scoped
 closure watermark for subsequent refreshes: RPC reads are fenced strictly after
 closure (and at least at any newer displayed deposit), and stale RPC/HTTP responses
-cannot repopulate either position cache. Scope changes reset that watermark and
-invalidate responses from the previous scope. Later deposits remain visible; no
-persistent projection or database writes are added.
+cannot repopulate either position cache. Scope changes isolate that watermark and
+invalidate responses from the previous scope. Web closure evidence is stored separately
+from positive caches and does not expire with their balance TTL; remount and refresh
+read that scoped fence, including a closure written by another tab. Ordinary RPC
+refresh is fenced by the displayed position slot even before any closure. Cleanup
+callbacks request reconciliation instead of unconditionally clearing a possibly newer
+deposit. Later deposits remain visible; no persistent projection or database writes
+are added.
+
+### Mobile read and client boundaries
+
+The mobile state adapter loads all active product rows once. A whole-vault closure
+proof uses the newest observation across **all** those rows and returns an empty
+aggregate only after complete zero inventory and closed-policy proof. Positive
+funds or an open policy prevent closure; unknown, incomplete or failed evidence
+cannot authorize reducing the aggregate. There is no second unguarded query that
+can sum closed rows back into that response. Fallback
+position lookups constrain each row through its own policy's wallet/settings/vault
+and yield-owned cluster metadata, including inactive policy generations.
+
+Mobile state adds optional `closedPositionObservedSlot`, position
+`currentObservedSlot`, policy-account identities, and wallet/cluster/vault scope fields. Holdings adds the same
+scope fields. No-policy holdings still has null observations: its zero is a
+placeholder, not a verified balance. Positional account RPC responses must have one
+explicit account/null per requested key and a valid slot meeting each request's floor.
+
+The mobile position hook owns the accepted balance and details for both Earn and
+wallet tabs. It retains closure fences across owner remounts, invalidates old requests
+on identity or mutation changes, preserves funds on missing account mapping or
+HTTP/RPC failure, and rejects stale positive/empty responses. Deposit execution now
+returns the already confirmed slot; the Earn screen passes that slot and its optimistic
+amount to the owning hook from both Earn-tab and wallet-card deposit entrypoints,
+instead of independently clearing/overriding balance after a delayed transaction. Pending-deposit metadata is shared between hook instances;
+source selections are invalidated on scope changes, local mutations, accepted policy
+generation changes, or accepted emptiness. Existing
+focus, AppState, polling and mutation refreshes continue through that owner.
+
+For mixed accounting rows, supported products/venues use a complete funded vault
+snapshot as the display total instead of adding old and replacement lifecycle rows.
+The shared full-exit reader scans all supported product ATAs and Safe-market
+obligations, requires complete reserve reads, and checks both token inventories.
+Unknown positive inventory, inventory/holdings disagreement, unsupported accounting
+products/venues, or failed reads prevent this replacement. A zero snapshot still
+cannot close the position without the separate closed-policy proof. Neither rows nor
+principal accounting are rewritten, and policy closure alone never removes a product.
+The mobile holdings endpoint uses this same complete all-product reader when policy
+metadata exists; its no-policy placeholder is unchanged. Funded snapshots advertise
+only the common requested context floor, not the newest chunk.
+
+After local deposit confirmation, fresh scoped holdings at or after that confirmed
+slot may replace a lagging aggregate even during the mutation grace period; pending
+or unfenced mutations retain the grace safeguard. Balance changes invalidate cached
+withdrawal sources, and a changed total cannot retain old detail amounts when its
+independent holdings read failed. Ordinary read failures retain the last valid balance.
+
+Server changes are additive for released mobile clients, but those clients do not
+consume the new ordering metadata. Updated hook/source/pending-deposit behavior needs
+an approved compatible mobile JS rollout (OTA only for the appropriate runtime/channel,
+otherwise a binary). Deploy compatible server code first. Browser/device canaries and
+the resulting Vercel deployment are separate gates; no deployed incident resolution is
+implied by local hook simulations. Routing PR #232 remains a separate, unmerged and
+undeployed prerequisite at this review; verify its actual rollout and processing health
+before claiming durable backend convergence.
 
 Focused checks (also run scoped lint and web typecheck):
 

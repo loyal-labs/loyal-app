@@ -171,8 +171,8 @@ function respondWith(body: unknown) {
 function expectClosed() {
   expect(output.position).toBeNull();
   expect(readEarnPositionCache(scope)).toBeNull();
-  // Both the scoped and last-position fallback cache must be removed.
-  expect(storage.size).toBe(0);
+  // Neither positive cache may survive; scoped closure evidence must survive.
+  expect([...storage.keys()].filter((key) => !key.endsWith(":closed"))).toEqual([]);
 }
 
 beforeEach(() => {
@@ -342,3 +342,33 @@ for (const change of [
     expect(readEarnPositionCache(scope)).toBeNull();
   });
 }
+
+test("closure survives owner remount while its HTTP response is delayed", async () => {
+  render();
+  await flush();
+  expectClosed();
+  cells = [];
+  cursor = 0;
+  pendingEffects = [];
+  const http = deferred<Response>();
+  globalThis.fetch = mock(() => http.promise) as unknown as typeof fetch;
+  rpcRead = async () => snapshot("500");
+  render();
+  await flush();
+  expectClosed();
+});
+
+test("confirmed deposit survives lagging empty refresh without a prior closure", async () => {
+  respondWith({ position: null });
+  render();
+  await flush();
+  output.setPosition(position("700"));
+  render();
+  rpcRead = async ({ minContextSlot }) => {
+    expect(minContextSlot).toBe(700);
+    return { ...snapshot("500"), holdings: [] };
+  };
+  await output.refresh();
+  await flush();
+  expect(output.position?.currentHolding.observedSlot).toBe("700");
+});

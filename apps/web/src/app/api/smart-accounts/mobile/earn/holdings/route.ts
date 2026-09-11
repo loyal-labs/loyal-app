@@ -12,8 +12,7 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { fetchEarnRpcHoldingsSnapshot } from "@/lib/yield-optimization/earn-rpc-holdings.client";
-import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
+import { fetchEarnFullVaultHoldingsSnapshot } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
 import {
   findActiveYieldPositionsForVault,
   findActiveYieldRoutePolicyPair,
@@ -94,6 +93,9 @@ export async function GET(request: Request) {
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
 
   const emptySnapshot = {
+    cluster,
+    walletAddress,
+    vaultIndex: EARN_VAULT_INDEX,
     currentTotalAmountRaw: "0",
     currentTotalNominalUsdMicros: "0",
     holdings: [],
@@ -143,6 +145,7 @@ export async function GET(request: Request) {
     if (!policyPair?.routePolicy) {
       return NextResponse.json({
         ...emptySnapshot,
+        vaultPubkey: earnVaultPda.toBase58(),
         settingsPda: account.settingsPda,
         smartAccountAddress: account.smartAccountAddress,
       });
@@ -169,17 +172,16 @@ export async function GET(request: Request) {
       BigInt(0)
     );
     const minContextSlot =
-      confirmedSlotFloor > BigInt(0) ? Number(confirmedSlotFloor) : undefined;
+      confirmedSlotFloor > BigInt(0)
+        ? Number(confirmedSlotFloor)
+        : await getConnection(solanaEnv).getSlot("confirmed");
 
     const readSnapshot = () =>
-      fetchEarnRpcHoldingsSnapshot({
+      fetchEarnFullVaultHoldingsSnapshot({
+        accountingPositions: positions,
         cluster,
         connection: getConnection(solanaEnv),
         minContextSlot,
-        policy: serializeRoutePolicyState(
-          policyPair.routePolicy,
-          policyPair.setupPolicy ?? null
-        ),
         programId,
         settingsPda,
       });
@@ -215,6 +217,10 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({
+      cluster,
+      walletAddress,
+      vaultIndex: EARN_VAULT_INDEX,
+      vaultPubkey: earnVaultPda.toBase58(),
       currentTotalAmountRaw: snapshot.currentTotalAmountRaw,
       currentTotalNominalUsdMicros: snapshot.currentTotalNominalUsdMicros,
       holdings: snapshot.holdings,
@@ -231,6 +237,10 @@ export async function GET(request: Request) {
       stack: error instanceof Error ? error.stack : undefined,
       walletAddress,
     });
-    return jsonError(502, "earn_holdings_failed", "Failed to load Earn holdings.");
+    return jsonError(
+      502,
+      "earn_holdings_failed",
+      "Failed to load Earn holdings."
+    );
   }
 }

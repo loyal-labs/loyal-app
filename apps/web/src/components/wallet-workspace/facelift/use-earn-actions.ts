@@ -1853,7 +1853,9 @@ export function useEarnActions(deps: {
         throw new Error(result.error ?? "Earn cleanup failed.");
       }
 
-      setPosition(null);
+      // Cleanup confirms the submitted policy generation, not any deposit that
+      // arrived while the wallet prompt was open. The scoped position reader
+      // applies the full-exit proof through the registered mutation refresh.
       setAutodepositOverride({ config: null });
       registerExpectedEarnMutation({
         operation: "cleanup",
@@ -1916,7 +1918,6 @@ export function useEarnActions(deps: {
     ensureCanSignAccountAction,
     registerExpectedEarnMutation,
     setAutodepositOverride,
-    setPosition,
     smartAccountData,
   ]);
 

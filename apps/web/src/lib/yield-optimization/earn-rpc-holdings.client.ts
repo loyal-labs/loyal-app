@@ -259,6 +259,14 @@ async function readAccountsInChunks(args: {
           : { minContextSlot: args.minContextSlot }),
       } satisfies GetMultipleAccountsConfig
     );
+    if (
+      !Number.isSafeInteger(result.context.slot) ||
+      result.context.slot < (args.minContextSlot ?? 0) ||
+      result.value.length !== chunk.length ||
+      Array.from(result.value).some((account) => account === undefined)
+    ) {
+      throw new Error("Earn account read is incomplete or below its context floor.");
+    }
     chunkCount += 1;
     maxObservedSlot = Math.max(maxObservedSlot, result.context.slot);
     values.push(...result.value);

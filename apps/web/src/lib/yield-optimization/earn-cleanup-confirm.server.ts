@@ -93,7 +93,15 @@ export async function verifyPolicyAccountsClosed(args: {
         args.accounts.map((account) => new PublicKey(account)),
         { commitment: "confirmed", minContextSlot: args.minContextSlot }
       );
-    if (context.slot < args.minContextSlot) {
+    if (
+      !Number.isSafeInteger(args.minContextSlot) ||
+      args.minContextSlot < 0 ||
+      !Number.isSafeInteger(context.slot) ||
+      context.slot < args.minContextSlot ||
+      args.accounts.length === 0 ||
+      value.length !== args.accounts.length ||
+      Array.from(value).some((account) => account === undefined)
+    ) {
       throw new EarnCleanupConfirmError(
         503,
         "full_exit_verification_retryable",

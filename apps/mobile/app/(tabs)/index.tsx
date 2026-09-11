@@ -188,6 +188,7 @@ export default function EarnScreen() {
     position,
     holdings,
     policyMissing: earnPolicyMissing,
+    reconciliationKey,
     hasLoaded: earnPositionLoaded,
     refreshEarnPosition,
     markEarnMutation,
@@ -206,7 +207,7 @@ export default function EarnScreen() {
   // Withdrawal sources (reserves + idle vault USDC) — fetched lazily when the
   // user opens withdraw; drives the source picker.
   const { sources: withdrawSources, refreshSources: refreshWithdrawSources } =
-    useEarnWithdrawSources(walletAddress);
+    useEarnWithdrawSources(walletAddress, reconciliationKey, position !== null && Number(position.currentAmountRaw) > 0);
   // Per-position breakdown for the positions sheet, derived from the live
   // on-chain holdings (the same read that drives the headline) so it matches the
   // web instead of the stale DB withdraw-sources read. Display-only — the
@@ -449,6 +450,8 @@ export default function EarnScreen() {
   useEffect(() => {
     // Wait for the first real fetch so we don't clear during initial load.
     if (!earnPositionLoaded) {
+      setDepositedUsd(null);
+      setHasDeposit(false);
       return;
     }
     const raw = position ? Number(position.currentAmountRaw) : 0;
@@ -618,7 +621,8 @@ export default function EarnScreen() {
         if (!signer || !isWalletUnlocked(state)) {
           throw new Error("Unlock your wallet to deposit.");
         }
-        await executeEarnDeposit({
+        markEarnMutation({ pendingDeposit: true });
+        const deposit = await executeEarnDeposit({
           signer,
           amountUsd,
           mint,
@@ -627,16 +631,15 @@ export default function EarnScreen() {
         // Trust the read-model for the next reads — confirmEarnDeposit (inside
         // executeEarnDeposit, just awaited) wrote it with the deposited total, so
         // the next `/state` read is correct immediately while live `/holdings` lags.
-        markEarnMutation();
+        markEarnMutation({ confirmedDeposit: {
+          amountRaw: String(Math.round(((depositedUsd ?? 0) + amountUsd) * 1e6)),
+          observedSlot: deposit.confirmedSlot,
+        } });
         // The confirm also records quest progress — check now so a completion
         // celebrates immediately instead of on the watcher's next poll tick.
         nudgeQuestProgressCheck();
-        // Reveal the funded layout immediately. The optimistic total (prior balance
-        // + deposit; correct for top-ups too) bridges the network round-trip until
-        // the refresh lands the reconciled read-model value (= the same total).
-        const expectedUsd = (depositedUsd ?? 0) + amountUsd;
-        setDepositedUsd(expectedUsd);
-        setHasDeposit(true);
+        // The owning hook installs the confirmed optimistic amount and slot;
+        // the screen mirrors only that accepted state, never a second overlay.
         try {
           // Mutation metrics require the reads that drive the visible Earn state.
           // Ambient refresh remains best-effort, but this path must distinguish a
@@ -653,6 +656,7 @@ export default function EarnScreen() {
           void requestRefresh("mutation");
         }
       } catch (error) {
+        markEarnMutation();
         metric.failAfterPaint();
         throw error;
       }
@@ -737,12 +741,8 @@ export default function EarnScreen() {
         // read, which lags HIGH right after a withdraw (funds still in the obligation
         // mid-redeem). This keeps the balance from briefly bouncing back up.
         markEarnMutation();
-        // Optimistic clear only when this empties the whole position (single
-        // source); for multi-source the read-model refresh reconciles the rest.
-        if (mode === "full" && withdrawSources.length <= 1) {
-          setHasDeposit(false);
-          setDepositedUsd(null);
-        }
+        // Only the accepted read/proof may clear the position. A source count
+        // cannot prove that no other product or newer deposit remains.
         try {
           await Promise.all([
             refreshEarnPosition({ throwOnError: true }),
@@ -763,7 +763,6 @@ export default function EarnScreen() {
     [
       signer,
       state,
-      withdrawSources,
       markEarnMutation,
       requestRefresh,
       refreshAutodeposit,
@@ -1228,7 +1227,7 @@ export default function EarnScreen() {
         open={withdrawOpen}
         onClose={handleCloseWithdraw}
         onWithdraw={handleWithdrawConfirmed}
-        availableUsdc={depositedUsd}
+        availableUsdc={position ? depositedUsd ?? 0 : 0}
         sources={withdrawSources}
       />
 

@@ -858,13 +858,23 @@ export async function fetchEarnAutodepositSweepProgress(
 // Current on-chain Earn position read-model (balance + live APY). All amounts
 // are USDC base units (6 decimals) as strings; APY is in basis points.
 export type EarnPosition = {
+  currentObservedSlot?: string;
   currentAmountRaw: string;
   currentSupplyApyBps: string | null;
   principalAmountRaw: string;
   status: string;
 };
 
-export type EarnStateResponse = {
+export type EarnReadScope = {
+  cluster?: string;
+  walletAddress?: string;
+  vaultIndex?: number;
+  vaultPubkey?: string;
+};
+
+export type EarnStateResponse = EarnReadScope & {
+  closedPositionObservedSlot?: string | null;
+  policyAccounts?: string[];
   position: EarnPosition | null;
   settingsPda: string | null;
   smartAccountAddress: string | null;
@@ -904,7 +914,7 @@ export type EarnHoldingItem = {
   reserve: string | null;
 };
 
-export type EarnHoldingsResponse = {
+export type EarnHoldingsResponse = EarnReadScope & {
   currentTotalAmountRaw: string;
   holdings: EarnHoldingItem[];
   observedAt: string | null;

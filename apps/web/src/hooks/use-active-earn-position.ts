@@ -177,7 +177,7 @@ export function shouldKeepCurrentPositionOverConfirmed(args: {
     }
   }
   if (!(args.current && args.confirmed)) {
-    return hasRpcObservedHoldings(args.current);
+    return args.current !== null;
   }
 
   if (hasRpcObservedHoldings(args.current)) {
@@ -400,6 +400,22 @@ export function writeEarnPositionCache(args: {
   writeLastEarnPositionCache(args);
 }
 
+function readClosedEarnPositionSlot(args: {
+  solanaEnv: string;
+  walletAddress: string;
+  settingsPda: string;
+}): bigint | null {
+  const closure = readClientCache<{ slot: string }>({
+    ...args,
+    key: `${getEarnPositionCacheKey(args)}:closed`,
+    version: EARN_POSITION_CACHE_VERSION,
+    validate: (data): data is { slot: string } =>
+      typeof data === "object" && data !== null && "slot" in data &&
+      typeof data.slot === "string" && /^\d+$/.test(data.slot),
+  });
+  return parseEarnRawAmount(closure?.slot);
+}
+
 function isConfirmedEarnPositionResponse(
   data: unknown
 ): data is ConfirmedEarnPositionResponse {
@@ -497,6 +513,24 @@ export function useActiveEarnPosition({
   }
 
   const canUseCache = Boolean(enabled && walletAddress && settingsPda);
+  const readClosureFence = useCallback(() => {
+    if (activePositionScopeRef.current !== positionScope) return closedPositionSlotRef.current;
+    const stored = walletAddress && settingsPda
+      ? readClosedEarnPositionSlot({ solanaEnv, walletAddress, settingsPda }) : null;
+    if (stored !== null && (closedPositionSlotRef.current === null || stored > closedPositionSlotRef.current)) {
+      closedPositionSlotRef.current = stored;
+    }
+    const currentSlot = parseEarnObservedSlot(positionRef.current);
+    if (stored !== null && positionRef.current !== null && currentSlot !== null && currentSlot <= stored) {
+      positionRef.current = null;
+      setPositionState(null);
+      setWatchedAccounts([]);
+      if (walletAddress && settingsPda) {
+        writeEarnPositionCache({ solanaEnv, walletAddress, settingsPda, position: null });
+      }
+    }
+    return closedPositionSlotRef.current;
+  }, [positionScope, settingsPda, solanaEnv, walletAddress]);
 
   const setPosition = useCallback(
     (
@@ -540,11 +574,11 @@ export function useActiveEarnPosition({
         return null;
       }
 
-      const closedSlot = closedPositionSlotRef.current;
+      const closedSlot = readClosureFence();
       const currentSlot = parseEarnObservedSlot(positionRef.current);
       const minContextSlot =
         closedSlot === null
-          ? undefined
+          ? currentSlot === null ? undefined : Number(currentSlot)
           : Number(
               currentSlot !== null && currentSlot > closedSlot
                 ? currentSlot
@@ -565,7 +599,7 @@ export function useActiveEarnPosition({
         watchedAccounts: snapshot.provenance.watchedAccounts,
       };
     },
-    [connection, earnPolicy, programId, settingsPda, solanaEnv]
+    [connection, earnPolicy, programId, readClosureFence, settingsPda, solanaEnv]
   );
 
   const commitRpcPosition = useCallback(
@@ -573,14 +607,13 @@ export function useActiveEarnPosition({
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
-      const closedSlot = closedPositionSlotRef.current;
+      const closedSlot = readClosureFence();
       const observedSlot = parseEarnRawAmount(next.observedSlot);
       const currentSlot = parseEarnObservedSlot(positionRef.current);
       if (
-        closedSlot !== null &&
-        (observedSlot === null ||
-          observedSlot <= closedSlot ||
-          (currentSlot !== null && observedSlot < currentSlot))
+        observedSlot === null ||
+        (closedSlot !== null && observedSlot <= closedSlot) ||
+        (currentSlot !== null && observedSlot < currentSlot)
       ) {
         setHasResolved(true);
         setIsLoading(false);
@@ -600,7 +633,7 @@ export function useActiveEarnPosition({
       setHasResolved(true);
       setIsLoading(false);
     },
-    [positionScope, settingsPda, solanaEnv, walletAddress]
+    [positionScope, readClosureFence, settingsPda, solanaEnv, walletAddress]
   );
 
   const commitConfirmedPosition = useCallback(
@@ -611,6 +644,7 @@ export function useActiveEarnPosition({
       if (activePositionScopeRef.current !== positionScope) {
         return;
       }
+      readClosureFence();
       const proofSlot =
         nextPosition === null
           ? parseEarnRawAmount(closedPositionObservedSlot)
@@ -622,6 +656,18 @@ export function useActiveEarnPosition({
           proofSlot > closedPositionSlotRef.current)
       ) {
         closedPositionSlotRef.current = proofSlot;
+        if (walletAddress && settingsPda) {
+          writeClientCache<{ slot: string }>({
+            key: `${getEarnPositionCacheKey({ solanaEnv, walletAddress, settingsPda })}:closed`,
+            version: EARN_POSITION_CACHE_VERSION,
+            solanaEnv,
+            walletAddress,
+            settingsPda,
+            // Closure evidence must not expire like a positive balance cache.
+            ttlMs: Number.MAX_SAFE_INTEGER - Date.now(),
+            data: { slot: proofSlot.toString() },
+          });
+        }
       }
       const closedSlot = closedPositionSlotRef.current;
       const nextSlot = parseEarnObservedSlot(nextPosition);
@@ -657,7 +703,7 @@ export function useActiveEarnPosition({
       setHasResolved(true);
       setIsLoading(false);
     },
-    [positionScope, settingsPda, solanaEnv, walletAddress]
+    [positionScope, readClosureFence, settingsPda, solanaEnv, walletAddress]
   );
 
   const refresh = useCallback(() => {
@@ -797,11 +843,16 @@ export function useActiveEarnPosition({
       return;
     }
 
-    const cached = readEarnPositionCache({
+    closedPositionSlotRef.current = readClosedEarnPositionSlot({ solanaEnv, walletAddress, settingsPda });
+    const cachedPosition = readEarnPositionCache({
       solanaEnv,
       walletAddress,
       settingsPda,
     });
+    const cachedSlot = parseEarnObservedSlot(cachedPosition);
+    const cached = closedPositionSlotRef.current !== null &&
+      (cachedSlot === null || cachedSlot <= closedPositionSlotRef.current)
+      ? null : cachedPosition;
     if (cached) {
       positionRef.current = cached;
       setPositionState(cached);
