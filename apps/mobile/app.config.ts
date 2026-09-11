@@ -37,7 +37,7 @@ const config: ExpoConfig = {
   name: IS_DEV ? "Loyal (Dev)" : "Loyal",
   slug: "loyal-app",
   scheme: IS_DEV ? "loyal-dev" : "loyal",
-  version: "0.1.2",
+  version: "0.5.0",
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   userInterfaceStyle: "light",
