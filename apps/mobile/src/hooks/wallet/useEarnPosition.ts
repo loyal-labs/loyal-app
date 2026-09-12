@@ -28,8 +28,22 @@ function reconcileBalance(
   liveTotalRaw: string | null,
   preferReadModel: boolean,
 ): EarnPosition | null {
-  if (position === null || liveTotalRaw === null || preferReadModel) {
+  if (liveTotalRaw === null || preferReadModel) {
     return position;
+  }
+  if (position === null) {
+    // Read-model gap: the vault holds funds on-chain but the deposit was never
+    // projected (e.g. first deposit after a full exit, wallet 8p6b… 2026-09-11).
+    // Surface the live balance so Withdraw stays reachable instead of showing
+    // $0.00 and hiding the user's funds. APY/principal are unknown here.
+    return Number(liveTotalRaw) > 0
+      ? {
+          currentAmountRaw: liveTotalRaw,
+          currentSupplyApyBps: null,
+          principalAmountRaw: liveTotalRaw,
+          status: "active",
+        }
+      : null;
   }
   return { ...position, currentAmountRaw: liveTotalRaw };
 }
