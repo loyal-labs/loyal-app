@@ -30,6 +30,8 @@ import {
   normalizeLifecycleErrorCode,
 } from "@/features/observability/lifecycle-contract";
 
+import { useNeedsMobileWalletBrowser } from "./mobile-wallet-list";
+
 type Step = "idle" | "privy" | "creating_wallet" | "exchanging";
 
 type PrivyAuthState = {
@@ -93,6 +95,7 @@ export function PrivyAuthController({ children }: { children: ReactNode }) {
 function Inner({ children }: { children: ReactNode }) {
   const { ready, authenticated, user: privyUser, logout } = usePrivy();
   const isCherryEmbedded = useCherryRuntime().mode === "cherry_embedded";
+  const needsMobileWalletBrowser = useNeedsMobileWalletBrowser();
   const { refreshUser } = useUser();
   const { createWallet } = useCreateWallet();
   const { ready: walletsReady, wallets: privyWallets } = useWallets();
@@ -183,11 +186,23 @@ function Inner({ children }: { children: ReactNode }) {
     if (isCherryEmbedded) return;
     registerHandler(() => {
       if (isAuthenticated || !ready) return false;
+      // A mobile browser injects no wallet, so Privy's list would offer a
+      // Phantom/Solflare user nothing. Fall through to our modal: it keeps
+      // the Privy button and adds the links that reopen this page inside the
+      // wallet's own browser.
+      if (needsMobileWalletBrowser) return false;
       start();
       return true;
     });
     return () => registerHandler(null);
-  }, [isAuthenticated, isCherryEmbedded, ready, registerHandler, start]);
+  }, [
+    isAuthenticated,
+    isCherryEmbedded,
+    needsMobileWalletBrowser,
+    ready,
+    registerHandler,
+    start,
+  ]);
 
   const completeSignIn = useCallback(
     async (lifecycle: LifecycleTracker) => {
