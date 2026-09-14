@@ -24,6 +24,13 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
+import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import {
+  type LifecycleTracker,
+  normalizeLifecycleErrorCode,
+} from "@/features/observability/lifecycle-contract";
+
+import { useNeedsMobileWalletBrowser } from "./mobile-wallet-list";
 
 type Step = "idle" | "privy" | "creating_wallet" | "exchanging";
 
@@ -44,7 +51,10 @@ export function usePrivyAuth(): PrivyAuthState | null {
   return useContext(PrivyAuthContext);
 }
 
-export async function exchangePrivySession(walletAddress: string) {
+export async function exchangePrivySession(
+  walletAddress: string,
+  flowId?: string
+) {
   const identityToken = await getIdentityToken();
   if (!identityToken) throw new Error("Privy identity token unavailable.");
   const res = await fetch("/api/auth/privy/complete", {
@@ -53,6 +63,8 @@ export async function exchangePrivySession(walletAddress: string) {
     headers: {
       "content-type": "application/json",
       "privy-id-token": identityToken,
+      // Joins the route's smart-account provisioning events to this flow.
+      ...(flowId ? { "x-loyal-flow-id": flowId } : {}),
     },
     body: JSON.stringify({ walletAddress }),
   });
@@ -83,6 +95,7 @@ export function PrivyAuthController({ children }: { children: ReactNode }) {
 function Inner({ children }: { children: ReactNode }) {
   const { ready, authenticated, user: privyUser, logout } = usePrivy();
   const isCherryEmbedded = useCherryRuntime().mode === "cherry_embedded";
+  const needsMobileWalletBrowser = useNeedsMobileWalletBrowser();
   const { refreshUser } = useUser();
   const { createWallet } = useCreateWallet();
   const { ready: walletsReady, wallets: privyWallets } = useWallets();
@@ -146,8 +159,14 @@ function Inner({ children }: { children: ReactNode }) {
     if (!authenticated) {
       setStep("privy");
       login();
+      return;
     }
-  }, [authenticated, login, setWantsSession]);
+    // Privy is already authenticated (the Google redirect lands here, and so
+    // does every retry after a failed handshake), so login() would open
+    // nothing. Show our modal instead: the effect below reports the step and
+    // any error there, and without it the click is swallowed silently.
+    openSignInModal();
+  }, [authenticated, login, openSignInModal, setWantsSession]);
 
   const addEmail = useCallback(() => {
     if (authenticated) {
@@ -167,103 +186,153 @@ function Inner({ children }: { children: ReactNode }) {
     if (isCherryEmbedded) return;
     registerHandler(() => {
       if (isAuthenticated || !ready) return false;
+      // A mobile browser injects no wallet, so Privy's list would offer a
+      // Phantom/Solflare user nothing. Fall through to our modal: it keeps
+      // the Privy button and adds the links that reopen this page inside the
+      // wallet's own browser.
+      if (needsMobileWalletBrowser) return false;
       start();
       return true;
     });
     return () => registerHandler(null);
-  }, [isAuthenticated, isCherryEmbedded, ready, registerHandler, start]);
-
-  const completeSignIn = useCallback(async () => {
-    if (!privyUser) return;
-    const linked = privyUser.linkedAccounts;
-    const hasEmail = linked.some(
-      (a) => a.type === "email" || a.type === "google_oauth"
-    );
-    // Only wallets linked to this Privy user count. `privyWallets` also lists
-    // wallets merely connected in the browser (e.g. another extension that
-    // belongs to a different Privy user).
-    const linkedSolana = linked.filter(
-      (a) => a.type === "wallet" && a.chainType === "solana"
-    );
-    const linkedAddresses = new Set(
-      linkedSolana.map((a) => ("address" in a ? a.address : ""))
-    );
-    const external = linkedSolana.find(
-      (a) => "walletClientType" in a && a.walletClientType !== "privy"
-    );
-    const embedded = linkedSolana.find(
-      (a) => "walletClientType" in a && a.walletClientType === "privy"
-    );
-    let address =
-      (loginAddressRef.current && linkedAddresses.has(loginAddressRef.current)
-        ? loginAddressRef.current
-        : null) ??
-      (external && "address" in external ? external.address : null) ??
-      (embedded && "address" in embedded ? embedded.address : null);
-    loginAddressRef.current = null;
-
-    // Add-email from a legacy session: Privy must have been logged in with
-    // the wallet that session is on, else we'd silently switch accounts.
-    if (user?.walletAddress) {
-      if (!linkedAddresses.has(user.walletAddress)) {
-        await logout();
-        const short = `${user.walletAddress.slice(
-          0,
-          4
-        )}…${user.walletAddress.slice(-4)}`;
-        throw new Error(`Sign in with ${short} to add an email.`);
-      }
-      address = user.walletAddress;
-    }
-
-    if (!address) {
-      setStep("creating_wallet");
-      const { wallet } = await createWallet();
-      address = wallet.address;
-      // Re-issue the identity token so it lists the new wallet.
-      await refreshUser();
-    }
-
-    setStep("exchanging");
-    await exchangePrivySession(address);
-
-    // Privy knows which wallet-standard wallet owns the address; the adapter
-    // lists the same wallets by name, so hand it the matching one to sign with.
-    const owner = privyWallets.find((w) => w.address === address);
-    const entry = owner
-      ? adapter.wallets.find(
-          (w) => w.adapter.name === owner.standardWallet.name
-        )
-      : undefined;
-    if (entry) {
-      adapter.select(entry.adapter.name);
-      if (!entry.adapter.connected) {
-        await entry.adapter.connect();
-      }
-    }
-    await refreshSession();
-    closeSignInModal();
-    if (!hasEmail) linkEmail();
   }, [
-    adapter,
-    closeSignInModal,
-    createWallet,
-    linkEmail,
-    logout,
-    privyUser,
-    privyWallets,
-    refreshSession,
-    refreshUser,
-    user?.walletAddress,
+    isAuthenticated,
+    isCherryEmbedded,
+    needsMobileWalletBrowser,
+    ready,
+    registerHandler,
+    start,
   ]);
+
+  const completeSignIn = useCallback(
+    async (lifecycle: LifecycleTracker) => {
+      if (!privyUser) return;
+      const linked = privyUser.linkedAccounts;
+      const hasEmail = linked.some(
+        (a) => a.type === "email" || a.type === "google_oauth"
+      );
+      // Only wallets linked to this Privy user count. `privyWallets` also lists
+      // wallets merely connected in the browser (e.g. another extension that
+      // belongs to a different Privy user).
+      const linkedSolana = linked.filter(
+        (a) => a.type === "wallet" && a.chainType === "solana"
+      );
+      const linkedAddresses = new Set(
+        linkedSolana.map((a) => ("address" in a ? a.address : ""))
+      );
+      const external = linkedSolana.find(
+        (a) => "walletClientType" in a && a.walletClientType !== "privy"
+      );
+      const embedded = linkedSolana.find(
+        (a) => "walletClientType" in a && a.walletClientType === "privy"
+      );
+      let address =
+        (loginAddressRef.current && linkedAddresses.has(loginAddressRef.current)
+          ? loginAddressRef.current
+          : null) ??
+        (external && "address" in external ? external.address : null) ??
+        (embedded && "address" in embedded ? embedded.address : null);
+      loginAddressRef.current = null;
+
+      // Add-email from a legacy session: Privy must have been logged in with
+      // the wallet that session is on, else we'd silently switch accounts.
+      if (user?.walletAddress) {
+        if (!linkedAddresses.has(user.walletAddress)) {
+          await logout();
+          const short = `${user.walletAddress.slice(
+            0,
+            4
+          )}…${user.walletAddress.slice(-4)}`;
+          throw new Error(`Sign in with ${short} to add an email.`);
+        }
+        address = user.walletAddress;
+      }
+
+      if (!address) {
+        setStep("creating_wallet");
+        lifecycle.observe("wallet_connect");
+        // A previous attempt may have created the wallet already and failed
+        // after it, so re-read the user first. Every extra wallet also
+        // provisions its own sponsored smart account, and repeated creation is
+        // what trips Privy's rate limit.
+        const refreshed = await refreshUser();
+        const existing = refreshed.linkedAccounts.find(
+          (a) => a.type === "wallet" && a.chainType === "solana"
+        );
+        if (existing && "address" in existing) {
+          address = existing.address;
+        } else {
+          const { wallet } = await createWallet();
+          address = wallet.address;
+          // Re-issue the identity token so it lists the new wallet.
+          await refreshUser();
+        }
+      }
+
+      setStep("exchanging");
+      lifecycle.observe("completion");
+      await exchangePrivySession(address, lifecycle.flowId);
+
+      // The exchange sets the session cookie, so commit the UI before touching
+      // the wallet adapter: a connect that hangs or rejects used to leave the
+      // user signed in on the server and signed out in the browser, with the
+      // sign-in button dead until a reload.
+      lifecycle.observe("session_refresh");
+      await refreshSession();
+      closeSignInModal();
+
+      // Privy knows which wallet-standard wallet owns the address; the adapter
+      // lists the same wallets by name, so hand it the matching one to sign
+      // with. Best-effort: the reselect effect below retries on every render
+      // once Privy's wallet list catches up.
+      const owner = privyWallets.find((w) => w.address === address);
+      const entry = owner
+        ? adapter.wallets.find(
+            (w) => w.adapter.name === owner.standardWallet.name
+          )
+        : undefined;
+      if (entry) {
+        adapter.select(entry.adapter.name);
+        if (!entry.adapter.connected) {
+          await entry.adapter.connect().catch(() => undefined);
+        }
+      }
+      lifecycle.complete("ui_commit");
+      if (!hasEmail) linkEmail();
+    },
+    [
+      adapter,
+      closeSignInModal,
+      createWallet,
+      linkEmail,
+      logout,
+      privyUser,
+      privyWallets,
+      refreshSession,
+      refreshUser,
+      user?.walletAddress,
+    ]
+  );
 
   // Sign-in: run once everything is ready, whichever order it arrives in.
   useEffect(() => {
     if (!wantsSession || !authenticated || !walletsReady || !privyUser) return;
     if (runningRef.current) return;
     runningRef.current = true;
-    void completeSignIn()
-      .catch((e) => {
+    const lifecycle = createBrowserLifecycleTracker({
+      flowName: "auth.sign_in",
+      flowVariant: "interactive",
+    });
+    lifecycle.start("intent");
+    void completeSignIn(lifecycle)
+      .catch((e: unknown) => {
+        lifecycle.fail("completion", {
+          errorCode: normalizeLifecycleErrorCode(
+            e && typeof e === "object" && "code" in e
+              ? (e as { code?: unknown }).code
+              : undefined
+          ),
+        });
         setError(e instanceof Error ? e.message : String(e));
         openSignInModal();
       })
