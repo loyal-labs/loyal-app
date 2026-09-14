@@ -5,7 +5,7 @@ import { createAuthSessionTokenClaims } from "@loyal-labs/auth-core";
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
-import { ensureWalletUserSmartAccount } from "@/features/smart-accounts/server/service";
+import { ensureWalletUserSmartAccountTraced } from "@/features/smart-accounts/server/service";
 import { createAuthSessionCookieService } from "@/features/identity/server/session-cookie";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { getServerEnv } from "@/lib/core/config/server";
@@ -89,6 +89,7 @@ export type PrivyAuthCompletion = {
 // through Privy lands on the same app_users row and the same smart account.
 export async function completePrivyAuth(args: {
   identityToken: string;
+  request: Request;
   walletAddress: string;
   requestOrigin: string;
 }): Promise<PrivyAuthCompletion> {
@@ -108,7 +109,8 @@ export async function completePrivyAuth(args: {
     walletAddress: wallet.address,
     ...(identity.email ? { email: identity.email } : {}),
   });
-  const ensureResult = await ensureWalletUserSmartAccount({
+  const ensureResult = await ensureWalletUserSmartAccountTraced({
+    request: args.request,
     userId: userRecord.id,
     walletAddress: wallet.address,
   });

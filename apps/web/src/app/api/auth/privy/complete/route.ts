@@ -43,6 +43,7 @@ export async function POST(request: Request) {
   try {
     const result = await completePrivyAuth({
       identityToken,
+      request,
       walletAddress: parsed.data.walletAddress,
       requestOrigin:
         request.headers.get("origin") ?? new URL(request.url).origin,
