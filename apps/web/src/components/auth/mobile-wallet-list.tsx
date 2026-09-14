@@ -25,10 +25,9 @@ const MOBILE_WALLETS = [
   },
 ] as const;
 
-// Privy's embedded wallet is registered with wallet-adapter by the provider
-// bridge, so it always reads as installed — only an injected external wallet
-// means the browser can connect one.
-const BRIDGED_WALLET_NAMES = new Set(["Privy", "Cherry"]);
+const MOBILE_WALLET_NAMES = new Set<string>(
+  MOBILE_WALLETS.map((wallet) => wallet.name)
+);
 
 export function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -39,9 +38,13 @@ export function useIsMobile() {
 }
 
 /**
- * True when the page runs in a mobile browser that injects no Solana wallet,
- * i.e. the only way to reach Phantom/Solflare is to reopen this page inside
- * the wallet's own browser.
+ * True when the page runs in a mobile browser that does not inject one of the
+ * wallets above, so reopening the page inside that wallet's own browser is the
+ * only way to reach it.
+ *
+ * Only those wallets count. A browser-native wallet (Brave) is injected and
+ * detected too, but it is no help to a Phantom user — and inside Phantom's own
+ * browser Phantom is injected, which is exactly where the links must not show.
  */
 export function useNeedsMobileWalletBrowser(): boolean {
   const isMobile = useIsMobile();
@@ -51,7 +54,7 @@ export function useNeedsMobileWalletBrowser(): boolean {
     !wallets.some(
       (candidate) =>
         candidate.readyState === "Installed" &&
-        !BRIDGED_WALLET_NAMES.has(candidate.adapter.name)
+        MOBILE_WALLET_NAMES.has(candidate.adapter.name)
     )
   );
 }
