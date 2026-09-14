@@ -25,8 +25,17 @@ In the output, you'll find options to open the app in a
 
 ## Environment
 
-Set `EXPO_PUBLIC_GRID_AUTH_BASE_URL` to the shared passkey domain, typically
-`https://auth.askloyal.com`, when the app integrates with Grid auth flows.
+For local Privy auth, set these public variables in a gitignored `.env` file:
+
+```env
+EXPO_PUBLIC_PRIVY_APP_ID=<privy_app_id>
+EXPO_PUBLIC_PRIVY_CLIENT_ID=<privy_client_id>
+```
+
+`EXPO_PUBLIC_PRIVY_APP_ID` enables the Privy provider, while
+`EXPO_PUBLIC_PRIVY_CLIENT_ID` is passed to Privy as the mobile client ID when
+set. The EAS build profiles define both variables for cloud builds; existing
+legacy wallets continue to work when the app ID is unset.
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
