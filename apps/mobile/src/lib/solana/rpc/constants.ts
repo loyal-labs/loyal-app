@@ -1,13 +1,15 @@
-// Helius Gatekeeper mainnet endpoint. The api key in the URL is exposed
-// by design — Gatekeeper enforces per-key method/rate rules server-side,
-// so extracting it from the bundle (or this public repo) only grants the
-// same gated access the app has. This key's budget is separate from the
-// backend's keyed RPC, so mobile traffic no longer competes with server
-// routes for the same rate limit. Replaced the host-authenticated
-// "secure RPC" URL (Dancerhail project, rotated in via ASK-1334) on
-// 2026-07-09 during the RPC saturation incident.
+// Mainnet RPC. Helius has no per-key method or rate rules, so an api-key in
+// the bundle grants the whole project budget to anyone who extracts it. The
+// previous keyed Gatekeeper URL (key 765be1fd, Jul 9 - Sep 2026) was picked up
+// from this public repo and burned ~500k req/h from outside the app.
+//
+// This is the Helius project Secure URL (shared with web): host-authenticated,
+// no api-key, limited by Helius to 5 req/s per source IP (the app polls
+// ~2 req/min per user). EXPO_PUBLIC_SOLANA_MAINNET_RPC_URL overrides it per
+// build; never put an api-key back in this file.
 export const SECURE_MAINNET_RPC_URL =
-  "https://beta.helius-rpc.com/?api-key=765be1fd-1402-443f-aba4-f41fe30bae1d";
+  process.env.EXPO_PUBLIC_SOLANA_MAINNET_RPC_URL?.trim() ||
+  "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
 
 // Mobile does not open Solana WebSocket subscriptions. This endpoint is still
 // passed to Anchor providers, which require a websocketEndpoint config even
