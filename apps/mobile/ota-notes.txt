@@ -1,1 +1,1 @@
-Adjustments for the new Earn stablecoins.
+Critical update: restart now to keep using the app. Balances and transactions will stop working on older versions.
