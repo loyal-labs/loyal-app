@@ -404,14 +404,14 @@ function HeaderContent({
           rel="noopener noreferrer"
           tabIndex={linkTabIndex}
         >
-          Open
+          Open app
         </Link>
 
         <button
           aria-controls={menuId}
           aria-expanded={isMenuOpen}
           aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+          className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/15 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
           onClick={() => onMenuOpenChange(!isMenuOpen)}
           tabIndex={linkTabIndex}
           type="button"

@@ -156,6 +156,15 @@ export function LandingFooter() {
           </div>
         </div>
 
+        <p
+          className="text-[16px] leading-5 tracking-[-0.02em] text-[#8a8a8e]"
+          id="rate-footnote"
+        >
+          <sup className="text-[0.65em] text-[#3c3c43]/60">1</sup>Based on rates
+          available through supported protocols at the time of allocation. Rates
+          are variable and not guaranteed.
+        </p>
+
         <div
           className="flex min-h-24 flex-col gap-8 pt-12 lg:flex-row lg:items-start lg:justify-between"
           data-reveal="fade"
