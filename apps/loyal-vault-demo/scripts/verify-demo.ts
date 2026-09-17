@@ -143,6 +143,7 @@ type Tier = "full" | "fast";
 
 function parseArgs(argv: string[]) {
   let tier: Tier = "full";
+  let hostedEvidencePath: string | null = null;
   let report = "/tmp/loyal-vault-demo-report.json";
   let rpcUrl =
     process.env.LOYAL_VAULT_DEMO_RPC_URL ??
@@ -152,14 +153,19 @@ function parseArgs(argv: string[]) {
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--tier") tier = parseTier(argv[++index]);
+    if (value === "--hosted-evidence") {
+      if (hostedEvidencePath !== null || !argv[index + 1] || argv[index + 1].startsWith("--"))
+        throw new Error("--hosted-evidence requires one JSON envelope path");
+      hostedEvidencePath = argv[++index];
+    }
+    else if (value === "--tier") tier = parseTier(argv[++index]);
     else if (value === "--report") report = argv[++index] ?? report;
     else if (value === "--rpc-url") rpcUrl = argv[++index] ?? rpcUrl;
     else if (value === "--help" || value === "-h") {
       /* printed below */
     } else skip(value ?? "");
   }
-  return { tier, report, rpcUrl };
+  return { tier, report, rpcUrl, hostedEvidencePath };
 }
 
 function parseTier(value: string | undefined): Tier {
@@ -735,9 +741,57 @@ const EXTERNAL_GATES = [
 
 /* ------------------------------------------------------------ main */
 
+/* Recorded deployment evidence locates a release; it never proves live servicing. */
+type HostedEvidence = Readonly<{
+  path: string;
+  deployment: { url: string; deploymentId: string; sourceCommit: string; status: "Ready"; capturedAt: string };
+  vault: Record<string, unknown>;
+  worker: Record<string, unknown>;
+}>;
+
+export function loadHostedEvidence(path: string | null, currentCommit: string | null): HostedEvidence | null {
+  if (path === null) return null;
+  const object = (value: unknown): Record<string, unknown> => {
+    if (value === null || typeof value !== "object" || Array.isArray(value))
+      throw new Error("Hosted evidence requires JSON objects");
+    return value as Record<string, unknown>;
+  };
+  const require = (ok: unknown, reason: string): void => {
+    if (!ok) throw new Error(`Hosted evidence rejected: ${reason}`);
+  };
+  const row = object(JSON.parse(readFileSync(path, "utf8")));
+  const deployment = object(row.deployment), vault = object(row.vault), worker = object(row.worker);
+  const url = new URL(String(deployment.url));
+  require(url.protocol === "https:" && !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash
+    && (url.hostname === "loyal-vault-pilot.vercel.app" || /^loyal-vault-pilot-[a-z0-9]+-loyals-projects-4b3ed656\.vercel\.app$/.test(url.hostname)), "pilot URL");
+  require(typeof deployment.deploymentId === "string" && /^dpl_[A-Za-z0-9]+$/.test(deployment.deploymentId)
+    && deployment.status === "Ready", "deployment identity/status");
+  require(typeof deployment.sourceCommit === "string" && /^[0-9a-f]{40}$/.test(deployment.sourceCommit)
+    && deployment.sourceCommit === currentCommit, "candidate commit");
+  require(typeof deployment.capturedAt === "string" && Number.isFinite(Date.parse(deployment.capturedAt)), "capture time");
+  require(row.vaultHttpStatus === 200 && row.workerHttpStatus === 200, "served HTTP results");
+  const identity = object(vault.identity), terms = object(vault.terms), service = object(vault.serviceState), freshness = object(vault.freshness);
+  require(vault.schemaVersion === "loyal-vault-demo.vault-observation/1" && identity.vault === IDENTITY.vault
+    && identity.voltrProgram === IDENTITY.voltrProgram && identity.assetMint === IDENTITY.assetMint
+    && identity.lpMint === IDENTITY.expectedLpMint && identity.manager === IDENTITY.smartAccount
+    && identity.assetDecimals === 6 && identity.lpDecimals === 9, "vault identities");
+  require(terms.maxCapRaw === "100000000" && terms.withdrawalWaitingPeriodSeconds === String(IDENTITY.expectedWithdrawalWaitingPeriodSeconds), "pilot terms");
+  require(["unavailable", "available"].includes(String(service.deposits))
+    && (service.deposits !== "unavailable" || (typeof service.depositsReason === "string" && service.depositsReason.length > 0)), "deposit disclosure");
+  require(typeof freshness.observedSlot === "number" && Number.isSafeInteger(freshness.observedSlot) && freshness.observedSlot > 0
+    && typeof freshness.observedAt === "string" && Number.isFinite(Date.parse(freshness.observedAt)), "vault observation");
+  require(worker.source === "yield-worker-journal" && typeof worker.leaseActive === "boolean"
+    && ["fresh", "stale"].includes(String(worker.freshness)) && typeof worker.observedSlot === "string"
+    && /^[1-9][0-9]*$/.test(worker.observedSlot) && typeof worker.observedAt === "string" && Number.isFinite(Date.parse(worker.observedAt)), "worker observation");
+  require(service.deposits !== "available" || (worker.leaseActive === true && worker.freshness === "fresh"), "offered deposits without servicing");
+  return { path, deployment: deployment as HostedEvidence["deployment"], vault, worker };
+}
+
 async function main() {
   const startedAt = new Date().toISOString();
-  const { tier, report, rpcUrl } = parseArgs(process.argv.slice(2));
+  const { tier, report, rpcUrl, hostedEvidencePath } = parseArgs(process.argv.slice(2));
+  const source = readSourceIdentity();
+  const hosted = loadHostedEvidence(hostedEvidencePath, source.commit);
   const chain = new ChainReader(rpcUrl);
   const checks: Check[] = [];
   const check = (id: string, condition: string, requirement: string) => {
@@ -2787,7 +2841,9 @@ async function main() {
       } else {
         c.missing_("Set LOYAL_VAULT_DEMO_VERIFY_READ_BUDGET=1 to measure two local browser sessions against a read-only counting relay.");
       }
-      c.missing_("live worker observation display and deployed service state remain unverified; controlled visibility behavior is recorded in R05");
+      if (hosted) c.add("deployment", { kind: "served-worker-api", path: hosted.path, provenance: "deployment",
+        detail: `Recorded /api/worker HTTP 200: leaseActive=${hosted.worker.leaseActive}, freshness=${hosted.worker.freshness}. This proves the observation endpoint, not current servicing.` });
+      c.missing_("Live worker display and lease-active servicing against the current release remain unverified.");
       c.missing_(
         "refresh-on-transaction-outcome is implemented; its observed RPC budget and refreshed state still require controlled browser evidence"
       );
@@ -2823,17 +2879,15 @@ async function main() {
           "minimal server-rendered page (src/app/page.tsx) plus GET /api/vault and GET /api/position route handlers exist and are measured through the read model elsewhere; no local production build was run (repo rule), so prerender behaviour is unverified",
         provenance: "static-inspection",
       });
-      c.missing_(
-        "no deployed URL exists, so the Partner Journey rubric cannot be exercised at desktop or narrow mobile widths"
-      );
-      c.block({
-        gate: "Hosting deployment",
-        owner: "Deployment owner/user",
-        reason:
-          "No deployment target/URL/permission is recorded for this demo app.",
-        resumeCondition:
-          "Target project/URL and deploy permission recorded; hosted build succeeds.",
-      });
+      if (hosted) {
+        c.add("deployment", { kind: "hosted-deployment-record", path: hosted.path, provenance: "deployment",
+          detail: `Recorded Ready deployment ${hosted.deployment.deploymentId} at ${hosted.deployment.url}; both served APIs returned HTTP 200. Hosting metadata is recorded evidence; this verifier has not re-fetched it.` });
+      } else {
+        c.block({ gate: "Hosting deployment", owner: "Deployment operator",
+          reason: "No validated hosted evidence was supplied to this run.",
+          resumeCondition: "Supply --hosted-evidence with the Ready deployment and served API captures." });
+      }
+      c.missing_("The deployed desktop/mobile Partner Journey and real wallet flow remain unverified.");
       return c;
     }
   );
@@ -2847,19 +2901,19 @@ async function main() {
       c.add("static-inspection", {
         kind: "authorization-state",
         detail:
-          "no live wallet/funding authorization is recorded for this demo; Phase 3's 1/20/60 USDC canary envelope does not extend to it; no live transaction was or will be submitted by this verifier",
+          "The capped pilot follows the approved activation plan; this verifier does not sign or broadcast and requires independently recorded live receipts.",
         provenance: "static-inspection",
       });
       c.missing_(
-        "no deployed app, no live journey evidence, no handoff record exists"
+        "Current-release financed wallet journey and operational handoff evidence remain missing"
       );
       c.block({
         gate: "Live wallet/funding",
         owner: "User/operator",
         reason:
-          "No recorded authorization (identities, action classes, value/fee/count caps, expiry) for a demo mainnet journey.",
+          "The approved capped pilot has not completed the current-release financed wallet journey.",
         resumeCondition:
-          "Explicit authorization recorded; wallet funded with USDC and SOL; eligible lane has capacity.",
+          "Complete the approved funded journey and record its exact receipts, capacity and costs.",
       });
       c.block({
         gate: "Receipt timing/liquidity",
@@ -2896,7 +2950,6 @@ async function main() {
       ? "BLOCKED"
       : "PASS";
 
-  const source = readSourceIdentity();
   const reportPayload = {
     schemaVersion: REPORT_SCHEMA,
     contract: {
@@ -2932,12 +2985,8 @@ async function main() {
         ? "fast tier cannot produce completion PASS (contract verdict rules)"
         : "every R-condition proven against the candidate deployment and current evidence",
     source,
-    deployment: {
-      url: null,
-      buildId: null,
-      unavailableReason:
-        "no deployment exists; hosting gate open (contract: hosting deployment gate)",
-    },
+    deployment: hosted ? { ...hosted.deployment, evidencePath: hosted.path, provenance: "recorded-captures" }
+      : { url: null, buildId: null, unavailableReason: "No hosted evidence supplied to this run" },
     runtime: {
       cluster: IDENTITY.cluster,
       rpcUrlKind: rpcUrl.includes("api.mainnet-beta.solana.com")
@@ -2963,7 +3012,9 @@ async function main() {
         .map((finding) => finding.id),
     },
     checks: findings,
-    externalGates: EXTERNAL_GATES,
+    externalGates: EXTERNAL_GATES.map(gate => gate.gate === "Hosting deployment" && hosted
+      ? { ...gate, state: "closed", note: `Recorded Ready deployment ${hosted.deployment.deploymentId}; live journey remains separate.` }
+      : gate),
     constraints: {
       verifierPerformedSigningOrBroadcast: false,
       reportIsGeneratedResult: true,
@@ -3106,4 +3157,4 @@ async function runCommand(
   }
 }
 
-await main();
+if (import.meta.main) await main();
