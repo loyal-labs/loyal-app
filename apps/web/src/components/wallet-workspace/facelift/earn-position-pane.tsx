@@ -31,6 +31,8 @@ import { formatAutodepositUsdLabel } from "@/lib/yield-optimization/earn-autodep
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
+// Autoswap is hidden for now; flip to false to bring the row back.
+export const AUTOSWAP_HIDDEN = true;
 
 // Figma 4693:67399 (Transactions) / 4693:67728 (Positions) — Earn middle pane
 // when a position exists: balance + autodeposit card, then the activity card.
@@ -285,7 +287,8 @@ export function EarnPositionPane({
                 {data.autodepositToggleError}
               </p>
             ) : null}
-            {data.autoswapAvailable !== false || autoswap ? (
+            {!AUTOSWAP_HIDDEN &&
+            (data.autoswapAvailable !== false || autoswap) ? (
               <>
                 <div className="flex w-full items-center rounded-2xl px-4">
                   <div className="py-2 pr-3">
