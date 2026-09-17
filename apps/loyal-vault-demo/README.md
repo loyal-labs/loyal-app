@@ -117,7 +117,7 @@ Next.js on the host. Do not execute that production build locally.
 The isolated Vercel project is `loyal-vault-pilot` (`prj_8ejszAxfkHoSnzHeP1dicwig8D9O`,
 scope `loyals-projects-4b3ed656`). Release `14ab1dd5` is deployed; its page and
 vault API returned HTTP 200 with the expected identity and 100-USDC cap. The
-restricted-view reader changes described here await provisioning and deployment.
+restricted-view reader is now provisioned; a deployment of the current source is in progress.
 Keep the RPC URL and least-privilege worker observation database URL in server-only hosting variables;
 neither has a `NEXT_PUBLIC_` equivalent. The approved public browser RPC needs no
 secret. Do not attach operational signer credentials or start another worker.
@@ -237,11 +237,14 @@ admission conditions with controlled inputs; it is not live readiness proof.
 The three reader queries passed against production data using the new role inside
 a transaction that was rolled back. Only the three pilot views were selectable;
 unrelated routes returned no rows, and base-table access, writes and schema
-creation were denied. The role and views are not yet installed. Automatic approval
-review requires explicit approval to create the persistent login and store its
+creation were denied. The initial test left no role or views installed. Automatic approval
+review required explicit approval to create the persistent login and store its
 generated connection credential in this pilot project under the server-only
 `LOYAL_VAULT_DEMO_OBSERVATION_DATABASE_URL` variable (Production and Preview).
-No credential has been generated or delivered.
+The user subsequently approved provisioning and credential delivery. The restricted
+role and views are now installed. An actual login verified all three queries,
+read-only defaults, a five-second timeout and no base-table access; the generated
+credential was delivered directly to the approved Vercel variable without a file.
 
 The sole verifier now independently evaluates offered deposits against a fresh
 chain batch, a consumed report verified against that same batch, and fresh worker
