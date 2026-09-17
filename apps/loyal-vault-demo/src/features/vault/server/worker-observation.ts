@@ -3,19 +3,21 @@ import { VAULT_IDENTITY } from "./config";
 import { createObservationCache } from "./single-flight";
 import { parseWorkerObservation, type WorkerObservation } from "../domain/worker-observation";
 
-// Existing fenced Go worker tables. No full state, signed wire, signer, lease
-// owner, recovery reason or credentials are selected or returned to browsers.
+// Route-pinned pilot views (sql/provision-observation-readonly.sql): only the
+// derived lease boolean and three observation fields are read; no full state,
+// observation JSON, signed wire, signer, lease owner value, recovery reason or
+// credentials are selected or returned to browsers.
 export const WORKER_OBSERVATION_SQL = `SELECT
   clock_timestamp()::text AS database_now,
   (r.lease_owner IS NOT NULL AND r.lease_expires_at > clock_timestamp()) IS TRUE AS lease_active,
-  r.state->'observation'->>'observedAt' AS observed_at,
-  r.state->'observation'->>'observedSlot' AS observed_slot,
-  r.state->'observation'->>'routeStatus' AS route_status,
+  r.observation->>'observedAt' AS observed_at,
+  r.observation->>'observedSlot' AS observed_slot,
+  r.observation->>'routeStatus' AS route_status,
   o.action AS operation_action, o.status AS operation_status,
   o.updated_at::text AS operation_updated_at
-FROM loyal_yield.multiply_route_states r
+FROM loyal_yield.pilot_route_observation r
 LEFT JOIN LATERAL (
-  SELECT action, status, updated_at FROM loyal_yield.multiply_operations
+  SELECT action, status, updated_at FROM loyal_yield.pilot_operations
   WHERE route_key = r.route_key AND engine_version = 'backyard_rwa_v1'
   ORDER BY updated_at DESC, operation_id DESC LIMIT 1
 ) o ON true

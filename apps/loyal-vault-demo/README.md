@@ -2,7 +2,7 @@
 
 Local partner demo for the fixed Loyal/Backyard mainnet Voltr USDC vault. The
 acceptance contract is [the adopted verifier plan](../../docs/loyal-vault-demo-verifier.md).
-Implementation is in progress; the app is not deployed or approved for partner funds.
+The capped pilot client is deployed with deposits disabled. Implementation and live acceptance remain in progress; partner-fund readiness is not established.
 
 Run from the repository root:
 
@@ -64,10 +64,20 @@ Strategy receipt accounting values are explicitly reported values, not
 independently reconciled Kamino exposure.
 
 Worker observations use `LOYAL_VAULT_DEMO_OBSERVATION_DATABASE_URL` on the server
-only. Provision a least-privilege read role for the selected fields in
-`loyal_yield.multiply_route_states` and `loyal_yield.multiply_operations`.
-The adapter pins `rwa-multiply:ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh`,
-uses a read-only transaction, and never selects signed wire or full route state.
+only. Observation access is provisioned by `sql/provision-observation-readonly.sql`
+(as database owner): it creates one LOGIN role, `loyal_vault_demo_observation`,
+whose only privileges are `SELECT` on three route-pinned, column-filtered views —
+`loyal_yield.pilot_route_observation` (lease columns, ten admitted servicing
+observation fields, pilot-activation and manual-hold booleans; never the raw
+state/observation JSON), `loyal_yield.pilot_operations` (journal metadata
+leaves), and `loyal_yield.pilot_report_locators` (reconciled REPORT_NAV
+signature, message hash and confirmed slot). There are no base-table, write,
+schema-creation or role-administration grants; the role is also forced to
+`default_transaction_read_only` with a bounded statement timeout. Generate the
+credential out of band and set it with `ALTER ROLE ... PASSWORD` or the Neon
+console; never commit, log or widen it. All three readers pin
+`rwa-multiply:ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh`, use read-only
+transactions, and never select signed wire or full route state.
 `GET /api/worker` returns 503 while access is unconfigured or invalid. Lease,
 observation freshness, route demand and latest journal action are disclosures;
 none enables deposits or substitutes for receipt/chain verification. Database
@@ -104,9 +114,11 @@ The candidate Vercel Root Directory is `apps/loyal-vault-demo`. Its checked-in
 builds only the demo's workspace dependencies through Turbo, and then builds
 Next.js on the host. Do not execute that production build locally.
 
-No Vercel project is linked and no deployment has been created. Before deployment,
-record the approved target project and environment. Keep the RPC URL and optional
-least-privilege worker observation database URL in server-only hosting variables;
+The isolated Vercel project is `loyal-vault-pilot` (`prj_8ejszAxfkHoSnzHeP1dicwig8D9O`,
+scope `loyals-projects-4b3ed656`). Release `14ab1dd5` is deployed; its page and
+vault API returned HTTP 200 with the expected identity and 100-USDC cap. The
+restricted-view reader changes described here await provisioning and deployment.
+Keep the RPC URL and least-privilege worker observation database URL in server-only hosting variables;
 neither has a `NEXT_PUBLIC_` equivalent. The approved public browser RPC needs no
 secret. Do not attach operational signer credentials or start another worker.
 A preview can demonstrate unavailable-service states, but it does not establish
@@ -212,8 +224,27 @@ remain independent. The service read uses a two-second deadline within the
 existing total observation deadline; it does not reuse the display-only worker
 cache for authorization.
 
-The observation database role additionally needs SELECT on
-`backyard_manual_recovery_latches(route_key, cleared_at)`; existing read access
-to route state and operation metadata is required. Never grant signed-wire or
-signer access to this role. `scripts/verify-deposit-service.ts` exercises the
+The observation database role needs no direct table access for this gate: the
+manual-hold and pilot-activation evidence arrives through the pinned
+`loyal_yield.pilot_route_observation` view, and the newest reconciled operation
+through `loyal_yield.pilot_operations` (see
+`sql/provision-observation-readonly.sql`). Never grant signed-wire or signer
+access to this role. `scripts/verify-deposit-service.ts` exercises the
 admission conditions with controlled inputs; it is not live readiness proof.
+
+## Restricted-reader rollout checkpoint (2026-09-17)
+
+The three reader queries passed against production data using the new role inside
+a transaction that was rolled back. Only the three pilot views were selectable;
+unrelated routes returned no rows, and base-table access, writes and schema
+creation were denied. The role and views are not yet installed. Automatic approval
+review requires explicit approval to create the persistent login and store its
+generated connection credential in this pilot project under the server-only
+`LOYAL_VAULT_DEMO_OBSERVATION_DATABASE_URL` variable (Production and Preview).
+No credential has been generated or delivered.
+
+The sole verifier now independently evaluates offered deposits against a fresh
+chain batch, a consumed report verified against that same batch, and fresh worker
+evidence inside one bounded deadline. Controlled checks accept one valid row and
+reject 37 altered variants. The fast-tier run remains FAIL: these checks do not
+replace funded wallet flow, rotation, deployed reader access or browser evidence.

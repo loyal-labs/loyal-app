@@ -17,12 +17,14 @@ export type ReportMatchCore = Pick<VaultCore, "slot" | "assetTotalValue" | "idle
 };
 
 // The journal locates a transaction; candidate observation.report* is not evidence.
-// No signed wire, signer material, lease owner or recovery text is selected.
+// The route-pinned pilot_report_locators view exposes only signature,
+// message_sha256 and confirmed_slot (operation_id/updated_at are ordering
+// keys); no signed wire, signer material, lease owner or recovery text is
+// selected. Finalized-RPC wire/trace verification below is unchanged.
 export const CONSUMED_REPORT_SQL = `SELECT transaction_signature AS signature,
  message_sha256 AS message_hash, confirmed_slot::text AS confirmed_slot
- FROM loyal_yield.multiply_operations WHERE route_key=$1
- AND engine_version='backyard_rwa_v1' AND action='REPORT_NAV' AND status='reconciled'
- AND confirmed_slot IS NOT NULL AND transaction_signature IS NOT NULL
+ FROM loyal_yield.pilot_report_locators
+ WHERE confirmed_slot IS NOT NULL AND transaction_signature IS NOT NULL
  ORDER BY confirmed_slot DESC, updated_at DESC, operation_id DESC LIMIT 1`;
 export type ReportLocator = Readonly<{ signature: string; message_hash: string; confirmed_slot: string }>;
 
@@ -70,7 +72,7 @@ export async function readConsumedReport(core: ReportMatchCore, observationStart
  const remaining=()=>{const ms=Math.floor(deadline-performance.now());if(ms<=0)throw new Error("Report deadline exceeded");return ms;};
  try {
   const sql=neon(url);
-  const [rows]=await sql.transaction([sql.query(CONSUMED_REPORT_SQL,[`rwa-multiply:${V.manager}`])],{readOnly:true,isolationLevel:"RepeatableRead",fetchOptions:{signal:AbortSignal.timeout(remaining())}});
+  const [rows]=await sql.transaction([sql.query(CONSUMED_REPORT_SQL)],{readOnly:true,isolationLevel:"RepeatableRead",fetchOptions:{signal:AbortSignal.timeout(remaining())}});
   const row=rows[0];
   if (rows.length!==1||typeof row?.signature!=="string"||bs58.decode(row.signature).length!==64||typeof row.message_hash!=="string"||!/^[a-f0-9]{64}$/.test(row.message_hash)||typeof row.confirmed_slot!=="string"||!/^[1-9][0-9]*$/.test(row.confirmed_slot)) return unknownConsumedReport(core,"A valid report transaction locator is unavailable.");
   const rpcUrl=rpcUrlFromEnv();

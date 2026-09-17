@@ -11,29 +11,27 @@ export function closedDepositService(reason = "Pilot deposits are not open yet."
     withdrawalsNote: "Eligible withdrawals can be claimed by the wallet when vault liquidity is available." };
 }
 
-// Only selected public projections and booleans leave the database. The current
-// report must also be the newest reconciled action: a later mutation invalidates
-// readiness even while the prior report remains inside its slot window.
+// Only the route-pinned pilot views (sql/provision-observation-readonly.sql)
+// and their selected booleans leave the database; the lease owner value stays
+// server-side. The current report must also be the newest reconciled action: a
+// later mutation invalidates readiness even while the prior report remains
+// inside its slot window.
 export const DEPOSIT_SERVICE_SQL = `SELECT
  clock_timestamp()::text AS database_now,
  (r.lease_owner=$2 AND r.lease_expires_at>clock_timestamp()) IS TRUE AS release_active,
- r.state->'observation' AS observation,
- (r.state->'phase3'->>'closed'='false'
-  AND r.state->'phase3'->'pilot'->>'schema'='voltr-rwa-pilot-budget/v1'
-  AND r.state->'phase3'->'pilot'->>'authorityId'='01a0a776-cb66-7333-99eb-7e6927c1e114'
-  AND r.state->'pilotBudgetActivation'->'authority'=r.state->'phase3'->'pilot') IS TRUE AS pilot_active,
- NOT EXISTS(SELECT 1 FROM loyal_yield.backyard_manual_recovery_latches l
-   WHERE l.route_key=r.route_key AND l.cleared_at IS NULL) AS no_manual_hold,
- NOT EXISTS(SELECT 1 FROM loyal_yield.multiply_operations p WHERE p.route_key=r.route_key
+ r.observation AS observation,
+ r.pilot_active AS pilot_active,
+ r.no_manual_hold AS no_manual_hold,
+ NOT EXISTS(SELECT 1 FROM loyal_yield.pilot_operations p WHERE p.route_key=r.route_key
    AND p.status IN ('prepared','signed_persisted','broadcast_intent','confirmed','reconciliation_pending',
      'decided','built','simulated','signed','submitted','reconciling')) AS no_pending,
  last.action AS last_action, last.transaction_signature AS last_signature,
  last.confirmed_slot::text AS last_confirmed_slot
- FROM loyal_yield.multiply_route_states r
+ FROM loyal_yield.pilot_route_observation r
  LEFT JOIN LATERAL (SELECT action,transaction_signature,confirmed_slot
-   FROM loyal_yield.multiply_operations o WHERE o.route_key=r.route_key
-   AND o.engine_version='backyard_rwa_v1' AND o.status='reconciled'
-   AND o.expected_effects->>'journalStrategyConfig'=$3
+   FROM loyal_yield.pilot_operations p WHERE p.route_key=r.route_key
+   AND p.engine_version='backyard_rwa_v1' AND p.status='reconciled'
+   AND p.journal_strategy_config=$3
    ORDER BY confirmed_slot DESC NULLS LAST,updated_at DESC,operation_id COLLATE "C" DESC LIMIT 1) last ON true
  WHERE r.route_key=$1 LIMIT 1`;
 

@@ -181,7 +181,7 @@ import {
   deriveVaultBatchAddresses,
 } from "../src/features/vault/server/coherent-batch";
 import { BoundedRpc } from "../src/features/vault/server/rpc";
-import { VAULT_IDENTITY as APP_IDENTITY } from "../src/features/vault/server/config";
+import { VAULT_IDENTITY as APP_IDENTITY, RPC_BOUNDS } from "../src/features/vault/server/config";
 import {
   assetsForWithdrawAmount,
   decimalBitsToRaw,
@@ -549,6 +549,111 @@ type Inventory = Readonly<{
   present: boolean;
   kind: "file" | "directory";
 }>;
+
+/* ------------------------------------------------- open-deposit release evidence
+ * Defect (repaired 2026-09-17): R06 failed unconditionally whenever the app
+ * offered deposits, so the fully evidenced open-pilot state the deposit gate
+ * exists for could never pass release acceptance. The repair keeps the
+ * condition at least as strict and fail-closed: offered deposits are accepted
+ * only when this evaluator independently re-derives every admission condition
+ * from a fresh route-state row (read here through the app's exported
+ * DEPOSIT_SERVICE_SQL locator against the least-privilege observation role)
+ * plus this verifier's own fresh chain batch and consumed-report view. The
+ * gate helper's projected booleans alone are never proof; every raw field that
+ * the row exposes is re-checked here. This evaluator is pure so the controlled
+ * mutation cases in R06 can prove both directions. It never calls
+ * matchDepositService. */
+const OPEN_DEPOSIT_EVALUATION = {
+  observationClockSkewMs: 2_000,
+  observationMaxAgeMs: 15_000,
+  /** Batch/report coherence window, matching the declared R02 slot bounds. */
+  maxObservationSlotDrift: 32,
+  maxCapRaw: 100_000_000n,
+} as const;
+
+type DepositReleaseCore = {
+  slot: number;
+  assetTotalValue: bigint;
+  idleCustodyRaw: bigint;
+  managerCustody: { exists: boolean; amountRaw: bigint } | null;
+  maxCapRaw: bigint;
+};
+
+type DepositReleaseReport = {
+  status: string;
+  reportSignature?: string;
+  reportConfirmedSlot?: number;
+  lastNavRaw?: string;
+  bindingsMatchPinned?: boolean;
+};
+
+type DepositReleaseEvaluation = { open: true } | { open: false; reason: string };
+
+function evaluateOpenDepositRelease(
+  core: DepositReleaseCore,
+  report: DepositReleaseReport,
+  row: Record<string, unknown>
+): DepositReleaseEvaluation {
+  const closed = (reason: string): DepositReleaseEvaluation => ({ open: false, reason });
+  if (
+    report.status !== "fresh" ||
+    !report.reportSignature ||
+    !report.reportConfirmedSlot ||
+    typeof report.lastNavRaw !== "string" ||
+    report.bindingsMatchPinned !== true
+  )
+    return closed("consumed-report evidence is not fresh, finalized and pinned-binding verified");
+  if (row.release_active !== true) return closed("the worker release lease is not active");
+  if (row.pilot_active !== true) return closed("the capped pilot budget authority is not activated");
+  if (row.no_manual_hold !== true) return closed("a manual recovery latch is open");
+  if (row.no_pending !== true) return closed("an unresolved worker operation is pending");
+  if (row.last_action !== "REPORT_NAV")
+    return closed("the newest reconciled operation is not the consumed REPORT_NAV");
+  if (row.last_signature !== report.reportSignature)
+    return closed("the newest reconciled operation does not match the consumed report signature");
+  if (row.last_confirmed_slot !== String(report.reportConfirmedSlot))
+    return closed("the newest reconciled operation slot does not match the consumed report slot");
+  const observation = row.observation;
+  if (!observation || typeof observation !== "object" || Array.isArray(observation))
+    return closed("the worker observation payload is missing");
+  const view = observation as Record<string, unknown>;
+  const now = typeof row.database_now === "string" ? Date.parse(row.database_now) : NaN;
+  const at = typeof view.observedAt === "string" ? Date.parse(view.observedAt) : NaN;
+  if (!Number.isFinite(now) || !Number.isFinite(at))
+    return closed("worker observation timestamps are not parseable");
+  if (
+    now - at < -OPEN_DEPOSIT_EVALUATION.observationClockSkewMs ||
+    now - at > OPEN_DEPOSIT_EVALUATION.observationMaxAgeMs
+  )
+    return closed("the worker observation is not fresh against the route-state clock");
+  if (!Number.isSafeInteger(view.observedSlot))
+    return closed("the worker observation slot is not an integer");
+  const observedSlot = Number(view.observedSlot);
+  if (
+    observedSlot < core.slot - OPEN_DEPOSIT_EVALUATION.maxObservationSlotDrift ||
+    observedSlot > core.slot + OPEN_DEPOSIT_EVALUATION.maxObservationSlotDrift
+  )
+    return closed("the worker observation slot is not coherent with this verifier's chain batch");
+  if (observedSlot < report.reportConfirmedSlot)
+    return closed("the worker observation predates the consumed report");
+  if (view.navFresh !== true) return closed("the worker observation is not NAV-fresh");
+  if (!["idle", "positioned"].includes(String(view.routeStatus)))
+    return closed("the route is not idle or positioned");
+  if (!core.managerCustody || view.squadsIdleRaw !== core.managerCustody.amountRaw.toString())
+    return closed("the worker's smart-account custody does not match the chain batch");
+  if (
+    view.aumRaw !== core.assetTotalValue.toString() ||
+    view.voltrIdleRaw !== core.idleCustodyRaw.toString()
+  )
+    return closed("the worker's vault NAV/idle values do not match the chain batch");
+  if (view.computedStrategyNavRaw !== report.lastNavRaw || view.reportedNavRaw !== report.lastNavRaw)
+    return closed("the worker's strategy NAV does not match the consumed report");
+  if (view.voltrStrategyIdleRaw !== "0") return closed("unexpected strategy idle value");
+  if (core.maxCapRaw <= 0n || core.maxCapRaw > OPEN_DEPOSIT_EVALUATION.maxCapRaw)
+    return closed("the on-chain deposit cap is not a positive capped-pilot limit");
+  if (core.assetTotalValue >= core.maxCapRaw) return closed("the pilot vault is at its deposit limit");
+  return { open: true };
+}
 
 function inventory(): Inventory[] {
   return EXPECTED_APP_FILES.map((relative) => {
@@ -1946,6 +2051,7 @@ async function main() {
       // cached observation, chain time comes from the clock sysvar, NAV
       // freshness is never claimed without proof, and deposits stay
       // unavailable without worker service evidence.
+      let depositsOffered: string | null = null;
       const readModel = await import(
         "../src/features/vault/server/vault-observation"
       );
@@ -1970,8 +2076,14 @@ async function main() {
             BigInt(observation.navFreshness.lastSequence ?? "0") === 0n)
         )
           c.fail("NAV freshness was claimed without adaptor report proof");
+        // The former unconditional failure here could never accept the fully
+        // evidenced open-pilot state (release acceptance defect, repaired
+        // 2026-09-17). Offered deposits are instead verified below against a
+        // fresh consumed-report view of the same independently read chain
+        // batch and a fresh route-state row; missing or mismatched evidence
+        // still fails.
         if (observation.serviceState.deposits !== "unavailable")
-          c.fail("deposits are offered without worker service evidence");
+          depositsOffered = observation.serviceState.depositsReason ?? "deposits offered";
         if (
           observation.allocation.unknownExposure.length > 0 &&
           observation.allocation.reconciliation === "reconciled"
@@ -1985,6 +2097,117 @@ async function main() {
           provenance: "chain-read",
           slot: observation.freshness.observedSlot,
           observedAt: observation.valuation.observedAt,
+        });
+      }
+      /* Controlled proof that the open-deposit evaluator accepts one coherent
+       * evidence row and refuses every mutated admission condition. These are
+       * controlled inputs proving the evaluator both ways, not live release
+       * acceptance. */
+      {
+        const controlledCore: DepositReleaseCore = {
+          slot: 1000,
+          assetTotalValue: 5_000_023n,
+          idleCustodyRaw: 23n,
+          managerCustody: { exists: true, amountRaw: 0n },
+          maxCapRaw: 100_000_000n,
+        };
+        const controlledReport: DepositReleaseReport = {
+          status: "fresh",
+          reportSignature: "controlled-signature",
+          reportConfirmedSlot: 998,
+          lastNavRaw: "5000000",
+          bindingsMatchPinned: true,
+        };
+        const controlledRow = {
+          database_now: "2026-09-17T00:00:10Z",
+          release_active: true,
+          pilot_active: true,
+          no_manual_hold: true,
+          no_pending: true,
+          last_action: "REPORT_NAV",
+          last_signature: "controlled-signature",
+          last_confirmed_slot: "998",
+          observation: {
+            observedAt: "2026-09-17T00:00:05Z",
+            observedSlot: 1010,
+            navFresh: true,
+            routeStatus: "positioned",
+            aumRaw: "5000023",
+            voltrIdleRaw: "23",
+            squadsIdleRaw: "0",
+            computedStrategyNavRaw: "5000000",
+            reportedNavRaw: "5000000",
+            voltrStrategyIdleRaw: "0",
+          },
+        };
+        if (!evaluateOpenDepositRelease(controlledCore, controlledReport, controlledRow).open)
+          c.fail("the open-deposit evaluator refused a fully coherent controlled evidence row");
+        let refused = 0;
+        const expectClosed = (label: string, evaluation: DepositReleaseEvaluation) => {
+          if (evaluation.open) c.fail(`open-deposit evaluator accepted mutated evidence: ${label}`);
+          else refused += 1;
+        };
+        for (const patch of [
+          { release_active: false },
+          { release_active: "true" },
+          { pilot_active: false },
+          { no_manual_hold: false },
+          { no_pending: false },
+          { last_action: "OPEN_ROUTE_STEP" },
+          { last_signature: "different-report" },
+          { last_confirmed_slot: "999" },
+          { database_now: "invalid" },
+          { database_now: "2026-09-17T00:01:00Z" },
+          { observation: null },
+          { observation: [] },
+        ] as const)
+          expectClosed(`row:${Object.keys(patch)[0]}`, evaluateOpenDepositRelease(controlledCore, controlledReport, { ...controlledRow, ...patch }));
+        for (const patch of [
+          { observedAt: "2026-09-17T00:01:00Z" },
+          { observedSlot: 967 },
+          { observedSlot: 1033 },
+          { observedSlot: "1010" },
+          { observedSlot: 997 },
+          { navFresh: false },
+          { routeStatus: "withdrawal_pending" },
+          { routeStatus: "unknown" },
+          { aumRaw: "5000024" },
+          { voltrIdleRaw: "24" },
+          { squadsIdleRaw: "1" },
+          { computedStrategyNavRaw: "4999999" },
+          { reportedNavRaw: "4999999" },
+          { voltrStrategyIdleRaw: "1" },
+        ] as const)
+          expectClosed(
+            `observation:${Object.keys(patch)[0]}`,
+            evaluateOpenDepositRelease(controlledCore, controlledReport, {
+              ...controlledRow,
+              observation: { ...controlledRow.observation, ...patch },
+            })
+          );
+        for (const patch of [
+          { status: "unknown" },
+          { status: "stale" },
+          { reportSignature: undefined },
+          { reportConfirmedSlot: undefined },
+          { lastNavRaw: undefined },
+          { bindingsMatchPinned: false },
+        ] as const)
+          expectClosed(`report:${Object.keys(patch)[0]}`, evaluateOpenDepositRelease(controlledCore, { ...controlledReport, ...patch }, controlledRow));
+        for (const patch of [
+          { slot: 977 },
+          { managerCustody: null },
+          { maxCapRaw: 0n },
+          { maxCapRaw: 100_000_001n },
+          { maxCapRaw: controlledCore.assetTotalValue },
+        ] as const)
+          expectClosed(`core:${Object.keys(patch)[0]}`, evaluateOpenDepositRelease({ ...controlledCore, ...patch }, controlledReport, controlledRow));
+        if (refused !== 12 + 14 + 6 + 5)
+          c.fail(`open-deposit mutation coverage drifted: refused=${refused}, expected 37`);
+        c.add("controlled-runtime", {
+          kind: "open-deposit-release-evaluator",
+          detail: `1 coherent evidence row accepted; ${refused} mutated conditions refused across lease, pilot authority, manual hold, pending work, report identity/slot, observation freshness/slot coherence, NAV/custody equality and cap bounds. Controlled inputs, not live release acceptance.`,
+          provenance: "controlled-runtime",
         });
       }
       /* Controlled checks: the RPC envelope, null and failure semantics, and
@@ -2188,6 +2411,7 @@ async function main() {
 
       /* The public endpoint is probed once, then the batch validation path is
        * driven with real account data and controlled mutations. */
+      const batchStartedAt = performance.now();
       const publicProbe = new BoundedRpc(rpcUrl);
       const publicGenesis = await publicProbe.getGenesisHash();
       if (!publicGenesis.ok)
@@ -2366,6 +2590,127 @@ async function main() {
         provenance: "chain-read",
         slot,
       });
+
+      if (depositsOffered !== null) {
+        // Repaired release acceptance: offered deposits must be proven by
+        // independently checked runtime evidence — the pinned deployed worker
+        // lease/image identity, activated capped pilot authority, no pending
+        // or manual hold, the newest reconciled action matching the consumed
+        // REPORT_NAV signature and slot, worker NAV/custody equal to this
+        // verifier's own fresh chain batch, and capped headroom. Fail-closed:
+        // any missing or mismatched piece fails the check.
+        if (!coreOk.ok) {
+          c.fail(
+            `deposits are offered (${depositsOffered}) but the coherent chain batch is invalid: ${coreOk.reason}`
+          );
+        } else {
+          const enabled = process.env.LOYAL_VAULT_DEMO_DEPOSITS_ENABLED === "1";
+          const image = process.env.LOYAL_VAULT_DEMO_WORKER_IMAGE;
+          const service = process.env.LOYAL_VAULT_DEMO_WORKER_SERVICE_ID;
+          const dbUrl = process.env.LOYAL_VAULT_DEMO_OBSERVATION_DATABASE_URL;
+          if (!enabled)
+            c.fail("deposits are offered while LOYAL_VAULT_DEMO_DEPOSITS_ENABLED is not 1");
+          if (!image || !/^sha-[a-f0-9]{40}$/.test(image))
+            c.fail(
+              "deposits are offered without a well-formed immutable LOYAL_VAULT_DEMO_WORKER_IMAGE pin (sha-<40 hex>)"
+            );
+          if (!service || !/^srv-[a-z0-9]+$/.test(service))
+            c.fail("deposits are offered without a well-formed LOYAL_VAULT_DEMO_WORKER_SERVICE_ID pin");
+          if (!dbUrl)
+            c.fail(
+              "deposits are offered without least-privilege route-state access (LOYAL_VAULT_DEMO_OBSERVATION_DATABASE_URL)"
+            );
+          if (enabled && image && service && dbUrl) {
+            try {
+              // One bounded evidence window covering the chain batch, the
+              // consumed-report verification against that same batch's
+              // ticket/receipt, and the fresh route-state read.
+              const remainingMs = () =>
+                Math.floor(batchStartedAt + RPC_BOUNDS.maxStalenessMs - performance.now());
+              if (remainingMs() <= 0) {
+                c.fail(
+                  "deposits are offered but the shared batch/report/route-state evidence deadline expired"
+                );
+              } else {
+                const { readConsumedReport } = await import(
+                  "../src/features/vault/server/consumed-report"
+                );
+                // Re-verified against coreOk.core itself: the cached shared
+                // observation may carry a different consumed sequence than the
+                // batch this verifier read independently.
+                const report = await readConsumedReport(coreOk.core, batchStartedAt);
+                const remaining = remainingMs();
+                if (remaining <= 0) {
+                  c.fail(
+                    "deposits are offered but the shared batch/report/route-state evidence deadline expired"
+                  );
+                } else {
+                  const { neon } = await import("@neondatabase/serverless");
+                  const { DEPOSIT_SERVICE_SQL } = await import(
+                    "../src/features/vault/server/deposit-service"
+                  );
+                  const sql = neon(dbUrl);
+                  const [rows] = await sql.transaction(
+                    [
+                      sql.query(DEPOSIT_SERVICE_SQL, [
+                        `rwa-multiply:${APP_IDENTITY.manager}`,
+                        // The lease parameter binds the row to the pinned image
+                        // and service: release_active can only be true when the
+                        // live lease owner is exactly this identity.
+                        `render:${service}:${image}`,
+                        APP_IDENTITY.adaptorConfigStrategy,
+                      ]),
+                    ],
+                    {
+                      readOnly: true,
+                      isolationLevel: "RepeatableRead",
+                      fetchOptions: { signal: AbortSignal.timeout(remaining) },
+                    }
+                  );
+                  if (remainingMs() <= 0) {
+                    c.fail("deposits are offered but the shared batch/report/route-state evidence deadline expired");
+                  } else if (rows.length !== 1) {
+                    c.fail(
+                      `deposits are offered (${depositsOffered}) but the pinned release lease/pilot route state returned ${rows.length} rows`
+                    );
+                  } else {
+                    const evaluation = evaluateOpenDepositRelease(
+                      {
+                        slot: coreOk.core.slot,
+                        assetTotalValue: coreOk.core.assetTotalValue,
+                        idleCustodyRaw: coreOk.core.idleCustodyRaw,
+                        managerCustody: coreOk.core.managerCustody,
+                        maxCapRaw: coreOk.core.vault.vaultConfiguration.maxCap,
+                      },
+                      report,
+                      rows[0]!
+                    );
+                    if (!evaluation.open) {
+                      c.fail(
+                        `deposits are offered (${depositsOffered}) without independently verified servicing evidence: ${evaluation.reason}`
+                      );
+                    } else {
+                      c.add("reconciliation", {
+                        kind: "open-deposit-release-evidence",
+                        detail: `deposits offered (${depositsOffered}) and independently re-derived at chain slot ${coreOk.core.slot}: active release lease bound to the pinned ${image} on ${service}, activated capped pilot authority, no manual hold, no pending operation, newest reconciled action REPORT_NAV matching the freshly verified consumed-report signature/slot, worker NAV/idle/smart-account custody equal to this verifier's own batch, strategy NAV equal to the consumed report, on-chain cap within (0,100 USDC] with headroom. Evidence limitations: the Render-side image deployment itself is trusted from the env pin plus live lease identity (no Render API proof here), and financed wallet-flow and rotation proofs remain separate gates (R08/plan).`,
+                        provenance: "reconciliation",
+                        slot: coreOk.core.slot,
+                        observedAt: new Date().toISOString(),
+                      });
+                    }
+                  }
+                }
+              }
+            } catch {
+              // Fixed sanitized reason: database/RPC errors can carry endpoint
+              // or credential fragments and never enter the report.
+              c.fail(
+                `deposits are offered (${depositsOffered}) but the fresh report/route-state evidence read failed within the bounded deadline`
+              );
+            }
+          }
+        }
+      }
 
       if (process.env.LOYAL_VAULT_DEMO_VERIFY_READ_BUDGET === "1") {
         try {
