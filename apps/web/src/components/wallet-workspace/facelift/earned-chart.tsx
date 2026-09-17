@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   deriveEstimatedEarnedAmountApyBps,
@@ -8,13 +8,11 @@ import {
   EARNINGS_DAILY_RANGE_ID,
   EARNINGS_LIFETIME_RANGE_ID,
   EarningsChartLoader,
-  formatMaxDailyEarningsLabel,
   formatSignedEarningsAmount,
   splitEarningsHeaderValue,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
   ScrambledPopDigits,
-  ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { getEarnEarningsCacheKey } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
@@ -23,7 +21,6 @@ import type { EarnPositionData } from "@/components/wallet-workspace/facelift/us
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useEarnEarnings } from "@/hooks/use-earn-earnings";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
-import { formatEarnApyPercent } from "@/lib/kamino/earn-forecast.shared";
 import { rawTokenAmountToNumber } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import { deriveEarnEarningsDisplayAmounts } from "@/lib/yield-optimization/earnings-display.shared";
 
@@ -127,33 +124,16 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   );
   const hoveredBarEntry =
     hoveredBar !== null ? dailyBars[hoveredBar] ?? null : null;
-  const hoveredApyBps = hoveredBarEntry
-    ? hoveredBarEntry.isCurrent
-      ? dailyData?.currentApyBps ?? hoveredBarEntry.apyBps
-      : hoveredBarEntry.apyBps
-    : null;
-  const hoveredDateLabel = hoveredBarEntry
-    ? hoveredBarEntry.isCurrent
-      ? `Today, ${hoveredBarEntry.label}`
-      : hoveredBarEntry.label
-    : "";
   const headerValue = splitEarningsHeaderValue(
     hoveredBarEntry
       ? Math.max(0, hoveredBarEntry.earnedUsd)
       : estimatedEarnedAmounts.lifetimeEarnedUsd
   );
-  let headerSubtitle: ReactNode;
-  if (!hoveredBarEntry) {
-    headerSubtitle = earningsStale ? "Updating earnings…" : "Total earned";
-  } else if (hoveredApyBps !== null) {
-    headerSubtitle = `with ${formatEarnApyPercent(hoveredApyBps)} APY`;
-  } else if (hoveredBarEntry.isCurrent) {
-    headerSubtitle = `${hoveredBarEntry.label}, Now`;
-  } else {
-    headerSubtitle = hoveredDateLabel;
-  }
-  const hoveredDateRowLabel =
-    hoveredBarEntry && hoveredApyBps !== null ? hoveredDateLabel : "";
+  const headerSubtitle = hoveredBarEntry
+    ? `Your reward for ${hoveredBarEntry.label}`
+    : earningsStale
+    ? "Updating earnings…"
+    : "Total earned";
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
@@ -230,27 +210,16 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
                   popOnChange={false}
                   segments={[
                     { text: `$${headerValue.whole}` },
-                    { color: "var(--tertiary)", text: `.${headerValue.fraction}` },
+                    {
+                      color: "var(--tertiary)",
+                      text: `.${headerValue.fraction}`,
+                    },
                   ]}
                 />
               )}
             </SkeletonReveal>
           )}
         </p>
-      </div>
-
-      <div className="flex w-full justify-between pb-2 text-[13px] leading-4 text-tertiary">
-        <span>{hoveredDateRowLabel}</span>
-        <span>
-          <ScrambleText
-            isHidden={isBalanceHidden}
-            text={
-              earningsUnavailable || showEarningsLoader
-                ? ""
-                : formatMaxDailyEarningsLabel(maxDailyEarnedUsd)
-            }
-          />
-        </span>
       </div>
 
       <div

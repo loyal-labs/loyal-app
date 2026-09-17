@@ -23,7 +23,10 @@ import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty
 import { EarnMaxPage } from "@/components/wallet-workspace/facelift/earn-max-pane";
 import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
-import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
+import {
+  AUTOSWAP_HIDDEN,
+  EarnPositionPane,
+} from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import {
@@ -487,7 +490,7 @@ export function WorkspaceFaceliftShell() {
                           setMiddleView("deposit");
                         }}
                         onManageAutoswap={
-                          earnData.autoswapConfig
+                          earnData.autoswapConfig && !AUTOSWAP_HIDDEN
                             ? () => setMiddleView("autoswap")
                             : undefined
                         }
