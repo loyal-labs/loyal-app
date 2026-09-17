@@ -1,0 +1,4 @@
+{
+  "installCommand": "cd ../.. && bun install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "cd ../.. && bunx turbo run build --filter='@loyal-labs/loyal-vault-demo^...' && cd apps/loyal-vault-demo && bun run --bun next build"
+}

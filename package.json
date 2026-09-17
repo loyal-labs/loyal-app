@@ -9,6 +9,7 @@
     "apps/dashboard",
     "apps/extension",
     "apps/privy-showcase",
+    "apps/loyal-vault-demo",
     "apps/web",
     "packages/*",
     "apps/userbot"

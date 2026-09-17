@@ -1,0 +1,407 @@
+{
+  "quote": {
+    "schemaVersion": "loyal-vault-demo.transaction-preparation/1",
+    "action": "claim",
+    "wallet": "2hokiZ78kvS1PEhrpAd3rDDDnGSibj95X5e6cPWi3c1p",
+    "cluster": "mainnet-beta",
+    "bound": {
+      "vault": "HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA",
+      "voltrProgram": "vVoLTRjQmtFpiYoegx285Ze4gsLJ8ZxgFKVcuvmG1a8",
+      "assetMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "assetDecimals": 6,
+      "lpMint": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+      "lpDecimals": 9
+    },
+    "transaction": {
+      "wireBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAFDRlPyK3TMqYvgYXFy/Q77effnNBTk3lRA6ECT+pgNusbNhHzAFzTk0/9lA1vm5GsaGY2CWp6J8WlmVtfB3ThSvJPMyvqd2k0dfEcNss/2naLB0k1uKbwChhEvb/oiAsWLFdzl9JjENQYuJiCstVvNdVLim/uzkVcmI+88T52s4uYeX0bD6wAHbRkKezrq/KvycaLaRKq2iTYZuixUmiYtIO7NxSD1A0QfBayI+Erve6hLJXfHjmkqvpWZ2iyqwwM780D2fs8MPU1/u3XzXPd+8eU/24giwbt0aIxiB4EpiKe9aTrVhjQn9co+5P34M1i0nEE2OPK2RXEfVtWWBF9b1cAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADmiHQXaTAIv6lEWz/dCOSe+qRw0i2ULf7IjpYaxdH7hxvp6877brTo9ZfNqq8l0MbG75MLS9uDkfKYCA0UvXWEG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqQ20WIwAKC45BryQ95DUcGgR6MwkspzKmRtNcNs6pY05iXoI5MpUDBD1aWyxeUxKSOAIIOxaF/c9vD/bRLpVgB4BDA0ACQcKAwQCBgUBCwsICIcH7XiVXl8HAA==",
+      "wireByteLength": 544,
+      "feePayer": "2hokiZ78kvS1PEhrpAd3rDDDnGSibj95X5e6cPWi3c1p",
+      "requiredSigners": [
+        "2hokiZ78kvS1PEhrpAd3rDDDnGSibj95X5e6cPWi3c1p"
+      ],
+      "signaturesZeroed": true,
+      "blockhash": "AFenQ8NKLk3ubr9VnNvJduc3hT6jAksKqcRLPXGD9nz1",
+      "lastValidBlockHeight": "422468801",
+      "instructions": [
+        {
+          "index": 0,
+          "programAddress": "vVoLTRjQmtFpiYoegx285Ze4gsLJ8ZxgFKVcuvmG1a8",
+          "discriminatorBase58": "PayEVn8xXve",
+          "dataLength": 8,
+          "accounts": [
+            {
+              "index": 0,
+              "label": "userTransferAuthority",
+              "address": "2hokiZ78kvS1PEhrpAd3rDDDnGSibj95X5e6cPWi3c1p",
+              "signer": true,
+              "writable": true
+            },
+            {
+              "index": 1,
+              "label": "protocol",
+              "address": "4sycXz9Xwevedo6eiXR8QEhY8yrQrkNS4G1deY9tAD2Y",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "index": 2,
+              "label": "vault",
+              "address": "HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "index": 3,
+              "label": "vaultAssetMint",
+              "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "index": 4,
+              "label": "vaultLpMint",
+              "address": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "index": 5,
+              "label": "requestWithdrawLpAta",
+              "address": "9BEyaknCU3CU8scJRpwSjVBBxqwY5YMUWxg8NJUxuHJz",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "index": 6,
+              "label": "vaultAssetIdleAta",
+              "address": "6LATwaB4yRwGURCBDyFeJGqofaXxb6xXws9wBGbr3RBh",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "index": 7,
+              "label": "vaultAssetIdleAuth",
+              "address": "EoHz6FHTL34F6HjuJmb5EceaRqxRG1RMYwYWKtWkGBFb",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "index": 8,
+              "label": "userAssetAta",
+              "address": "DboxFfCHvDynMoQFTWmCJN3yogGogcA59K5PWs5ZkNyL",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "index": 9,
+              "label": "requestWithdrawVaultReceipt",
+              "address": "4e4tdBBKD5wcPkzdkGKdiz5jj2Mr5T7vdXsQKVBxBTmK",
+              "signer": false,
+              "writable": true
+            },
+            {
+              "index": 10,
+              "label": "assetTokenProgram",
+              "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "index": 11,
+              "label": "lpTokenProgram",
+              "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+              "signer": false,
+              "writable": false
+            },
+            {
+              "index": 12,
+              "label": "systemProgram",
+              "address": "11111111111111111111111111111111",
+              "signer": false,
+              "writable": false
+            }
+          ]
+        }
+      ],
+      "messageSha256": "b1efd4670dd553292d29818fbbc770098c5f918dd441a8bb9830b3acf1e6904a"
+    },
+    "preview": {
+      "action": "claim",
+      "exactInputs": {
+        "lpBurnedRaw": "99941522",
+        "estimatedUsdcPayoutRaw": "1472834",
+        "amountSource": "on-chain request-withdraw receipt: the program pays the lower of request-time and present value"
+      },
+      "estimates": [
+        {
+          "label": "LP burned from the request escrow",
+          "amount": {
+            "raw": "99941522",
+            "mint": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+            "decimals": 9
+          },
+          "exact": true
+        },
+        {
+          "label": "USDC paid to wallet",
+          "amount": {
+            "raw": "1472834",
+            "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6
+          },
+          "exact": false,
+          "note": "Payout is recomputed at execution; the receipt recorded 1767782 raw at request time"
+        }
+      ],
+      "feesBps": {},
+      "sol": {
+        "feeLamports": "5000",
+        "rentLamports": "0",
+        "totalLamports": "5000",
+        "source": "Estimated cost: base fee at 5,000 lamports per signature (no priority fee is added) plus the rent-exempt minimum for accounts this transaction creates; the fee payer is the wallet"
+      },
+      "waiting": null,
+      "executionSemantics": "The claim instruction carries no amount and no destination: both come from the receipt bound to this wallet, and the program burns the escrowed LP."
+    },
+    "prerequisites": [
+      {
+        "key": "deadline",
+        "state": "ok",
+        "detail": "receipt became claimable at unix 1788493649; chain time is 1788581209",
+        "blocks": false
+      },
+      {
+        "key": "vault-idle-usdc",
+        "state": "ok",
+        "detail": "vault holds 3793417 raw idle USDC against a payout of 1472834",
+        "blocks": false
+      }
+    ],
+    "observation": {
+      "vaultSlot": 444423714,
+      "vaultObservedAt": "2026-09-05T04:06:49.000Z",
+      "positionSlot": 444423714,
+      "positionObservedAt": "2026-09-05T04:06:49.000Z",
+      "snapshotCoherent": true,
+      "navStatus": "unknown",
+      "navDetail": "the custom adaptor has never published a report: lastSequence is 0 in this read, so no NAV freshness can be claimed and the vault's lastUpdatedTs stays a manager write",
+      "idleCustody": {
+        "raw": "3793417",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6
+      },
+      "workerObservation": {
+        "state": "unavailable",
+        "detail": "no deposit worker service evidence is available to this read model; deposits are not offered and are never simulated pending withdrawal receipts are read on chain; an eligible claim remains claimable by the wallet itself regardless of this read-only surface"
+      }
+    },
+    "quote": {
+      "preparedAt": "2026-09-05T04:07:00.558Z",
+      "validForBlockHeight": "422468801",
+      "expiresWhen": "the quoted blockhash stops being accepted after block 422468801, and the preview figures are only as current as the slots disclosed above: re-quote before signing when either is older than 15000ms",
+      "maxStalenessMs": 15000
+    },
+    "warnings": [
+      "vault NAV is not fresh at this snapshot: the custom adaptor has never published a report: lastSequence is 0 in this read, so no NAV freshness can be claimed and the vault's lastUpdatedTs stays a manager write"
+    ]
+  },
+  "position": {
+    "schemaVersion": "loyal-vault-demo.position-observation/1",
+    "wallet": "2hokiZ78kvS1PEhrpAd3rDDDnGSibj95X5e6cPWi3c1p",
+    "solLamports": "1062030556",
+    "usdc": {
+      "balance": {
+        "raw": "3022630",
+        "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6
+      },
+      "accountAddress": "8SoPTUZ4tcSXHJ3M4WMV6sMCAiAb26S2H51h34Pb24Ce"
+    },
+    "lp": {
+      "balance": {
+        "raw": "0",
+        "mint": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+        "decimals": 9
+      },
+      "accountAddress": "ZvsW29zAXZwMayzP9jAVBryRi5rt6X7em5vYdhKGbvZ"
+    },
+    "escrowedLp": {
+      "raw": "99941522",
+      "mint": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+      "decimals": 9
+    },
+    "escrowTokenAccountBalance": {
+      "raw": "99941522",
+      "mint": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+      "decimals": 9
+    },
+    "receipt": {
+      "receiptAddress": "8eufrxGC9Djf7ekcoWnyewKvYz4GgjtmLLpB8HBji99e",
+      "user": "BAqgbERmvUViqDSx961xpRBHGt68SpACiWL4t9696qZZ",
+      "escrowedLp": {
+        "raw": "99941522",
+        "mint": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+        "decimals": 9
+      },
+      "assetAtRequestRaw": "1767782",
+      "assetAtPresentRaw": "1472834",
+      "assetEffectiveRaw": "1472834",
+      "withdrawableFromTs": "1788493649",
+      "withdrawableFromTsIso": "2026-09-04T03:47:29.000Z",
+      "eligibility": "eligible",
+      "secondsRemaining": "0",
+      "escrowedLpCountedInWalletBalance": false
+    },
+    "valuation": {
+      "quoteUnit": "USDC",
+      "source": "token-account",
+      "slot": 444423714,
+      "observedAt": "2026-09-05T04:06:49.000Z"
+    },
+    "freshness": {
+      "observedSlot": 444423714,
+      "observedAt": "2026-09-05T04:06:49.000Z",
+      "snapshotCoherent": true,
+      "componentSlots": {
+        "batch": 444423714,
+        "vaultSnapshot": 444423714
+      }
+    },
+    "unavailable": []
+  },
+  "purpose": "Controlled browser fixture only. Not current chain evidence or a funded wallet.",
+  "vault": {
+    "schemaVersion": "loyal-vault-demo.vault-observation/1",
+    "identity": {
+      "vault": "HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA",
+      "voltrProgram": "vVoLTRjQmtFpiYoegx285Ze4gsLJ8ZxgFKVcuvmG1a8",
+      "assetMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "assetDecimals": 6,
+      "lpMint": "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
+      "lpDecimals": 9,
+      "manager": "ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh",
+      "admin": "BAqgbERmvUViqDSx961xpRBHGt68SpACiWL4t9696qZZ"
+    },
+    "terms": {
+      "withdrawalWaitingPeriodSeconds": "600",
+      "lockedProfitDegradationSeconds": "86400",
+      "maxCapRaw": "1000000000000",
+      "issuanceFeeBps": "0",
+      "redemptionFeeBps": "0",
+      "managerPerformanceFeeBps": "0",
+      "adminPerformanceFeeBps": "500",
+      "managementFeeBpsTotal": "0"
+    },
+    "assetTotalValue": {
+      "raw": "2793298",
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "decimals": 6
+    },
+    "idleCustody": {
+      "raw": "3793417",
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "decimals": 6
+    },
+    "lpSupplyBreakdown": {
+      "circulating": "99941522",
+      "unharvestedFees": "89601150",
+      "deadWeight": "1000",
+      "unrealisedFees": "0",
+      "total": "189543672"
+    },
+    "allocation": {
+      "components": [
+        {
+          "key": "vault-asset-idle-custody",
+          "kind": "idle-custody",
+          "owner": "HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA",
+          "amount": {
+            "raw": "3793417",
+            "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6
+          },
+          "note": "the idle ATA recorded in the vault account, authority-checked against the derived idle authority"
+        }
+      ],
+      "reportedStrategyValues": [
+        {
+          "key": "strategy-9hDH4acTDrSjg9d5n8c1g53jMTonaDAUesp1diCWuuhj",
+          "kind": "strategy-custody",
+          "owner": "9hDH4acTDrSjg9d5n8c1g53jMTonaDAUesp1diCWuuhj",
+          "amount": {
+            "raw": "2793417",
+            "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6
+          },
+          "note": "strategy-init receipt 3GHLmyTTGH9ZfQqb3YCo9xKjpPhMLvHsq2JSYzCnk9U6; adaptor FSj27QT2PtP7365pQRtgSAwSwk5h2m2ATCBoXQjwTSxW; manager-written value, not a NAV observation",
+          "lastUpdatedTs": "1788497414"
+        }
+      ],
+      "knownTotalRaw": "3793417",
+      "unknownExposure": [
+        {
+          "key": "unattributed-exposure",
+          "kind": "unknown",
+          "amount": {
+            "raw": "1000119",
+            "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "decimals": 6
+          },
+          "unknownReason": "attributed components exceed the vault's reported total value; accounting mismatch"
+        }
+      ],
+      "reconciliation": "unknown-exposure"
+    },
+    "perLpQuote": {
+      "raw": "14736962",
+      "lpUnitRaw": "1000000000",
+      "lockedProfitRaw": "0",
+      "redemptionFeeBps": 0
+    },
+    "lockedProfitRaw": "0",
+    "valuation": {
+      "quoteUnit": "USDC",
+      "source": "voltr-vault-account",
+      "slot": 444419850,
+      "observedAt": "2026-09-05T03:46:32.000Z"
+    },
+    "freshness": {
+      "vaultLastUpdatedTs": "1788497414",
+      "vaultLastUpdatedTsIso": "2026-09-04T04:50:14.000Z",
+      "observedSlot": 444419850,
+      "observedAt": "2026-09-05T03:46:32.000Z",
+      "snapshotCoherent": true,
+      "componentSlots": {
+        "batch": 444419850,
+        "vaultAccount": 444419850
+      },
+      "maxStalenessMs": 15000,
+      "chainTimeSource": "clock-sysvar"
+    },
+    "navFreshness": {
+      "status": "unknown",
+      "detail": "the custom adaptor has never published a report: lastSequence is 0 in this read, so no NAV freshness can be claimed and the vault's lastUpdatedTs stays a manager write",
+      "vaultLastUpdatedTs": "1788497414",
+      "observedSlot": 444419850,
+      "adaptorProgram": "FSj27QT2PtP7365pQRtgSAwSwk5h2m2ATCBoXQjwTSxW",
+      "configAddress": "9hDH4acTDrSjg9d5n8c1g53jMTonaDAUesp1diCWuuhj",
+      "lastSequence": "0",
+      "lastObservedSlot": "0",
+      "lastNavRaw": "0",
+      "maxReportNavRaw": "2000000000000",
+      "maxReportAgeSlots": "32",
+      "bindingsMatchPinned": true
+    },
+    "serviceState": {
+      "deposits": "unavailable",
+      "depositsReason": "no deposit worker service evidence is available to this read model; deposits are not offered and are never simulated",
+      "withdrawals": "read-only",
+      "withdrawalsNote": "pending withdrawal receipts are read on chain; an eligible claim remains claimable by the wallet itself regardless of this read-only surface"
+    },
+    "unavailable": [],
+    "disclosures": [
+      "strategy 4MetvifzuZShQ5zUhff4mVvwpu3kfKcqYfuY8pW7Zy9B has no strategy-init receipt; it contributes no attributed exposure",
+      "Full strategy custody and Kamino valuation have not been reconciled with this vault snapshot; matching partial totals do not prove complete allocation."
+    ]
+  }
+}
