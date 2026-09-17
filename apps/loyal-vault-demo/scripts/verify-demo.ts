@@ -1379,7 +1379,62 @@ async function main() {
             observedAt,
             bindingState: config.bindingsMatchPinned ? "chain-verified" : "chain-rejected",
           });
-          c.fail("NAV freshness requires consumed report evidence; the deployed v2 config reserves its historical report fields as zero");
+          // Repaired 2026-09-17: this was an unconditional failure, so a
+          // healthy release with a real consumed report could never pass. The
+          // v2 config's reserved zero report fields are expected semantics,
+          // never report evidence. NAV freshness instead requires actual
+          // bounded consumed-report proof against a coherent batch read here;
+          // the fail-closed branch below keeps R00 failing while no fresh
+          // pinned consumed proof exists (the current runtime state).
+          const navEvidenceStartedAt = performance.now();
+          const navBatch = await deriveVaultBatchAddresses();
+          const navIdleAuthority = await deriveIdleAuthority();
+          const navBatchRead = await new BoundedRpc(rpcUrl).getMultipleAccounts(
+            navBatch.map((entry) => entry.address)
+          );
+          if (!navBatchRead.ok) {
+            c.block({
+              gate: "mainnet RPC read access",
+              owner: "Environment owner",
+              reason: `coherent NAV evidence batch read unavailable: ${navBatchRead.error}`,
+              resumeCondition: "Reachable mainnet read endpoint configured.",
+            });
+          } else {
+            const navCore = buildCoherentVaultCore(
+              navBatch,
+              navBatchRead.value,
+              navBatchRead.contextSlot ?? -1,
+              { idleAuthority: navIdleAuthority }
+            );
+            if (!navCore.ok) {
+              c.fail(`the coherent NAV evidence batch did not validate: ${navCore.reason}`);
+            } else {
+              const { readConsumedReport } = await import(
+                "../src/features/vault/server/consumed-report"
+              );
+              // Bounded by readConsumedReport's internal min(3s, 15s from
+              // navEvidenceStartedAt) deadline against this same batch.
+              const report = await readConsumedReport(navCore.core, navEvidenceStartedAt);
+              if (
+                report.status === "fresh" &&
+                report.reportSignature &&
+                report.reportConfirmedSlot &&
+                report.bindingsMatchPinned === true
+              ) {
+                c.add("reconciliation", {
+                  kind: "consumed-report-nav-freshness",
+                  detail: `A finalized consumed REPORT_NAV (signature ${report.reportSignature}, confirmed slot ${report.reportConfirmedSlot}, sequence ${report.lastSequence}, navRaw ${report.lastNavRaw}, age ${report.ageSlots} slots <= ${report.maxReportAgeSlots}) matches this batch's disarmed ticket and strategy receipt at slot ${navCore.core.slot}. Reserved zero config fields are semantics; this finalized evidence, not the config decode, carries NAV freshness.`,
+                  provenance: "reconciliation",
+                  slot: navCore.core.slot,
+                  observedAt: new Date().toISOString(),
+                });
+              } else {
+                c.fail(
+                  `NAV freshness remains unproven from consumed-report evidence: ${report.detail}`
+                );
+              }
+            }
+          }
         }
       } else if (strategyConfig.ok) {
         c.fail(

@@ -248,3 +248,18 @@ chain batch, a consumed report verified against that same batch, and fresh worke
 evidence inside one bounded deadline. Controlled checks accept one valid row and
 reject 37 altered variants. The fast-tier run remains FAIL: these checks do not
 replace funded wallet flow, rotation, deployed reader access or browser evidence.
+
+## Browser acceptance follow-up (2026-09-17)
+
+The release checkout omitted `scripts/browser/wallet.json`, which prevented the
+recovery harness from starting. Restored the original public-only fixture after
+checking its field allowlist, both Ed25519 signatures, and exact equality with the
+current claim builder at the two fixed invalid blockhashes. It contains public
+keys and pre-signed test messages only; no private key or new signing operation.
+
+The full verifier at this source now records R05 PASS: all 14 recovery scenarios
+pass with zero network submissions. The two-browser read-budget check also passes
+(shared immediate reads; two upstream requests in the 11-second window). R00 now
+checks actual consumed-report proof instead of rejecting reserved zero config
+fields unconditionally. It correctly fails while the consumed ticket is missing.
+Overall release acceptance remains FAIL pending live and hosted evidence.
