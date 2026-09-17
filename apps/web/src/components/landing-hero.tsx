@@ -56,13 +56,15 @@ function HeroStat({
   value: string | null;
 }) {
   return (
-    <div className="flex h-24 w-full flex-col items-start gap-2 py-2 first:pr-4">
+    <div className="flex h-24 w-full flex-col items-center gap-2 py-2 lg:items-start lg:first:pr-4">
       <div className="flex items-center gap-1">
-        <p className="text-[20px] leading-6 text-white">{label}</p>
+        <p className="text-[20px] leading-6 text-white/80 lg:text-white">
+          {label}
+        </p>
         {tooltip ? <HeroStatTooltip text={tooltip} /> : null}
       </div>
       {value ? (
-        <p className="w-full font-semibold text-[48px] leading-[48px] text-white">
+        <p className="w-full text-center font-semibold text-[48px] leading-[48px] text-white lg:text-left">
           {value}
         </p>
       ) : (
@@ -111,7 +113,7 @@ function LandingHeroStats() {
   return (
     <section
       aria-label="Loyal Stats"
-      className="flex w-full flex-col items-start gap-4 pt-12 lg:col-span-3 lg:col-start-10 lg:row-start-1 lg:justify-self-end lg:self-center lg:gap-6 lg:pt-0 xl:w-[356px]"
+      className="flex w-full flex-col items-center gap-4 pt-12 lg:col-span-3 lg:items-start lg:col-start-10 lg:row-start-1 lg:justify-self-end lg:self-center lg:gap-6 lg:pt-0 xl:w-[356px]"
       data-hero-reveal="right"
       data-hero-reveal-delay="2"
     >
@@ -141,7 +143,8 @@ export function LandingHero() {
 
   useEffect(() => {
     const container = animationContainerRef.current;
-    if (!container) return;
+    // Skip the ~85 KB player + JSON fetch when the container is display:none (mobile).
+    if (!container || container.offsetParent === null) return;
 
     let anim: AnimationItem | null = null;
     let cancelled = false;
@@ -170,22 +173,40 @@ export function LandingHero() {
       className="flex w-full justify-center bg-[#f9363c] text-white"
       id="hero"
     >
-      <div className="flex w-full max-w-[560px] items-center justify-between overflow-hidden px-4 pb-24 pt-7 lg:max-w-[1560px] lg:px-6 lg:py-[120px]">
+      <div className="flex w-full max-w-[560px] items-center justify-between overflow-hidden px-4 pb-16 pt-5 lg:max-w-[1560px] lg:px-6 lg:py-[120px]">
         <div className="grid w-full min-w-0 grid-cols-1 gap-0 lg:grid-cols-12 lg:gap-6">
           <div
-            className="flex flex-col items-start justify-center pb-12 lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:self-stretch lg:pb-0"
+            className="flex flex-col items-center justify-center pb-8 text-center lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:items-start lg:self-stretch lg:pb-0 lg:text-left"
             data-hero-reveal="left"
           >
-            <div className="flex w-full flex-col items-start gap-9">
-              <div className="flex w-full flex-col items-start gap-6">
-                <h1 className="max-w-[420px] text-[56px] font-semibold leading-none tracking-[-1.12px] lg:text-[64px] lg:tracking-[-1.28px]">
-                  Make your idle cash smarter
+            <div className="flex w-full flex-col items-center gap-8 lg:items-start lg:gap-9">
+              <div className="flex w-full flex-col items-center gap-4 lg:items-start lg:gap-6">
+                <h1 className="max-w-[420px] text-[44px] font-bold uppercase leading-none tracking-[-0.88px] lg:text-[64px] lg:font-semibold lg:normal-case lg:tracking-[-1.28px]">
+                  Make your idle&nbsp;cash smarter
                 </h1>
-                <p className="w-[292px] max-w-full text-[20px] font-normal leading-none tracking-[-0.4px] lg:w-[338px] lg:text-[24px] lg:leading-[1.1] lg:tracking-[-0.48px] lg:text-white/80">
+                <p className="max-w-full text-[20px] font-normal leading-6 tracking-[-0.4px] text-white/80 lg:w-[338px] lg:text-[24px] lg:leading-[1.1] lg:tracking-[-0.48px]">
                   Connect your wallet once and earn the best available rate on
-                  USDC automatically
+                  your cash on Solana
+                  <sup className="text-[0.65em]">
+                    <a
+                      aria-label="Rate disclaimer"
+                      className="no-underline"
+                      href="#rate-footnote"
+                    >
+                      1
+                    </a>
+                  </sup>{" "}
+                  automatically
                 </p>
               </div>
+
+              <Link
+                className="inline-flex h-14 items-center justify-center rounded-full bg-black px-6 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0 lg:hidden"
+                href={loyalAppUrl}
+                rel="noopener noreferrer"
+              >
+                Start earning
+              </Link>
 
               <div className="hidden w-full max-w-[448px] flex-col items-start gap-3 lg:flex">
                 <Link
@@ -224,9 +245,17 @@ export function LandingHero() {
             data-hero-reveal="scale"
             data-hero-reveal-delay="1"
           >
+            <Image
+              alt="Loyal Earn screen showing 9.48% APY, autodeposit on, and $822.66 earned"
+              className="h-auto w-full lg:hidden"
+              height={361}
+              priority
+              src="/landing/assets/hero-phone-mobile.png"
+              width={361}
+            />
             <div
               aria-label="Loyal app animation: connect a wallet, watch the balance grow, and set up autodeposit"
-              className="aspect-[2/3] w-full"
+              className="hidden aspect-[2/3] w-full lg:block"
               ref={animationContainerRef}
               role="img"
             />
