@@ -1477,7 +1477,7 @@ async function main() {
               ) {
                 c.add("reconciliation", {
                   kind: "consumed-report-nav-freshness",
-                  detail: `A finalized consumed REPORT_NAV (signature ${report.reportSignature}, confirmed slot ${report.reportConfirmedSlot}, sequence ${report.lastSequence}, navRaw ${report.lastNavRaw}, age ${report.ageSlots} slots <= ${report.maxReportAgeSlots}) matches this batch's disarmed ticket and strategy receipt at slot ${navCore.core.slot}. Reserved zero config fields are semantics; this finalized evidence, not the config decode, carries NAV freshness.`,
+                  detail: `A finalized consumed REPORT_NAV (signature ${report.reportSignature}, confirmed slot ${report.reportConfirmedSlot}, sequence ${report.lastSequence}, navRaw ${report.lastNavRaw}, NAV age ${report.navAgeSeconds} seconds < ${report.maxNavAgeSeconds}; consumed within ${report.maxReportAgeSlots} slots) matches this batch's disarmed ticket and strategy receipt at slot ${navCore.core.slot}. Reserved zero config fields are semantics; this finalized evidence, not the config decode, carries NAV freshness.`,
                   provenance: "reconciliation",
                   slot: navCore.core.slot,
                   observedAt: new Date().toISOString(),

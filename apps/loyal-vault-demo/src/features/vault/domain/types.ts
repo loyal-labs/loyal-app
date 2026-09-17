@@ -115,6 +115,8 @@ export type NavFreshnessView = Readonly<{
   maxReportNavRaw?: string;
   maxReportAgeSlots?: string;
   ageSlots?: string;
+  navAgeSeconds?: string;
+  maxNavAgeSeconds?: string;
   bindingsMatchPinned?: boolean;
 }>;
 

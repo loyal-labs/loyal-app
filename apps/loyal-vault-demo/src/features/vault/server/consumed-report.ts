@@ -11,7 +11,7 @@ import { TransactionReadRpc, type FinalizedTransaction } from "./transaction-rpc
 import { BoundedRpc } from "./rpc";
 import { RPC_BOUNDS, rpcUrlFromEnv } from "./config";
 
-export type ReportMatchCore = Pick<VaultCore, "slot" | "assetTotalValue" | "idleCustodyRaw" | "reportTicket" | "strategyAttributions"> & {
+export type ReportMatchCore = Pick<VaultCore, "slot" | "chainTimeSec" | "assetTotalValue" | "idleCustodyRaw" | "reportTicket" | "strategyAttributions"> & {
  vault: Pick<VaultCore["vault"], "lastUpdatedTs">;
  adaptorReport: Pick<NonNullable<VaultCore["adaptorReport"]>, "bindingsMatchPinned" | "maxReportAgeSlots" | "maxReportNavRaw" | "configAddress" | "adaptorProgram"> | null;
 };
@@ -57,11 +57,16 @@ export function matchConsumedReport(core: ReportMatchCore, locator: ReportLocato
  const observed=BigInt(report.observedSlot),landed=BigInt(tx.slot),current=BigInt(core.slot),limit=BigInt(config.maxReportAgeSlots);
  if (limit<=0n||limit>32n||observed>landed||landed>current||landed-observed>limit||BigInt(report.navRaw)>BigInt(config.maxReportNavRaw)) return unknown("The report falls outside its observed and consumed slot bounds.");
  if (core.assetTotalValue!==core.idleCustodyRaw+receipt.positionValueRaw+receipt.custodyTrackedRaw) return unknown("The vault book does not match idle custody and its strategy receipt.");
- const age=current-observed;
- return {status:age<=limit?"fresh":"stale",detail:age<=limit?"A finalized report matches the current ticket and strategy receipt. Current strategy reconciliation and service readiness are separate checks.":"The matching consumed report is older than the permitted NAV observation window.",
+ // The 32-slot adaptor bound applies when a report is consumed. After
+ // finality, ongoing freshness follows the worker's 60-second NAV cadence.
+ // Bind that clock to this exact report's receipt, never a later vault edit.
+ if (tx.blockTimeSec===null || tx.blockTimeSec<=0n || receipt.lastUpdatedTs!==tx.blockTimeSec || core.chainTimeSec<tx.blockTimeSec) return unknown("The report timestamp does not match its strategy receipt and current chain clock.");
+ const navAge=core.chainTimeSec-tx.blockTimeSec,maxNavAge=60n;
+ const fresh=navAge<maxNavAge,age=current-observed;
+ return {status:fresh?"fresh":"stale",detail:fresh?"A finalized report matches the current ticket and strategy receipt. Current strategy reconciliation and service readiness are separate checks.":"The matching consumed report is older than the permitted NAV observation window.",
   reportSignature:locator.signature,reportConfirmedSlot:tx.slot,
   vaultLastUpdatedTs:core.vault.lastUpdatedTs.toString(),observedSlot:core.slot,adaptorProgram:config.adaptorProgram,configAddress:config.configAddress,
-  lastSequence:report.sequence,lastObservedSlot:report.observedSlot,lastNavRaw:report.navRaw,maxReportNavRaw:config.maxReportNavRaw,maxReportAgeSlots:config.maxReportAgeSlots,ageSlots:age.toString(),bindingsMatchPinned:true};
+  lastSequence:report.sequence,lastObservedSlot:report.observedSlot,lastNavRaw:report.navRaw,maxReportNavRaw:config.maxReportNavRaw,maxReportAgeSlots:config.maxReportAgeSlots,ageSlots:age.toString(),navAgeSeconds:navAge.toString(),maxNavAgeSeconds:maxNavAge.toString(),bindingsMatchPinned:true};
 }
 
 export async function readConsumedReport(core: ReportMatchCore, observationStartedAt = performance.now()): Promise<NavFreshnessView> {

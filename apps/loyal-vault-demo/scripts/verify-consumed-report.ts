@@ -17,12 +17,18 @@ const capitalData=Buffer.from(report.inner[1]!.dataBase64,"base64");
 const consumeData=Buffer.concat([capitalData.subarray(21,29),capitalData.subarray(8,16),capitalData.subarray(29)]);
 trace.push({outerIndex:0,programIdIndex:trace[0]!.programIdIndex,accounts:[7,3,8,11,12,14,15,16,17].map(index=>audit.accountKeys.indexOf(report.inner[1]!.accounts[index]!)),dataBase58:bs58.encode(consumeData)});
 const tx:FinalizedTransaction={slot:slot+2,blockTimeSec:1n,feeLamports:5000n,err:null,usesAddressLookupTables:false,transactionBase64:wire,preTokenBalances:[],postTokenBalances:[],preBalances:[],postBalances:[],innerInstructions:trace};
-const core={slot:slot+3,vault:{lastUpdatedTs:1n},assetTotalValue:1234590n,idleCustodyRaw:23n,
+const core={slot:slot+3,chainTimeSec:2n,vault:{lastUpdatedTs:1n},assetTotalValue:1234590n,idleCustodyRaw:23n,
  adaptorReport:{bindingsMatchPinned:true,maxReportAgeSlots:"32",maxReportNavRaw:"1000000000000",configAddress:V.adaptorConfigStrategy,adaptorProgram:report.inner[0]!.program},
  reportTicket:{armed:false,lastConsumedSequence:report.sequence},strategyAttributions:[{status:"attributed",receiptAddress:"5bw4VYzpZXsk9SUNyWwJkb4fEx1DS8eNMFB6Qb4MUfhE",adaptorProgram:report.inner[0]!.program,lastUpdatedTs:1n,strategy:V.adaptorConfigStrategy,positionValueRaw:1234567n,custodyTrackedRaw:0n}]} satisfies ReportMatchCore;
 let checks=0;
 assert.equal(matchConsumedReport(core,locator,tx).status,"fresh");checks++;
-assert.equal(matchConsumedReport({...core,slot:slot+33},locator,tx).status,"stale");checks++;
+// Finality can exceed the consume window while the matched NAV is current.
+assert.equal(matchConsumedReport({...core,slot:slot+100,chainTimeSec:60n},locator,tx).status,"fresh");checks++;
+assert.equal(matchConsumedReport({...core,slot:slot+100,chainTimeSec:61n},locator,tx).status,"stale");checks++;
+assert.equal(matchConsumedReport({...core,slot:slot+100}, {...locator,confirmed_slot:String(slot+33)}, {...tx,slot:slot+33}).status,"unknown");checks++;
+assert.equal(matchConsumedReport(core,locator,{...tx,blockTimeSec:null}).status,"unknown");checks++;
+assert.equal(matchConsumedReport(core,locator,{...tx,blockTimeSec:2n}).status,"unknown");checks++;
+assert.equal(matchConsumedReport({...core,chainTimeSec:0n},locator,tx).status,"unknown");checks++;
 for(let index=0;index<consumeData.length;index++) {
  const changed=Buffer.from(consumeData);changed[index]^=1;
  assert.equal(matchConsumedReport(core,locator,{...tx,innerInstructions:[...trace.slice(0,2),{...trace[2]!,dataBase58:bs58.encode(changed)}]}).status,"unknown");checks++;
