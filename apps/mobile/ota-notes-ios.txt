@@ -1,1 +1,1 @@
-Fixes sheet layout, keyboard and text rendering issues on iOS.
+Critical update: restart now to keep using the app. Balances and transactions will stop working on older versions.
