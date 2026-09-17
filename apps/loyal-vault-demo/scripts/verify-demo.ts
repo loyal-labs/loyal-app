@@ -1845,6 +1845,13 @@ async function main() {
         detail: `${workerChecks.passed} projection checks distinguish stale observations, lease absence, malformed records and submission from completion. Live database/worker comparison remains unverified.`,
         provenance: "controlled-runtime",
       });
+      const { verifyDepositService } = await import("./verify-deposit-service");
+      const depositServiceChecks = verifyDepositService();
+      c.add("controlled-runtime", {
+        kind: "deposit-service-admission",
+        detail: `${depositServiceChecks.passed} checks cover release and pilot authority, unresolved work, manual holds, report replacement, stale NAV/custody and the deposit cap. These are controlled inputs, not live release acceptance.`,
+        provenance: "controlled-runtime",
+      });
       const browserBase = process.env.LOYAL_VAULT_DEMO_BROWSER_BASE_URL;
       if (browserBase) {
         try {

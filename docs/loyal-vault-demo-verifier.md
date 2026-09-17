@@ -198,3 +198,28 @@ Fable confirmed the minimal next integration: existing server-side DB access loc
 Public vault and wallet observations now locate the report in the journal, then verify finalized transaction signature, message hash, slot and exact arm/Voltr/consume trace. The deployed v2 consume check includes all 78 bytes and nine accounts. Current disarmed ticket sequence, receipt NAV, accounting identity and slot bounds must match.
 
 The optional read shares a three-second database/RPC deadline, also bounded by fifteen seconds from the start of the enclosing observation. RPC calls make one attempt. Expired evidence returns unknown. Controlled verification passes 107 cases, including consume payload/account mutations and expired observations. Typecheck and scoped lint pass. These fixtures establish neither a live report nor deposit readiness; current worker reconciliation, deployment identity, cap installation and the live lifecycle remain required.
+
+### Pilot serving checkpoint — 2026-09-17
+
+Frontend `efc99662456dc89a87b5c3591838e3be788e9456` is published at
+https://loyal-vault-pilot.vercel.app in the separate `loyal-vault-pilot` Vercel
+project (`prj_8ejszAxfkHoSnzHeP1dicwig8D9O`). Deployment
+`dpl_7D1o3wsHJM5PW77hd3mU4CWQhxjr` passed the remote production build.
+The platform assigns a new project's first deployment to production; this does
+not constitute financial rollout. Deposits are explicitly disabled.
+
+The new default-closed service gate is shared by public and fresh wallet reads.
+It requires the expected live worker release, matching activated pilot record,
+no unresolved transaction or manual hold, the same finalized consumed report
+as the newest reconciled operation, fresh matching worker NAV/custody, and
+remaining on-chain capacity under 100 USDC. Typecheck, lint, 33 controlled
+admission cases, 107 consumed-report checks, wire parity and 20 preflight cases
+pass. Its production read-only SQL check correctly returns inactive release and
+pilot, no pending operation and no report. Runtime funding, observation-role
+provisioning and the current-release wallet lifecycle remain required.
+
+The first served API check returned HTTP 500 because the server artifact lacked
+`ws`. The app now declares `ws` directly and invokes the Next.js build through
+Node rather than forcing Bun, matching the deployed runtime. The approved RPC
+connection is configured as a sensitive server-only project variable. A new
+hosted build and endpoint check are required before claiming the fix deployed.
