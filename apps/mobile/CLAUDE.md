@@ -81,6 +81,7 @@ Expo uses `EXPO_PUBLIC_` prefix for client-accessible env vars.
 EXPO_PUBLIC_API_BASE_URL=https://your-app.vercel.app
 EXPO_PUBLIC_EARN_API_BASE_URL=https://askloyal.com
 EXPO_PUBLIC_SOLANA_ENV=mainnet
+EXPO_PUBLIC_SOLANA_MAINNET_RPC_URL=
 EXPO_PUBLIC_PRIVY_APP_ID=<privy_app_id>
 EXPO_PUBLIC_PRIVY_CLIENT_ID=<privy_client_id>
 ```
@@ -90,6 +91,9 @@ EXPO_PUBLIC_PRIVY_CLIENT_ID=<privy_client_id>
 - `EXPO_PUBLIC_EARN_API_BASE_URL` selects the mobile Earn API; its fallback is
   `https://askloyal.com`.
 - `EXPO_PUBLIC_SOLANA_ENV` selects the Solana cluster.
+- `EXPO_PUBLIC_SOLANA_MAINNET_RPC_URL` optionally overrides the default mainnet
+  Helius Secure RPC URL; keep the override host-authenticated and never include
+  an API key because `EXPO_PUBLIC_` values ship in the app bundle.
 - `EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS` is optional and is sent only when
   testing a protected preview deployment.
 - `EXPO_PUBLIC_EARN_SPONSORED_DEPOSITS` enables sponsored deposits only when set
