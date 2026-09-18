@@ -157,6 +157,12 @@ export function Dashboard() {
         <div>
           <h1>Loyal RWA Vault</h1>
           <p>Deposit USDC, hold vault shares, and manage your withdrawals.</p>
+          <p className="detail-note">
+            Maple syrupUSDC pilot: deposits are USDC only and the vault is
+            capped at 100 USDC in total. Deposited funds may remain idle when
+            the expected returns do not cover the costs of entering the
+            strategy.
+          </p>
         </div>
         <div className="intro-details">
           <span className="status">
