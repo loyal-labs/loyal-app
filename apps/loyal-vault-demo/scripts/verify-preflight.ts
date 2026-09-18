@@ -4,6 +4,8 @@ import { claimPreflight, depositPreflight } from "../src/features/vault/domain/t
 
 export function verifyPreflightFailures() {
   let passed = 0;
+  // Synthetic small numbers exercise gate logic only; they are not the
+  // production pilot cap (that boundary is covered further below).
   const deposit = { amountRaw: 10n, walletUsdcRaw: 10n, walletUsdcAtaExists: true,
     vaultIdleRaw: 0n, assetTotalValueRaw: 90n, maxCapRaw: 100n,
     navStatus: "fresh" as const, navDetail: "Controlled NAV status" };
@@ -16,14 +18,19 @@ export function verifyPreflightFailures() {
     const result = depositPreflight({ ...deposit, ...change });
     assert(!result.ok && result.prerequisites.some(entry => entry.key === "vault-capacity" && entry.blocks)); passed++;
   }
-  for (const maxCapRaw of [100_000_001n, 1_000_000_000_000n, 0n, -1n]) {
+  // On-chain caps above the approved 100,000 USDC pilot ceiling
+  // (100_000_000_000 raw), and non-positive caps, must all be refused.
+  for (const maxCapRaw of [100_000_000_001n, 1_000_000_000_000n, 0n, -1n]) {
     const result = depositPreflight({ ...deposit, maxCapRaw });
     assert(!result.ok && result.prerequisites.some(entry => entry.key === "pilot-deposit-cap" && entry.blocks)); passed++;
   }
-  const pilot = { ...deposit, amountRaw: 1_000_000n, walletUsdcRaw: 2_000_000n,
-    assetTotalValueRaw: 99_000_000n, maxCapRaw: 100_000_000n };
+  // Boundary at the approved cap scale: 100,000 USDC on-chain cap (raw
+  // 100_000_000_000) with 99,000 USDC already deposited accepts a deposit of
+  // exactly the 1,000 USDC remaining head room and refuses one raw unit more.
+  const pilot = { ...deposit, amountRaw: 1_000_000_000n, walletUsdcRaw: 2_000_000_000n,
+    assetTotalValueRaw: 99_000_000_000n, maxCapRaw: 100_000_000_000n };
   assert(depositPreflight(pilot).ok); passed++;
-  const overCap = depositPreflight({ ...pilot, amountRaw: 1_000_001n });
+  const overCap = depositPreflight({ ...pilot, amountRaw: 1_000_000_001n });
   assert(!overCap.ok && overCap.prerequisites.some(entry => entry.key === "vault-capacity" && entry.blocks)); passed++;
   const claim = { receiptExists: true, receiptOwnedByWallet: true, receiptAddress: "controlled-receipt",
     escrowedLpRaw: 10n, escrowTokenBalanceRaw: 10n, assetEffectiveRaw: "20",

@@ -218,7 +218,7 @@ the released financed lifecycle and rotation acceptance passes.
 Both the public read and fresh wallet preparation check the same gate: active
 release lease, activated pilot budget, no manual hold or pending transaction,
 matching fresh consumed report, no later reconciled action, current worker
-NAV/custody matching the chain batch, and remaining capacity under 100 USDC.
+NAV/custody matching the chain batch, and remaining capacity under 100,000 USDC.
 Missing evidence closes deposits. Withdrawal request and eligible claim paths
 remain independent. The service read uses a two-second deadline within the
 existing total observation deadline; it does not reuse the display-only worker

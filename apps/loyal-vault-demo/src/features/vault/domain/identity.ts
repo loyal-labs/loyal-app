@@ -8,8 +8,10 @@ export const VAULT_IDENTITY = {
   voltrProgram: address("vVoLTRjQmtFpiYoegx285Ze4gsLJ8ZxgFKVcuvmG1a8"),
   assetMint: address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
   assetDecimals: 6,
-  /** Pilot limit must also be installed in Voltr before deposits open. */
-  pilotDepositCapRaw: 100_000_000n,
+  /** Approved pilot ceiling: 100,000 USDC (100_000_000_000 raw). Bounds the
+   * total deposit cap and the worker's working-allocation ceiling alike, and
+   * must also be installed in Voltr before deposits open. */
+  pilotDepositCapRaw: 100_000_000_000n,
   lpMint: address("6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb"),
   lpDecimals: 9,
   manager: address("ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh"),

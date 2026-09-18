@@ -855,8 +855,8 @@ export function depositPreflight(input: {
     key: "pilot-deposit-cap",
     state: pilotCapInstalled ? "ok" : "unavailable",
     detail: pilotCapInstalled
-      ? "The on-chain vault cap is within the 100 USDC pilot limit."
-      : "Deposits remain closed until the on-chain vault cap is at most 100 USDC.",
+      ? "The on-chain vault cap is within the 100,000 USDC pilot limit."
+      : "Deposits remain closed until the on-chain vault cap is at most 100,000 USDC.",
     blocks: !pilotCapInstalled,
   });
 

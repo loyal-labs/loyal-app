@@ -574,7 +574,8 @@ const OPEN_DEPOSIT_EVALUATION = {
   observationMaxAgeMs: 15_000,
   /** Batch/report coherence window, matching the declared R02 slot bounds. */
   maxObservationSlotDrift: 32,
-  maxCapRaw: 100_000_000n,
+  /** Approved pilot ceiling: 100,000 USDC (100_000_000_000 raw). */
+  maxCapRaw: 100_000_000_000n,
 } as const;
 
 type DepositReleaseCore = {
@@ -775,7 +776,9 @@ export function loadHostedEvidence(path: string | null, currentCommit: string | 
     && identity.voltrProgram === IDENTITY.voltrProgram && identity.assetMint === IDENTITY.assetMint
     && identity.lpMint === IDENTITY.expectedLpMint && identity.manager === IDENTITY.smartAccount
     && identity.assetDecimals === 6 && identity.lpDecimals === 9, "vault identities");
-  require(terms.maxCapRaw === "100000000" && terms.withdrawalWaitingPeriodSeconds === String(IDENTITY.expectedWithdrawalWaitingPeriodSeconds), "pilot terms");
+  // Hosted on-chain terms must equal the approved pilot cap exactly: 100,000
+  // USDC = 100_000_000_000 raw (identity.pilotDepositCapRaw).
+  require(terms.maxCapRaw === "100000000000" && terms.withdrawalWaitingPeriodSeconds === String(IDENTITY.expectedWithdrawalWaitingPeriodSeconds), "pilot terms");
   require(["unavailable", "available"].includes(String(service.deposits))
     && (service.deposits !== "unavailable" || (typeof service.depositsReason === "string" && service.depositsReason.length > 0)), "deposit disclosure");
   require(typeof freshness.observedSlot === "number" && Number.isSafeInteger(freshness.observedSlot) && freshness.observedSlot > 0
@@ -2215,10 +2218,13 @@ async function main() {
       {
         const controlledCore: DepositReleaseCore = {
           slot: 1000,
+          // asset/idle/NAV amounts are arbitrary synthetic fixtures; the cap
+          // field uses the approved production ceiling so the accepted row is
+          // representative (100,000 USDC = 100_000_000_000 raw).
           assetTotalValue: 5_000_023n,
           idleCustodyRaw: 23n,
           managerCustody: { exists: true, amountRaw: 0n },
-          maxCapRaw: 100_000_000n,
+          maxCapRaw: 100_000_000_000n,
         };
         const controlledReport: DepositReleaseReport = {
           status: "fresh",
@@ -2307,7 +2313,7 @@ async function main() {
           { slot: 977 },
           { managerCustody: null },
           { maxCapRaw: 0n },
-          { maxCapRaw: 100_000_001n },
+          { maxCapRaw: 100_000_000_001n },
           { maxCapRaw: controlledCore.assetTotalValue },
         ] as const)
           expectClosed(`core:${Object.keys(patch)[0]}`, evaluateOpenDepositRelease({ ...controlledCore, ...patch }, controlledReport, controlledRow));
@@ -2801,7 +2807,7 @@ async function main() {
                     } else {
                       c.add("reconciliation", {
                         kind: "open-deposit-release-evidence",
-                        detail: `deposits offered (${depositsOffered}) and independently re-derived at chain slot ${coreOk.core.slot}: active release lease bound to the pinned ${image} on ${service}, activated capped pilot authority, no manual hold, no pending operation, newest reconciled action REPORT_NAV matching the freshly verified consumed-report signature/slot, worker NAV/idle/smart-account custody equal to this verifier's own batch, strategy NAV equal to the consumed report, on-chain cap within (0,100 USDC] with headroom. Evidence limitations: the Render-side image deployment itself is trusted from the env pin plus live lease identity (no Render API proof here), and financed wallet-flow and rotation proofs remain separate gates (R08/plan).`,
+                        detail: `deposits offered (${depositsOffered}) and independently re-derived at chain slot ${coreOk.core.slot}: active release lease bound to the pinned ${image} on ${service}, activated capped pilot authority, no manual hold, no pending operation, newest reconciled action REPORT_NAV matching the freshly verified consumed-report signature/slot, worker NAV/idle/smart-account custody equal to this verifier's own batch, strategy NAV equal to the consumed report, on-chain cap within (0,100,000 USDC] with headroom. Evidence limitations: the Render-side image deployment itself is trusted from the env pin plus live lease identity (no Render API proof here), and financed wallet-flow and rotation proofs remain separate gates (R08/plan).`,
                         provenance: "reconciliation",
                         slot: coreOk.core.slot,
                         observedAt: new Date().toISOString(),

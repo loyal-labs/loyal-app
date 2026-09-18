@@ -3,9 +3,11 @@ import { closedDepositService, matchDepositService, type DepositServiceCore } fr
 import type { NavFreshnessView } from "../src/features/vault/domain/types";
 
 export function verifyDepositService() {
+  // NAV/custody amounts are synthetic fixtures; the on-chain cap mirrors the
+  // approved 100,000 USDC pilot ceiling (100_000_000_000 raw).
   const core: DepositServiceCore = { slot: 1000, assetTotalValue: 5_000_023n, idleCustodyRaw: 23n,
     managerCustody: { address: "controlled-manager-custody", exists: true, amountRaw: 0n },
-    vault: { vaultConfiguration: { maxCap: 100_000_000n } } };
+    vault: { vaultConfiguration: { maxCap: 100_000_000_000n } } };
   const report: NavFreshnessView = { status: "fresh", detail: "controlled report", vaultLastUpdatedTs: "1", observedSlot: 1000,
     reportSignature: "controlled-signature", reportConfirmedSlot: 998, lastNavRaw: "5000000", lastSequence: "995" };
   const row = { database_now: "2026-09-17T00:00:10Z", release_active: true, pilot_active: true, no_manual_hold: true, no_pending: true,
@@ -29,7 +31,8 @@ export function verifyDepositService() {
   for (const patch of [{ status: "unknown" as const }, { status: "stale" as const }, { reportSignature: undefined }, { reportConfirmedSlot: undefined }]) {
     assert.equal(matchDepositService(core, { ...report, ...patch }, row).deposits, "unavailable"); passed++;
   }
-  for (const maxCap of [0n, 100_000_001n, core.assetTotalValue]) {
+  // 100_000_000_001n is one raw unit above the approved pilot ceiling.
+  for (const maxCap of [0n, 100_000_000_001n, core.assetTotalValue]) {
     assert.equal(matchDepositService({ ...core, vault: { vaultConfiguration: { maxCap } } }, report, row).deposits, "unavailable"); passed++;
   }
   return { passed, proofLevel: "CONTROLLED_ADMISSION_NOT_LIVE_READINESS" };

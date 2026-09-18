@@ -4,7 +4,7 @@ import { auditWire } from "./transactions";
 
 const SQUADS = "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG";
 const DELEGATE = "62JLkPeE4oG65LRB3W3m52RVicmYq3xFHdv7TecCsPj5";
-const POLICY = "AyymPJEAEN5YFySuEDVkdU9PTjBarj2y2UJxQ4rznjXr";
+const POLICY = "5r4gVPentTwudZXQAtvjqx8iWfmBjLjnJGBypB7aPi8f";
 const ADAPTOR = V.expectedAdaptorProgramByStrategy[V.adaptorConfigStrategy]!;
 const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
 const prefix = (data: Buffer, bytes: readonly number[]) => bytes.every((value, i) => data[i] === value);

@@ -57,7 +57,10 @@ export function matchDepositService(core: DepositServiceCore, report: NavFreshne
       !core.managerCustody || v.squadsIdleRaw !== core.managerCustody.amountRaw.toString() ||
       v.computedStrategyNavRaw !== report.lastNavRaw || v.reportedNavRaw !== report.lastNavRaw ||
       Number(v.observedSlot) < report.reportConfirmedSlot || v.voltrStrategyIdleRaw !== "0") return closed();
-  if (core.vault.vaultConfiguration.maxCap <= 0n || core.vault.vaultConfiguration.maxCap > 100_000_000n ||
+  // The on-chain cap must sit inside the approved pilot ceiling pinned in
+  // identity.ts; reusing that constant keeps this gate from drifting from the
+  // wallet-facing preflight limit.
+  if (core.vault.vaultConfiguration.maxCap <= 0n || core.vault.vaultConfiguration.maxCap > VAULT_IDENTITY.pilotDepositCapRaw ||
       core.assetTotalValue >= core.vault.vaultConfiguration.maxCap) return closedDepositService("The pilot vault is at its deposit limit.");
   return { ...closedDepositService(), deposits: "available", depositsReason: "Current vault servicing and accounting are verified." };
 }
