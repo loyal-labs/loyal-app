@@ -57,7 +57,7 @@ mobile/
 
 ### Auth
 
-Privy (`@privy-io/expo`) is the identity layer; `src/components/wallet/PrivyProviderRoot.tsx` mounts it when `EXPO_PUBLIC_PRIVY_APP_ID` is set. Sign-in in `OnboardingGate` is email, Google, Apple (iOS), or a Seeker / MWA / deeplink wallet via SIWS. Email and OAuth users sign with the Privy embedded wallet (`PrivyEmbeddedSigner`). Wallet users keep their legacy signer; `src/lib/wallet/privy-migration.ts` links that signer to a Privy user on first unlock by signing a SIWS message, never blocks the app, and retries on the next launch if declined or offline. The Loyal session comes from `POST /api/auth/privy/complete` on the Earn backend.
+Privy (`@privy-io/expo`) is the identity layer; `src/components/wallet/PrivyProviderRoot.tsx` mounts it when `EXPO_PUBLIC_PRIVY_APP_ID` is set. `OnboardingGate` supports email, Google, Apple (iOS), and Seeker / MWA / deeplink wallet connections through Privy and SIWS. Email and OAuth sign-ins use the Privy embedded wallet when selected; if the account has a linked external wallet, the app asks to connect that wallet on-device instead of creating a second wallet. Existing legacy signers are linked to a Privy user through `src/lib/wallet/privy-migration.ts` after the signer is available; migration never blocks the legacy signer and retries after a decline or failure on a later launch. The Loyal session comes from `POST /api/auth/privy/complete` on the Earn backend.
 # failed: doc still described create/import keypair onboarding after the Privy switch (2026-09-09)
 # outcome: rewritten to match the shipped auth flow
 # recurred: 0
@@ -67,7 +67,6 @@ Privy (`@privy-io/expo`) is the identity layer; `src/components/wallet/PrivyProv
 - **Path alias**: `@/*` maps to `./src/*` (configured in `tsconfig.json` and `jest.config.js`)
 - **Shared packages**:
   - `@loyal-labs/shared` for generic shared types such as summaries
-  - `@loyal-labs/grid-core` for runtime-agnostic Grid auth/domain helpers
 - **API layer**: All API calls go through `src/services/api.ts`, which reads base URL from `src/config/env.ts`
 - **Styling**: NativeWind v5 (Tailwind CSS v4) — use `className` prop on components from `src/tw/` wrappers
 - **SVGs**: Imported as React components via `react-native-svg-transformer` (configured in `metro.config.js`)
@@ -80,23 +79,29 @@ Expo uses `EXPO_PUBLIC_` prefix for client-accessible env vars.
 **Local development** (`.env`, gitignored):
 ```env
 EXPO_PUBLIC_API_BASE_URL=https://your-app.vercel.app
-EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
 EXPO_PUBLIC_EARN_API_BASE_URL=https://askloyal.com
 EXPO_PUBLIC_SOLANA_ENV=mainnet
+EXPO_PUBLIC_SOLANA_MAINNET_RPC_URL=
+EXPO_PUBLIC_PRIVY_APP_ID=<privy_app_id>
+EXPO_PUBLIC_PRIVY_CLIENT_ID=<privy_client_id>
 ```
 
 - `EXPO_PUBLIC_API_BASE_URL` selects the chat/wallet API; its fallback is
   `https://solana-telegram-transactions.vercel.app`.
-- `EXPO_PUBLIC_GRID_AUTH_BASE_URL` selects the passkey auth domain; its fallback
-  is `https://auth.askloyal.com`.
 - `EXPO_PUBLIC_EARN_API_BASE_URL` selects the mobile Earn API; its fallback is
   `https://askloyal.com`.
 - `EXPO_PUBLIC_SOLANA_ENV` selects the Solana cluster.
+- `EXPO_PUBLIC_SOLANA_MAINNET_RPC_URL` optionally overrides the default mainnet
+  Helius Secure RPC URL; keep the override host-authenticated and never include
+  an API key because `EXPO_PUBLIC_` values ship in the app bundle.
 - `EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS` is optional and is sent only when
   testing a protected preview deployment.
 - `EXPO_PUBLIC_EARN_SPONSORED_DEPOSITS` enables sponsored deposits only when set
   to `true`; other values keep the self-paid flow.
-- `EXPO_PUBLIC_PRIVY_APP_ID` and `EXPO_PUBLIC_PRIVY_CLIENT_ID` identify the Privy app (shared with web) and its mobile app client. Both are public and set in every `eas.json` profile; when unset, Privy sign-in is disabled and only existing legacy wallets work.
+- `EXPO_PUBLIC_PRIVY_APP_ID` enables the Privy provider; `EXPO_PUBLIC_PRIVY_CLIENT_ID`
+  is passed to Privy as the mobile client ID when set. Both are public and set in
+  every `eas.json` profile; when the app ID is unset, Privy sign-in is disabled
+  and existing legacy wallets continue to work.
 # failed: env list lacked the Privy ids when they were added (2026-09-09)
 # outcome: listed with the same wording as env.ts
 # recurred: 0
@@ -108,7 +113,7 @@ EXPO_PUBLIC_SOLANA_ENV=mainnet
 - `.env` files are NOT uploaded to EAS build servers — `eas.json` is the only way to set env vars for EAS builds
 - `src/config/env.ts` provides a hardcoded fallback when a variable is unset
 - Non-public env vars (no `EXPO_PUBLIC_` prefix) are build-time only, not embedded in the JS bundle
-- Mobile should call the passkey auth domain via `EXPO_PUBLIC_GRID_AUTH_BASE_URL`; do not import browser/WebAuthn flow code from `passkey`
+- The current mobile auth flow uses Privy; do not add new Grid/passkey auth setup.
 
 ### Metro Configuration
 
@@ -140,5 +145,3 @@ EXPO_PUBLIC_SOLANA_ENV=mainnet
 - Keep API communication in `src/services/` — do not scatter fetch calls across components
 - Follow the shared package boundary:
   - generic shared types go in `@loyal-labs/shared`
-  - Grid runtime helpers go in `@loyal-labs/grid-core`
-  - WebAuthn/passkey browser flow logic stays in `passkey`
