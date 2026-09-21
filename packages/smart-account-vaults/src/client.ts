@@ -8874,31 +8874,47 @@ export function createSmartAccountVaultsClient(
         market.toBase58()
       )
     );
-    const requestedTargets =
+    // Only a full exit spans mints. A single-source withdrawal pairs the
+    // source's mint with the TOP-LEVEL target's token program below, so those
+    // two must name the same mint — an ATA is derived per token program, so a
+    // mismatch would point at an account belonging to the other program. The
+    // single-mint assert used to cover this before mixed exits relaxed it.
+    const isMixedMintExit = Boolean(
       args.mode === "full" && args.fullWithdrawalTargets?.length
-        ? args.fullWithdrawalTargets
-        : args.source?.type === "reserve"
-        ? [
-            {
-              liquidityMint: args.source.liquidityMint,
-              liquidityTokenProgram: earnTarget.liquidityTokenProgram,
-              market: args.source.market,
-              reserve: args.source.reserve,
-              amountRaw: args.amountRaw,
-            },
-          ]
-        : [
-            {
-              liquidityMint: earnTarget.liquidityMint,
-              liquidityTokenProgram: earnTarget.liquidityTokenProgram,
-              market: earnTarget.market,
-              reserve: earnTarget.reserve,
-              reserveCollateralMint: earnTarget.reserveCollateralMint,
-              reserveLiquiditySupply: earnTarget.reserveLiquiditySupply,
-              supplyApyBps: earnTarget.supplyApyBps,
-              amountRaw: args.amountRaw,
-            },
-          ];
+    );
+    if (
+      !isMixedMintExit &&
+      args.source?.type === "reserve" &&
+      !args.source.liquidityMint.equals(earnTarget.liquidityMint)
+    ) {
+      throw new Error(
+        "Earn withdrawal source mint does not match the selected target mint."
+      );
+    }
+    const requestedTargets = isMixedMintExit
+      ? args.fullWithdrawalTargets!
+      : args.source?.type === "reserve"
+      ? [
+          {
+            liquidityMint: args.source.liquidityMint,
+            liquidityTokenProgram: earnTarget.liquidityTokenProgram,
+            market: args.source.market,
+            reserve: args.source.reserve,
+            amountRaw: args.amountRaw,
+          },
+        ]
+      : [
+          {
+            liquidityMint: earnTarget.liquidityMint,
+            liquidityTokenProgram: earnTarget.liquidityTokenProgram,
+            market: earnTarget.market,
+            reserve: earnTarget.reserve,
+            reserveCollateralMint: earnTarget.reserveCollateralMint,
+            reserveLiquiditySupply: earnTarget.reserveLiquiditySupply,
+            supplyApyBps: earnTarget.supplyApyBps,
+            amountRaw: args.amountRaw,
+          },
+        ];
     const requestedLiquidityMints = new Set(
       requestedTargets.map((targetInput) =>
         targetInput.liquidityMint.toBase58()

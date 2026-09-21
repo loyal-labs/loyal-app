@@ -3585,6 +3585,58 @@ describe("prepareEarnUsdcWithdraw", () => {
       ).toBe(1);
     }
   });
+
+  test("rejects a single-source withdrawal whose mint is not the target's", async () => {
+    // Only a full exit spans mints. A single-source withdrawal borrows the
+    // top-level target's token program, so a source naming a different mint
+    // would derive a vault ATA under the wrong program. Reject it before any
+    // instruction is built rather than failing validation later.
+    const reserves = [
+      {
+        liquidityMint: usdgMint,
+        liquidityTokenProgram: TOKEN_2022_PROGRAM_ID,
+        reserve: usdgReserve,
+        reserveCollateralMint: usdgReserveCollateralMint,
+        reserveLiquiditySupply: usdgReserveLiquiditySupply,
+      },
+    ];
+    mockMixedMintKaminoWithdrawInstructions(reserves);
+    const { connection } = createMixedMintWithdrawConnection({
+      collateralBalancesRaw: new Map(),
+      reserves,
+      simulatedVaultBalancesRaw: new Map(),
+      vaultBalancesRaw: new Map(),
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: connection as never,
+      programId,
+    });
+
+    await expect(
+      client.prepareEarnUsdcWithdraw({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        policySigner: backendSigner,
+        amountRaw: BigInt(1_000_000),
+        mode: "partial",
+        source: {
+          amountRaw: BigInt(1_000_000),
+          id: usdgReserve.toBase58(),
+          liquidityMint: usdgMint,
+          market: kaminoMarket,
+          reserve: usdgReserve,
+          type: "reserve",
+        },
+        yieldRoutingPolicy: {
+          account: policyAccount,
+          seed: BigInt(7),
+        },
+      })
+    ).rejects.toThrow(
+      "Earn withdrawal source mint does not match the selected target mint."
+    );
+  });
 });
 
 describe("prepareEarnUsdcAutodeposit", () => {
