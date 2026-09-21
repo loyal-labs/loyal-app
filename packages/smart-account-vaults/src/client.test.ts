@@ -83,6 +83,24 @@ const kaminoCollateralAta = getAssociatedTokenAddressSync(
   true,
   TOKEN_PROGRAM_ID
 );
+// A second stablecoin (Token-2022) plus a second USDC reserve: enough for a
+// vault that legitimately holds more than one mint across more than one market
+// slot.
+const usdgMint = STABLECOIN_MINTS[Stablecoin.USDG];
+const usdgReserve = new PublicKey("1111111111111111111111111111111C");
+const usdgReserveCollateralMint = new PublicKey(
+  "1111111111111111111111111111111D"
+);
+const usdgReserveLiquiditySupply = new PublicKey(
+  "1111111111111111111111111111111E"
+);
+const secondUsdcReserve = new PublicKey("1111111111111111111111111111111F");
+const secondUsdcReserveCollateralMint = new PublicKey(
+  "1111111111111111111111111111111G"
+);
+const secondUsdcReserveLiquiditySupply = new PublicKey(
+  "1111111111111111111111111111111H"
+);
 const kaminoSetupAccount = new PublicKey("11111111111111111111111111111118");
 const originalFetch = globalThis.fetch;
 const kaminoReserveDiscriminator = Buffer.from([
@@ -368,6 +386,211 @@ function mockKaminoWithdrawInstruction(
   return fetchMock;
 }
 
+// A vault can hold several stablecoins at once, so a mixed-mint full exit
+// needs one Kamino withdraw shape per reserve. Keyed by the requested reserve,
+// each response uses the current 14-account order with that reserve's own
+// liquidity mint, vault ATA and token program.
+function mockMixedMintKaminoWithdrawInstructions(
+  reserves: MixedMintWithdrawReserve[]
+) {
+  const byReserve = new Map(
+    reserves.map((reserve) => [reserve.reserve.toBase58(), reserve])
+  );
+  const fetchMock = mock(async (_url: unknown, init: RequestInit) => {
+    const body = JSON.parse((init.body as string) ?? "{}");
+    const reserve = byReserve.get(body.reserve);
+    if (!reserve) {
+      throw new Error(`Unexpected Kamino withdraw reserve ${body.reserve}`);
+    }
+    const instructionData = Buffer.alloc(16);
+    Buffer.from([235, 52, 119, 152, 149, 197, 20, 7]).copy(instructionData, 0);
+    instructionData.writeBigUInt64LE(decimalAmountToRaw(body.amount), 8);
+
+    return new Response(
+      JSON.stringify({
+        instructions: [
+          {
+            accounts: [
+              { address: deriveVault().toBase58(), role: "WRITABLE_SIGNER" },
+              { address: "11111111111111111111111111111111", role: "WRITABLE" },
+              { address: kaminoMarket.toBase58(), role: "READONLY" },
+              { address: "11111111111111111111111111111111", role: "READONLY" },
+              { address: reserve.reserve.toBase58(), role: "WRITABLE" },
+              { address: reserve.liquidityMint.toBase58(), role: "READONLY" },
+              {
+                address: deriveVaultAta(
+                  reserve.reserveCollateralMint,
+                  TOKEN_PROGRAM_ID
+                ).toBase58(),
+                role: "WRITABLE",
+              },
+              {
+                address: reserve.reserveCollateralMint.toBase58(),
+                role: "WRITABLE",
+              },
+              {
+                address: reserve.reserveLiquiditySupply.toBase58(),
+                role: "WRITABLE",
+              },
+              {
+                address: deriveVaultAta(
+                  reserve.liquidityMint,
+                  reserve.liquidityTokenProgram
+                ).toBase58(),
+                role: "WRITABLE",
+              },
+              { address: kaminoProgram.toBase58(), role: "READONLY" },
+              { address: TOKEN_PROGRAM_ID.toBase58(), role: "READONLY" },
+              {
+                address: reserve.liquidityTokenProgram.toBase58(),
+                role: "READONLY",
+              },
+              {
+                address: "Sysvar1nstructions1111111111111111111111111",
+                role: "READONLY",
+              },
+            ],
+            data: instructionData.toString("base64"),
+            programAddress: kaminoProgram.toBase58(),
+          },
+        ],
+      }),
+      { status: 200 }
+    );
+  });
+
+  globalThis.fetch = fetchMock as never;
+  return fetchMock;
+}
+
+type MixedMintWithdrawReserve = {
+  liquidityMint: PublicKey;
+  liquidityTokenProgram: PublicKey;
+  reserve: PublicKey;
+  reserveCollateralMint: PublicKey;
+  reserveLiquiditySupply: PublicKey;
+};
+
+// Vault-side RPC for a mixed-mint exit: every mint keeps its own collateral
+// ATA, its own idle vault balance and its own simulated post-withdraw balance.
+function createMixedMintWithdrawConnection(args: {
+  collateralBalancesRaw: Map<string, bigint>;
+  reserves: MixedMintWithdrawReserve[];
+  simulatedVaultBalancesRaw: Map<string, bigint>;
+  vaultBalancesRaw: Map<string, bigint>;
+}) {
+  const collateralAtas = new Map(
+    args.reserves.map((reserve) => [
+      deriveVaultAta(
+        reserve.reserveCollateralMint,
+        TOKEN_PROGRAM_ID
+      ).toBase58(),
+      reserve.reserveCollateralMint,
+    ])
+  );
+  const tokenBalancesRaw = new Map([
+    ...args.collateralBalancesRaw,
+    ...args.vaultBalancesRaw,
+  ]);
+  const getTokenAccountBalance = mock(async (account: PublicKey) => {
+    const amountRaw = tokenBalancesRaw.get(account.toBase58()) ?? BigInt(0);
+    return {
+      context: { slot: 1 },
+      value: {
+        amount: amountRaw.toString(),
+        decimals: 6,
+        uiAmount: Number(amountRaw) / 1_000_000,
+        uiAmountString: (Number(amountRaw) / 1_000_000).toString(),
+      },
+    };
+  });
+  const getAccountInfo = mock(async (account: PublicKey) => {
+    const reserve = args.reserves.find((candidate) =>
+      candidate.reserve.equals(account)
+    );
+    if (reserve) {
+      return createSerializedKaminoReserveAccount({
+        // A 1:1 collateral/liquidity exchange rate keeps the redeemed amounts
+        // readable; this test is about mint routing, not rounding.
+        collateralSupplyRaw: BigInt(1_000_000_000),
+        liquidityAvailableAmountRaw: BigInt(1_000_000_000),
+        liquidityMint: reserve.liquidityMint,
+        liquidityTokenProgram: reserve.liquidityTokenProgram,
+        reserveCollateralMint: reserve.reserveCollateralMint,
+        reserveLiquiditySupply: reserve.reserveLiquiditySupply,
+      });
+    }
+    const collateralMint = collateralAtas.get(account.toBase58());
+    if (collateralMint) {
+      return {
+        data: createTokenAccountData({
+          amountRaw:
+            args.collateralBalancesRaw.get(account.toBase58()) ?? BigInt(0),
+          mint: collateralMint,
+          owner: deriveVault(),
+        }),
+        executable: false,
+        lamports: 1,
+        owner: TOKEN_PROGRAM_ID,
+        rentEpoch: 0,
+      };
+    }
+    return createSerializedEarnPolicyAccount();
+  });
+  const simulateTransaction = mock(
+    async (
+      _transaction: unknown,
+      options: { accounts: { addresses: string[] } }
+    ) => ({
+      value: {
+        accounts: [
+          {
+            data: [
+              createSimulatedTokenAccountData(
+                args.simulatedVaultBalancesRaw.get(
+                  options.accounts.addresses[0] ?? ""
+                ) ?? BigInt(0)
+              ),
+              "base64",
+            ],
+          },
+          { lamports: 25_000 },
+        ],
+        err: null,
+        logs: [],
+      },
+    })
+  );
+
+  return {
+    connection: {
+      getAccountInfo,
+      getLatestBlockhash: mock(async () => ({
+        blockhash: "11111111111111111111111111111111",
+        lastValidBlockHeight: 1,
+      })),
+      getTokenAccountBalance,
+      simulateTransaction,
+    },
+    getAccountInfo,
+    getTokenAccountBalance,
+    simulateTransaction,
+  };
+}
+
+function deriveVaultAta(mint: PublicKey, tokenProgram: PublicKey) {
+  return getAssociatedTokenAddressSync(mint, deriveVault(), true, tokenProgram);
+}
+
+function deriveWalletAta(mint: PublicKey, tokenProgram: PublicKey) {
+  return getAssociatedTokenAddressSync(
+    mint,
+    walletAddress,
+    false,
+    tokenProgram
+  );
+}
+
 function deriveVault() {
   return PublicKey.findProgramAddressSync(
     [
@@ -530,23 +753,26 @@ function createSerializedRecurringDelegationAccount() {
 function createSerializedKaminoReserveAccount(args: {
   collateralSupplyRaw: bigint;
   liquidityAvailableAmountRaw: bigint;
+  liquidityMint?: PublicKey;
+  liquidityTokenProgram?: PublicKey;
+  reserveCollateralMint?: PublicKey;
+  reserveLiquiditySupply?: PublicKey;
 }) {
   const data = Buffer.alloc(kaminoReserveOffsets.collateralSupplyVault + 32);
   kaminoReserveDiscriminator.copy(data, 0);
   kaminoMarket.toBuffer().copy(data, kaminoReserveOffsets.lendingMarket);
   PublicKey.default.toBuffer().copy(data, kaminoReserveOffsets.farmCollateral);
   PublicKey.default.toBuffer().copy(data, kaminoReserveOffsets.farmDebt);
-  STABLECOIN_MINTS[Stablecoin.USDC]
+  (args.liquidityMint ?? STABLECOIN_MINTS[Stablecoin.USDC])
     .toBuffer()
     .copy(data, kaminoReserveOffsets.liquidityMintPubkey);
-  kaminoReserveLiquiditySupply
+  (args.reserveLiquiditySupply ?? kaminoReserveLiquiditySupply)
     .toBuffer()
     .copy(data, kaminoReserveOffsets.liquiditySupplyVault);
-  TOKEN_PROGRAM_ID.toBuffer().copy(
-    data,
-    kaminoReserveOffsets.liquidityTokenProgram
-  );
-  kaminoReserveCollateralMint
+  (args.liquidityTokenProgram ?? TOKEN_PROGRAM_ID)
+    .toBuffer()
+    .copy(data, kaminoReserveOffsets.liquidityTokenProgram);
+  (args.reserveCollateralMint ?? kaminoReserveCollateralMint)
     .toBuffer()
     .copy(data, kaminoReserveOffsets.collateralMintPubkey);
   PublicKey.default
@@ -3109,6 +3335,255 @@ describe("prepareEarnUsdcWithdraw", () => {
     expect(error?.message ?? "").not.toContain(
       "unexpected collateral token program"
     );
+  });
+
+  // Regression (2026-09-21): a full exit was built around ONE liquidity mint,
+  // so a vault holding a second stablecoin (the optimizer rebalances across
+  // mints, users deposit a second one) failed the whole withdrawal. The exit
+  // now spans mints ACROSS steps while every single step stays single-mint.
+  test("spans every held mint across single-mint steps", async () => {
+    const usdcMint = STABLECOIN_MINTS[Stablecoin.USDC];
+    const reserves = [
+      {
+        liquidityMint: usdgMint,
+        liquidityTokenProgram: TOKEN_2022_PROGRAM_ID,
+        reserve: usdgReserve,
+        reserveCollateralMint: usdgReserveCollateralMint,
+        reserveLiquiditySupply: usdgReserveLiquiditySupply,
+      },
+      {
+        liquidityMint: usdcMint,
+        liquidityTokenProgram: TOKEN_PROGRAM_ID,
+        reserve: kaminoReserve,
+        reserveCollateralMint: kaminoReserveCollateralMint,
+        reserveLiquiditySupply: kaminoReserveLiquiditySupply,
+      },
+    ];
+    mockMixedMintKaminoWithdrawInstructions(reserves);
+    const usdgVaultAta = deriveVaultAta(usdgMint, TOKEN_2022_PROGRAM_ID);
+    const usdgWalletAta = deriveWalletAta(usdgMint, TOKEN_2022_PROGRAM_ID);
+    const usdgCollateralAta = deriveVaultAta(
+      usdgReserveCollateralMint,
+      TOKEN_PROGRAM_ID
+    );
+    const { connection } = createMixedMintWithdrawConnection({
+      collateralBalancesRaw: new Map([
+        [usdgCollateralAta.toBase58(), BigInt(2_000_000)],
+        [kaminoCollateralAta.toBase58(), BigInt(1_000_000)],
+      ]),
+      reserves,
+      // Redeemed liquidity lands on top of each mint's own idle balance.
+      simulatedVaultBalancesRaw: new Map([
+        [usdgVaultAta.toBase58(), BigInt(2_000_007)],
+        [deriveVaultUsdcAta().toBase58(), BigInt(1_000_001)],
+      ]),
+      vaultBalancesRaw: new Map([
+        [usdgVaultAta.toBase58(), BigInt(7)],
+        [deriveVaultUsdcAta().toBase58(), BigInt(1)],
+      ]),
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: connection as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(3_000_000),
+      mode: "full",
+      // The caller names the largest holding as the top-level target; the
+      // smaller mint must still be withdrawn.
+      target: {
+        liquidityMint: usdgMint,
+        liquidityTokenProgram: TOKEN_2022_PROGRAM_ID,
+        market: kaminoMarket,
+        reserve: usdgReserve,
+        reserveCollateralMint: usdgReserveCollateralMint,
+        reserveLiquiditySupply: usdgReserveLiquiditySupply,
+      },
+      fullWithdrawalTargets: [
+        {
+          amountRaw: BigInt(2_000_000),
+          liquidityMint: usdgMint,
+          liquidityTokenProgram: TOKEN_2022_PROGRAM_ID,
+          market: kaminoMarket,
+          reserve: usdgReserve,
+          reserveCollateralMint: usdgReserveCollateralMint,
+          reserveLiquiditySupply: usdgReserveLiquiditySupply,
+        },
+        {
+          amountRaw: BigInt(1_000_000),
+          liquidityMint: usdcMint,
+          liquidityTokenProgram: TOKEN_PROGRAM_ID,
+          market: kaminoMarket,
+          reserve: kaminoReserve,
+          reserveCollateralMint: kaminoReserveCollateralMint,
+          reserveLiquiditySupply: kaminoReserveLiquiditySupply,
+        },
+      ],
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    // Largest mint first, and every step carries exactly one mint.
+    expect(
+      result.withdrawSteps.map((step) => step.persistence.liquidityMint)
+    ).toEqual([usdgMint.toBase58(), usdcMint.toBase58()]);
+    for (const step of result.withdrawSteps) {
+      expect(
+        new Set(
+          step.reserveWithdrawals.map((withdrawal) => withdrawal.liquidityMint)
+        ).size
+      ).toBe(1);
+    }
+
+    const [usdgStep, usdcStep] = result.withdrawSteps;
+    const stepAccounts = (step: (typeof result.withdrawSteps)[number]) =>
+      new Set(
+        step.prepared.instructions.flatMap((instruction) =>
+          instruction.keys.map((key) => key.pubkey.toBase58())
+        )
+      );
+    const usdgAccounts = stepAccounts(usdgStep!);
+    const usdcAccounts = stepAccounts(usdcStep!);
+
+    // Each approval moves and cleans up only its own mint's accounts.
+    expect(usdgAccounts).toContain(usdgVaultAta.toBase58());
+    expect(usdgAccounts).toContain(usdgWalletAta.toBase58());
+    expect(usdgAccounts).toContain(usdgCollateralAta.toBase58());
+    expect(usdgAccounts).not.toContain(deriveVaultUsdcAta().toBase58());
+    expect(usdgAccounts).not.toContain(deriveWalletUsdcAta().toBase58());
+    expect(usdgAccounts).not.toContain(kaminoCollateralAta.toBase58());
+    expect(usdcAccounts).toContain(deriveVaultUsdcAta().toBase58());
+    expect(usdcAccounts).toContain(deriveWalletUsdcAta().toBase58());
+    expect(usdcAccounts).toContain(kaminoCollateralAta.toBase58());
+    expect(usdcAccounts).not.toContain(usdgVaultAta.toBase58());
+    expect(usdcAccounts).not.toContain(usdgWalletAta.toBase58());
+    expect(usdcAccounts).not.toContain(usdgCollateralAta.toBase58());
+
+    // Every mint's own final step sweeps that mint's idle vault balance and
+    // closes its collateral ATAs; only the last step closes the policies.
+    expect(usdgStep?.persistence).toMatchObject({
+      isFinalStep: false,
+      vaultCollateralCleanupIncluded: true,
+      vaultUsdcRemainderRaw: "7",
+      walletTransferAmountRaw: "2000007",
+    });
+    expect(usdcStep?.persistence).toMatchObject({
+      isFinalStep: true,
+      vaultCollateralCleanupIncluded: true,
+      vaultUsdcRemainderRaw: "1",
+      walletTransferAmountRaw: "1000001",
+    });
+    expect(usdcAccounts).toContain(policyAccount.toBase58());
+    expect(usdgAccounts).not.toContain(policyAccount.toBase58());
+  });
+
+  test("never batches two mints into one approval", async () => {
+    const usdcMint = STABLECOIN_MINTS[Stablecoin.USDC];
+    const reserves = [
+      {
+        liquidityMint: usdcMint,
+        liquidityTokenProgram: TOKEN_PROGRAM_ID,
+        reserve: kaminoReserve,
+        reserveCollateralMint: kaminoReserveCollateralMint,
+        reserveLiquiditySupply: kaminoReserveLiquiditySupply,
+      },
+      {
+        liquidityMint: usdgMint,
+        liquidityTokenProgram: TOKEN_2022_PROGRAM_ID,
+        reserve: usdgReserve,
+        reserveCollateralMint: usdgReserveCollateralMint,
+        reserveLiquiditySupply: usdgReserveLiquiditySupply,
+      },
+      {
+        liquidityMint: usdcMint,
+        liquidityTokenProgram: TOKEN_PROGRAM_ID,
+        reserve: secondUsdcReserve,
+        reserveCollateralMint: secondUsdcReserveCollateralMint,
+        reserveLiquiditySupply: secondUsdcReserveLiquiditySupply,
+      },
+    ];
+    mockMixedMintKaminoWithdrawInstructions(reserves);
+    const usdgVaultAta = deriveVaultAta(usdgMint, TOKEN_2022_PROGRAM_ID);
+    const secondUsdcCollateralAta = deriveVaultAta(
+      secondUsdcReserveCollateralMint,
+      TOKEN_PROGRAM_ID
+    );
+    const { connection } = createMixedMintWithdrawConnection({
+      collateralBalancesRaw: new Map([
+        [kaminoCollateralAta.toBase58(), BigInt(1_000_000)],
+        [
+          deriveVaultAta(
+            usdgReserveCollateralMint,
+            TOKEN_PROGRAM_ID
+          ).toBase58(),
+          BigInt(3_000_000),
+        ],
+        [secondUsdcCollateralAta.toBase58(), BigInt(1_500_000)],
+      ]),
+      reserves,
+      simulatedVaultBalancesRaw: new Map([
+        [usdgVaultAta.toBase58(), BigInt(3_000_000)],
+        [deriveVaultUsdcAta().toBase58(), BigInt(2_500_000)],
+      ]),
+      vaultBalancesRaw: new Map(),
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: connection as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(5_500_000),
+      mode: "full",
+      fullWithdrawalTargets: reserves.map((reserve, index) => ({
+        amountRaw: [BigInt(1_000_000), BigInt(3_000_000), BigInt(1_500_000)][
+          index
+        ]!,
+        liquidityMint: reserve.liquidityMint,
+        liquidityTokenProgram: reserve.liquidityTokenProgram,
+        market: kaminoMarket,
+        reserve: reserve.reserve,
+        reserveCollateralMint: reserve.reserveCollateralMint,
+        reserveLiquiditySupply: reserve.reserveLiquiditySupply,
+      })),
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    // Two USDC reserves fit one approval; the USDG reserve never joins them,
+    // even though a mint-blind chunker would have paired it with a USDC one.
+    expect(
+      result.withdrawSteps.map((step) => [
+        step.persistence.liquidityMint,
+        step.reserveWithdrawals.map((withdrawal) => withdrawal.reserve),
+      ])
+    ).toEqual([
+      [usdgMint.toBase58(), [usdgReserve.toBase58()]],
+      [
+        usdcMint.toBase58(),
+        [kaminoReserve.toBase58(), secondUsdcReserve.toBase58()],
+      ],
+    ]);
+    for (const step of result.withdrawSteps) {
+      expect(
+        new Set(
+          step.reserveWithdrawals.map((withdrawal) => withdrawal.liquidityMint)
+        ).size
+      ).toBe(1);
+    }
   });
 });
 
