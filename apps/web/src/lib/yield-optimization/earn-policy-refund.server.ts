@@ -1,5 +1,8 @@
 import {
+  getRiskBasketMarketsForCluster,
+  type LoyalCluster,
   resolveLoyalClusterForSolanaEnv,
+  RiskBasket,
   SUBSCRIPTIONS_PROGRAM_ID,
   subscriptionRevokeDelegationData,
 } from "@loyal-labs/actions";
@@ -33,6 +36,8 @@ import {
   findEarnVaultRefundDbState,
   findSingleEarnPolicyRefundDbState,
 } from "./earn-policy-refund-state.server";
+import { getEarnProductAssetsForCluster } from "./earn-product-mints.shared";
+import { fetchEarnRpcHoldingsSnapshot } from "./earn-rpc-holdings.client";
 
 // Core of the policy/account refund flow, shared by the session (web) routes
 // and the mobile wallet-signature twins. Callers own authentication and
@@ -63,7 +68,15 @@ function getBlockedReason(args: {
   activeAutodeposit: boolean;
   activeManagedVault: boolean;
   referencedByActivePosition: boolean;
+  vaultHoldsChainFunds: boolean;
 }): string | null {
+  // The DB flags below are a read model that can lag or miss a deposit
+  // entirely (ASK-2252: a PYUSD deposit was never projected, the scan offered
+  // both policies as refundable, and the user closed the only policies that
+  // could withdraw). Funds visible on chain block every policy refund.
+  if (args.vaultHoldsChainFunds) {
+    return "Vault still holds funds on chain";
+  }
   if (args.referencedByActivePosition) {
     return "Active Earn position";
   }
@@ -74,6 +87,61 @@ function getBlockedReason(args: {
     return "Active Earn vault policy";
   }
   return null;
+}
+
+// Any non-USDC token balance in the vault, or any USDC parked outside the
+// vault's own idle ATA, means an open position.
+function vaultHoldsChainFunds(
+  snapshot: SmartAccountEarnVaultRefundSnapshot
+): boolean {
+  return snapshot.tokenAccounts.some(
+    (tokenAccount) =>
+      tokenAccount.amountRaw > BigInt(0) &&
+      !tokenAccount.address.equals(snapshot.vaultUsdcAta)
+  );
+}
+
+// Kamino collateral is not a vault token balance: it lives in the vault's
+// obligation per market. Read every Safe market for every product mint, with
+// no dependence on DB policy rows (they may be missing, ASK-2252).
+async function vaultHoldsKaminoCollateral(args: {
+  cluster: LoyalCluster;
+  connection: Connection;
+  programId: PublicKey;
+  settingsPda: PublicKey;
+}): Promise<boolean> {
+  const mints = getEarnProductAssetsForCluster(args.cluster).map((asset) =>
+    asset.mint.toBase58()
+  );
+  const snapshot = await fetchEarnRpcHoldingsSnapshot({
+    cluster: args.cluster,
+    connection: args.connection,
+    policy: {
+      account: PublicKey.default.toBase58(),
+      kaminoLiquidityMints: mints,
+      kaminoMarkets: getRiskBasketMarketsForCluster(
+        args.cluster,
+        RiskBasket.Safe
+      ).map((market) => market.toBase58()),
+      seed: "0",
+      stableMints: mints,
+      vaultIndex: EARN_VAULT_INDEX,
+      vaultPubkey: pda
+        .getSmartAccountPda({
+          accountIndex: EARN_VAULT_INDEX,
+          programId: args.programId,
+          settingsPda: args.settingsPda,
+        })[0]
+        .toBase58(),
+    },
+    programId: args.programId,
+    requireCompleteReserveReads: true,
+    settingsPda: args.settingsPda,
+  });
+  return snapshot.holdings.some(
+    (holding) =>
+      holding.kind === "kamino" && BigInt(holding.amountRaw) > BigInt(0)
+  );
 }
 
 // The vault entry is refundable only when nothing on chain or in the DB can
@@ -88,11 +156,7 @@ function buildVaultRefundEntry(args: {
   snapshot: SmartAccountEarnVaultRefundSnapshot;
 }): EarnPolicyRefundVaultEntry {
   const { dbState, snapshot } = args;
-  const holdsChainFunds = snapshot.tokenAccounts.some(
-    (tokenAccount) =>
-      tokenAccount.amountRaw > BigInt(0) &&
-      !tokenAccount.address.equals(snapshot.vaultUsdcAta)
-  );
+  const holdsChainFunds = vaultHoldsChainFunds(snapshot);
   const blockedReason = holdsChainFunds
     ? "Vault still holds funds on chain"
     : dbState.hasActivePosition
@@ -208,6 +272,14 @@ export async function scanEarnPolicyRefunds(
     client.fetchEarnVaultRefundSnapshot({ cluster, settingsPda }),
   ]);
 
+  const holdsChainFunds =
+    vaultHoldsChainFunds(vaultSnapshot) ||
+    (await vaultHoldsKaminoCollateral({
+      cluster,
+      connection: context.connection,
+      programId: context.programId,
+      settingsPda,
+    }));
   const policies: EarnPolicyRefundScanPolicy[] = overview.policies.map(
     (policy, index) => {
       const activeManagedVault = dbState.activeManagedVaultAccounts.has(
@@ -225,6 +297,7 @@ export async function scanEarnPolicyRefunds(
         activeAutodeposit,
         activeManagedVault,
         referencedByActivePosition,
+        vaultHoldsChainFunds: holdsChainFunds,
       });
 
       return {
@@ -373,7 +446,7 @@ export async function prepareEarnPolicyRefund(
   }
 
   const policyAccount = parsePublicKey(request.policyAccount, "policyAccount");
-  const [overview, accountInfo, dbState] = await Promise.all([
+  const [overview, accountInfo, dbState, vaultSnapshot] = await Promise.all([
     client.fetchPolicyOverview({ settingsPda, rootSigners: [] }),
     context.connection.getAccountInfo(policyAccount, "confirmed"),
     findSingleEarnPolicyRefundDbState({
@@ -383,6 +456,7 @@ export async function prepareEarnPolicyRefund(
       vaultPubkey: vaultPubkey.toBase58(),
       walletAddress: context.walletAddress,
     }),
+    client.fetchEarnVaultRefundSnapshot({ cluster, settingsPda }),
   ]);
   if (!accountInfo) {
     throw new EarnPolicyRefundError({
@@ -403,7 +477,17 @@ export async function prepareEarnPolicyRefund(
     });
   }
 
-  const blockedReason = getBlockedReason(dbState);
+  const blockedReason = getBlockedReason({
+    ...dbState,
+    vaultHoldsChainFunds:
+      vaultHoldsChainFunds(vaultSnapshot) ||
+      (await vaultHoldsKaminoCollateral({
+        cluster,
+        connection: context.connection,
+        programId: context.programId,
+        settingsPda,
+      })),
+  });
   const policy: EarnPolicyRefundScanPolicy = {
     account: overviewPolicy.address,
     accountIndex: overviewPolicy.accountIndex,
