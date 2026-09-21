@@ -4,8 +4,16 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+import { googlePlayUrl } from "@/lib/store-links";
 
 const footerColumns = [
+  {
+    links: [
+      { href: "https://app.askloyal.com", label: "Web app" },
+      { href: googlePlayUrl("footer"), label: "Android app" },
+    ],
+    title: "Get Loyal",
+  },
   {
     links: [
       {
@@ -130,7 +138,7 @@ export function LandingFooter() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-3 lg:col-span-6 lg:col-start-7 lg:gap-6">
+          <div className="grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-2 lg:col-span-8 lg:col-start-5 lg:grid-cols-4 lg:gap-6">
             {footerColumns.map((column, index) => (
               <div
                 className="flex flex-col items-start"

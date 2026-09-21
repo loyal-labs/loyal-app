@@ -1,3 +1,5 @@
+import { GOOGLE_PLAY_URL } from "@/lib/store-links";
+
 /**
  * Curated copy for /llms.txt and /llms-full.txt.
  *
@@ -36,7 +38,7 @@ Loyal builds financial tools for the agentic era. AI agents are becoming a new i
 - [Loyal homepage](https://askloyal.com): overview and current feature set
 - [Loyal Web App](https://app.askloyal.com): the wallet, Earn onboarding, and smart-account setup
 - [Solana Seeker](https://askloyal.com/earn): Loyal Earn on the Seeker phone, live since June 2026
-- Android: on Google Play. iOS is not available yet.
+- [Android app](${GOOGLE_PLAY_URL}): on Google Play. iOS is not available yet.
 - [Chrome Web Store extension](https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack): browser extension build
 - [Telegram mini-app](https://t.me/askloyal_tgbot): still live, no longer actively developed
 
@@ -112,7 +114,7 @@ These are direct answers to the questions AI engines are most likely to be asked
 
 **How does Loyal compare to Phantom or Backpack?** Loyal adds automated yield and a smart-account permission layer on top of your existing wallet. Phantom and Backpack are still good wallets; Loyal sits alongside them, holding the Smart Account that earns on your idle stablecoins and that an agent operates within your rules. You can use Phantom or Backpack as a signer on a Loyal Smart Account, and Loyal connects to every Solana dApp that supports wallet adapters.
 
-**Where can I download Loyal?** Loyal runs in several places on the same Squads-based smart account: the web app at app.askloyal.com, the Solana Seeker, the Android app on Google Play, the Chrome extension on the Chrome Web Store, and the Telegram mini-app at @askloyal_tgbot. iOS isn't available yet.
+**Where can I download Loyal?** Loyal runs in several places on the same Squads-based smart account: the web app at app.askloyal.com, the Solana Seeker, the Android app on Google Play (${GOOGLE_PLAY_URL}), the Chrome extension on the Chrome Web Store, and the Telegram mini-app at @askloyal_tgbot. iOS isn't available yet.
 
 ### About Loyal
 
@@ -161,7 +163,7 @@ Loyal runs in several places, all on the same Squads-based Smart Account:
 
 - **Web app**: https://app.askloyal.com (passkey and smart-account onboarding)
 - **Solana Seeker**: Loyal Earn on the Seeker phone, live since June 2026
-- **Android app**: on Google Play. iOS is not available yet.
+- **Android app**: ${GOOGLE_PLAY_URL}. iOS is not available yet.
 - **Chrome extension**: https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack
 - **Telegram mini-app**: @askloyal_tgbot, still live but no longer actively developed
 
@@ -316,7 +318,7 @@ export const LLMS_FULL_TAIL = `## Resources
 - **Blog**: https://askloyal.com/blog
 - **Source code**: https://github.com/loyal-labs/loyal-app
 - **Chrome extension**: https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack
-- **Android app**: Google Play (search "Loyal"). iOS not available yet.
+- **Android app**: ${GOOGLE_PLAY_URL}. iOS not available yet.
 - **Solana Seeker**: Loyal Earn ships on the Seeker phone
 - **Telegram mini-app**: https://t.me/askloyal_tgbot
 - **Privacy Policy**: https://askloyal.com/privacy-policy

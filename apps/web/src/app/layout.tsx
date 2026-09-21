@@ -9,6 +9,7 @@ import { AppTransitionBridge } from "@/components/app-transition/app-transition-
 import { PublicEnvProvider } from "@/contexts/public-env-context";
 import { createPublicEnv } from "@/lib/core/config/public";
 import { SITE_URL } from "@/lib/seo/site";
+import { GOOGLE_PLAY_URL } from "@/lib/store-links";
 
 const geistSans = GeistSans;
 const geistMono = GeistMono;
@@ -44,6 +45,7 @@ const siteJsonLd = {
         "https://t.me/loyal_tgchat",
         "https://medium.com/@askloyal",
         "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack",
+        GOOGLE_PLAY_URL,
         "https://app.askloyal.com",
       ],
     },
@@ -62,6 +64,10 @@ const siteJsonLd = {
       url: "https://askloyal.com",
       image: "https://askloyal.com/og-home-2026-08.png",
       applicationCategory: "FinanceApplication",
+      // The Play listing is what "operatingSystem: Android" refers to; without
+      // the URL here nothing ties this entity to the app Google itself hosts.
+      downloadUrl: GOOGLE_PLAY_URL,
+      installUrl: GOOGLE_PLAY_URL,
       operatingSystem: "Android",
       description:
         "Solana wallet that earns stablecoin yield automatically, with smart-account guardrails for AI agents and private transfers. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
