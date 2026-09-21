@@ -8593,6 +8593,30 @@ export function createSmartAccountVaultsClient(
       false,
       liquidityTokenProgram
     );
+    // A vault can legitimately hold several stablecoins at once: the yield
+    // optimizer rebalances across mints and a user can deposit a second one. A
+    // full exit unwinds every one of them, but each approval stays single-mint,
+    // so every target resolves its own vault/wallet accounts instead of
+    // borrowing the top-level ones above.
+    const resolveMintContext = (target: {
+      liquidityMint: PublicKey;
+      liquidityTokenProgram: PublicKey;
+    }) => ({
+      mint: target.liquidityMint,
+      tokenProgram: target.liquidityTokenProgram,
+      vaultAta: getAssociatedTokenAddressSync(
+        target.liquidityMint,
+        vaultPda,
+        true,
+        target.liquidityTokenProgram
+      ),
+      walletAta: getAssociatedTokenAddressSync(
+        target.liquidityMint,
+        args.walletAddress,
+        false,
+        target.liquidityTokenProgram
+      ),
+    });
     if (args.source?.type === "idle") {
       if (!args.source.mint.equals(usdcMint)) {
         throw new Error(
@@ -8653,9 +8677,18 @@ export function createSmartAccountVaultsClient(
           sourceType: args.source.type,
         }
       : undefined;
+    // A full exit can span several stablecoins. The autodeposit sweep only
+    // ever moves USDC, so close it whenever the exit unwinds USDC — not only
+    // when USDC is the mint the top-level target happens to name.
+    const exitLiquidityMints =
+      !idleSource && args.mode === "full" && args.fullWithdrawalTargets?.length
+        ? args.fullWithdrawalTargets.map((target) => target.liquidityMint)
+        : [usdcMint];
     const autodepositCloseOperation =
       isFinalExit &&
-      usdcMint.equals(getStablecoinMintForCluster(cluster, Stablecoin.USDC)) &&
+      exitLiquidityMints.some((mint) =>
+        mint.equals(getStablecoinMintForCluster(cluster, Stablecoin.USDC))
+      ) &&
       args.autodepositClose
         ? await prepareEarnUsdcAutodepositClose({
             cluster,
@@ -8841,31 +8874,53 @@ export function createSmartAccountVaultsClient(
         market.toBase58()
       )
     );
-    const requestedTargets =
+    // Only a full exit spans mints. A single-source withdrawal pairs the
+    // source's mint with the TOP-LEVEL target's token program below, so those
+    // two must name the same mint — an ATA is derived per token program, so a
+    // mismatch would point at an account belonging to the other program. The
+    // single-mint assert used to cover this before mixed exits relaxed it.
+    const isMixedMintExit = Boolean(
       args.mode === "full" && args.fullWithdrawalTargets?.length
-        ? args.fullWithdrawalTargets
-        : args.source?.type === "reserve"
-        ? [
-            {
-              liquidityMint: args.source.liquidityMint,
-              liquidityTokenProgram: earnTarget.liquidityTokenProgram,
-              market: args.source.market,
-              reserve: args.source.reserve,
-              amountRaw: args.amountRaw,
-            },
-          ]
-        : [
-            {
-              liquidityMint: earnTarget.liquidityMint,
-              liquidityTokenProgram: earnTarget.liquidityTokenProgram,
-              market: earnTarget.market,
-              reserve: earnTarget.reserve,
-              reserveCollateralMint: earnTarget.reserveCollateralMint,
-              reserveLiquiditySupply: earnTarget.reserveLiquiditySupply,
-              supplyApyBps: earnTarget.supplyApyBps,
-              amountRaw: args.amountRaw,
-            },
-          ];
+    );
+    if (
+      !isMixedMintExit &&
+      args.source?.type === "reserve" &&
+      !args.source.liquidityMint.equals(earnTarget.liquidityMint)
+    ) {
+      throw new Error(
+        "Earn withdrawal source mint does not match the selected target mint."
+      );
+    }
+    const requestedTargets = isMixedMintExit
+      ? args.fullWithdrawalTargets!
+      : args.source?.type === "reserve"
+      ? [
+          {
+            liquidityMint: args.source.liquidityMint,
+            liquidityTokenProgram: earnTarget.liquidityTokenProgram,
+            market: args.source.market,
+            reserve: args.source.reserve,
+            amountRaw: args.amountRaw,
+          },
+        ]
+      : [
+          {
+            liquidityMint: earnTarget.liquidityMint,
+            liquidityTokenProgram: earnTarget.liquidityTokenProgram,
+            market: earnTarget.market,
+            reserve: earnTarget.reserve,
+            reserveCollateralMint: earnTarget.reserveCollateralMint,
+            reserveLiquiditySupply: earnTarget.reserveLiquiditySupply,
+            supplyApyBps: earnTarget.supplyApyBps,
+            amountRaw: args.amountRaw,
+          },
+        ];
+    const requestedLiquidityMints = new Set(
+      requestedTargets.map((targetInput) =>
+        targetInput.liquidityMint.toBase58()
+      )
+    );
+    const requestedTokenProgramsByMint = new Map<string, PublicKey>();
     const withdrawPlans = requestedTargets.map((targetInput) => {
       const target = resolveKaminoEarnTarget(cluster, targetInput);
       const localCollateralAta = target.reserveCollateralMint
@@ -8881,11 +8936,26 @@ export function createSmartAccountVaultsClient(
           ? targetInput.vaultCollateralAta ?? null
           : null;
 
-      assertKaminoAccountEquals({
-        actual: target.liquidityMint,
-        expected: usdcMint,
-        label: "liquidity mint",
-      });
+      // A full exit spans mints ACROSS steps, so a target no longer has to
+      // match one liquidity mint. Two things must still hold: the resolved
+      // mint is one the caller requested (`resolveKaminoEarnTarget` falls back
+      // to the cluster default target), and every target for a mint agrees on
+      // that mint's token program — batching groups by mint and derives each
+      // step's vault/wallet accounts from it.
+      const mintKey = target.liquidityMint.toBase58();
+      if (!requestedLiquidityMints.has(mintKey)) {
+        throw new Error(
+          "Earn withdrawal resolved a liquidity mint that was not requested."
+        );
+      }
+      const knownTokenProgram = requestedTokenProgramsByMint.get(mintKey);
+      if (!knownTokenProgram) {
+        requestedTokenProgramsByMint.set(mintKey, target.liquidityTokenProgram);
+      } else if (!knownTokenProgram.equals(target.liquidityTokenProgram)) {
+        throw new Error(
+          "Earn withdrawal targets disagree on a liquidity mint's token program."
+        );
+      }
 
       return {
         amountRaw: targetInput.amountRaw ?? args.amountRaw,
@@ -8967,21 +9037,49 @@ export function createSmartAccountVaultsClient(
       });
     };
 
+    // One approval = one mint: a batch carries a single vault ATA, wallet ATA
+    // and token program, so mints are grouped first and only then chunked.
+    // Groups run largest total first (mint base58 breaks ties) so step order is
+    // deterministic for the same holdings.
     const chunkReserveWithdrawals = (
       withdrawals: ProvisionalReserveWithdrawal[]
     ): ProvisionalReserveWithdrawal[][] => {
-      const batches: ProvisionalReserveWithdrawal[][] = [];
-      for (
-        let index = 0;
-        index < withdrawals.length;
-        index += MAX_EARN_WITHDRAW_RESERVES_PER_APPROVAL
-      ) {
-        batches.push(
-          withdrawals.slice(
-            index,
-            index + MAX_EARN_WITHDRAW_RESERVES_PER_APPROVAL
-          )
+      const groups = new Map<string, ProvisionalReserveWithdrawal[]>();
+      for (const withdrawal of withdrawals) {
+        const mintKey = withdrawal.target.liquidityMint.toBase58();
+        const group = groups.get(mintKey);
+        if (group) {
+          group.push(withdrawal);
+        } else {
+          groups.set(mintKey, [withdrawal]);
+        }
+      }
+      const totalAmountRaw = (group: ProvisionalReserveWithdrawal[]) =>
+        group.reduce(
+          (total, withdrawal) => total + withdrawal.amountRaw,
+          BigInt(0)
         );
+      const orderedGroups = Array.from(groups.entries()).sort(
+        ([leftMint, left], [rightMint, right]) => {
+          const leftTotal = totalAmountRaw(left);
+          const rightTotal = totalAmountRaw(right);
+          if (leftTotal !== rightTotal) {
+            return leftTotal > rightTotal ? -1 : 1;
+          }
+          return leftMint < rightMint ? -1 : 1;
+        }
+      );
+      const batches: ProvisionalReserveWithdrawal[][] = [];
+      for (const [, group] of orderedGroups) {
+        for (
+          let index = 0;
+          index < group.length;
+          index += MAX_EARN_WITHDRAW_RESERVES_PER_APPROVAL
+        ) {
+          batches.push(
+            group.slice(index, index + MAX_EARN_WITHDRAW_RESERVES_PER_APPROVAL)
+          );
+        }
       }
       return batches;
     };
@@ -8992,6 +9090,13 @@ export function createSmartAccountVaultsClient(
       obligation: PublicKey;
       target: KaminoEarnTarget;
     }): Promise<ProvisionalReserveWithdrawal[]> => {
+      // Every account this step touches belongs to the plan's own mint, not
+      // the top-level one: a mixed-mint exit runs one plan per mint.
+      const {
+        mint: planMint,
+        tokenProgram: planTokenProgram,
+        vaultAta: planVaultAta,
+      } = resolveMintContext(plan.target);
       let vaultCollateralAta = plan.localCollateralAta;
       const preResolvedFullWithdrawAmounts =
         args.mode === "full" &&
@@ -9044,9 +9149,9 @@ export function createSmartAccountVaultsClient(
                 amountRaw: kaminoWithdrawAmountRaw,
                 target: plan.target,
                 vaultPda,
-                vaultUsdcAta,
+                vaultUsdcAta: planVaultAta,
                 vaultCollateralAta,
-                liquidityTokenProgram,
+                liquidityTokenProgram: planTokenProgram,
               });
               return {
                 instruction,
@@ -9070,12 +9175,12 @@ export function createSmartAccountVaultsClient(
       let validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
         instruction: kaminoWithdrawBundle.instruction,
         lendProgramId: plan.target.lendProgramId,
-        liquidityMint: usdcMint,
+        liquidityMint: planMint,
         market: plan.target.market,
         safeMarkets,
-        liquidityTokenProgram,
+        liquidityTokenProgram: planTokenProgram,
         vaultPda,
-        vaultUsdcAta,
+        vaultUsdcAta: planVaultAta,
         withdrawDiscriminator: plan.target.withdrawDiscriminator,
       });
       if (
@@ -9110,8 +9215,8 @@ export function createSmartAccountVaultsClient(
             },
             vaultCollateralAta: selectedVaultCollateralAta,
             vaultPda,
-            vaultUsdcAta,
-            liquidityTokenProgram,
+            vaultUsdcAta: planVaultAta,
+            liquidityTokenProgram: planTokenProgram,
           });
         const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
           (instruction) =>
@@ -9129,12 +9234,12 @@ export function createSmartAccountVaultsClient(
         validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
           instruction: kaminoWithdrawBundle.instruction,
           lendProgramId: plan.target.lendProgramId,
-          liquidityMint: usdcMint,
+          liquidityMint: planMint,
           market: plan.target.market,
           safeMarkets,
-          liquidityTokenProgram,
+          liquidityTokenProgram: planTokenProgram,
           vaultPda,
-          vaultUsdcAta,
+          vaultUsdcAta: planVaultAta,
           withdrawDiscriminator: plan.target.withdrawDiscriminator,
         });
       }
@@ -9184,8 +9289,8 @@ export function createSmartAccountVaultsClient(
               },
               vaultCollateralAta: plan.localCollateralAta,
               vaultPda,
-              vaultUsdcAta,
-              liquidityTokenProgram,
+              vaultUsdcAta: planVaultAta,
+              liquidityTokenProgram: planTokenProgram,
             });
           const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
             (instruction) =>
@@ -9203,12 +9308,12 @@ export function createSmartAccountVaultsClient(
           validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
             instruction: kaminoWithdrawBundle.instruction,
             lendProgramId: plan.target.lendProgramId,
-            liquidityMint: usdcMint,
+            liquidityMint: planMint,
             market: plan.target.market,
             safeMarkets,
-            liquidityTokenProgram,
+            liquidityTokenProgram: planTokenProgram,
             vaultPda,
-            vaultUsdcAta,
+            vaultUsdcAta: planVaultAta,
             withdrawDiscriminator: plan.target.withdrawDiscriminator,
           });
         }
@@ -9275,12 +9380,12 @@ export function createSmartAccountVaultsClient(
           validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
             instruction: kaminoWithdrawBundle.instruction,
             lendProgramId: plan.target.lendProgramId,
-            liquidityMint: usdcMint,
+            liquidityMint: planMint,
             market: plan.target.market,
             safeMarkets,
-            liquidityTokenProgram,
+            liquidityTokenProgram: planTokenProgram,
             vaultPda,
-            vaultUsdcAta,
+            vaultUsdcAta: planVaultAta,
             withdrawDiscriminator: plan.target.withdrawDiscriminator,
           });
           assertKaminoAccountEquals({
@@ -9323,12 +9428,12 @@ export function createSmartAccountVaultsClient(
         const instructionValidation = validateKaminoWithdrawInstruction({
           instruction: withdrawInstruction,
           lendProgramId: plan.target.lendProgramId,
-          liquidityMint: usdcMint,
+          liquidityMint: planMint,
           market: plan.target.market,
           safeMarkets,
-          liquidityTokenProgram,
+          liquidityTokenProgram: planTokenProgram,
           vaultPda,
-          vaultUsdcAta,
+          vaultUsdcAta: planVaultAta,
           withdrawDiscriminator: plan.target.withdrawDiscriminator,
         });
         const stepKaminoWithdrawAmountRaw = readWithdrawInstructionAmountRaw(
@@ -9344,7 +9449,7 @@ export function createSmartAccountVaultsClient(
 
         reserveWithdrawals.push({
           accountingReserve: {
-            liquidityMint: usdcMint,
+            liquidityMint: planMint,
             market: plan.target.market,
             obligation: plan.obligation,
             reserve: plan.target.reserve,
@@ -9353,7 +9458,7 @@ export function createSmartAccountVaultsClient(
           collateralAta: instructionValidation.vaultCollateralAta,
           collateralMint: instructionValidation.reserveCollateralMint,
           executionReserve: {
-            liquidityMint: usdcMint,
+            liquidityMint: planMint,
             market: instructionValidation.executionMarket,
             reserve: instructionValidation.executionReserve,
           },
@@ -9373,16 +9478,37 @@ export function createSmartAccountVaultsClient(
       return reserveWithdrawals;
     };
 
+    // Each mint keeps its own idle vault balance, so the final-exit remainder
+    // is read per mint; the lamport sweep stays one read for the vault PDA.
+    const withdrawMintContexts = Array.from(
+      new Map(
+        withdrawPlans.map((plan) => {
+          const context = resolveMintContext(plan.target);
+          return [context.mint.toBase58(), context] as const;
+        })
+      ).values()
+    );
     // The final-exit vault reads and the per-plan withdraw collection are
     // independent; overlap them instead of reading the vault first.
     const [
-      fullWithdrawVaultUsdcRemainderRaw,
+      fullWithdrawVaultRemainderEntries,
       fullWithdrawVaultSweepLamports,
       collectedReserveWithdrawals,
     ] = await Promise.all([
-      isFinalExit
-        ? getTokenAccountAmountOrZero(config.connection, vaultUsdcAta)
-        : Promise.resolve(BigInt(0)),
+      Promise.all(
+        withdrawMintContexts.map(
+          async (context) =>
+            [
+              context.mint.toBase58(),
+              isFinalExit
+                ? await getTokenAccountAmountOrZero(
+                    config.connection,
+                    context.vaultAta
+                  )
+                : BigInt(0),
+            ] as const
+        )
+      ),
       isFinalExit
         ? getVaultSweepLamportsOrZero(config.connection, vaultPda)
         : Promise.resolve(BigInt(0)),
@@ -9390,6 +9516,9 @@ export function createSmartAccountVaultsClient(
         withdrawPlans.map((plan) => collectReserveWithdrawalsForPlan(plan))
       ),
     ]);
+    const fullWithdrawVaultRemainderByMint = new Map(
+      fullWithdrawVaultRemainderEntries
+    );
     const reserveWithdrawals = collectedReserveWithdrawals.flat();
     if (reserveWithdrawals.length === 0) {
       throw new Error("Kamino did not return any Earn withdraw steps.");
@@ -9398,6 +9527,15 @@ export function createSmartAccountVaultsClient(
     const reserveWithdrawalBatches =
       chunkReserveWithdrawals(reserveWithdrawals);
     const finalBatchIndex = reserveWithdrawalBatches.length - 1;
+    // Mint groups are contiguous, so the last batch carrying a mint is that
+    // mint's own final batch: where its vault/collateral ATAs get closed.
+    const finalBatchIndexByMint = new Map<string, number>();
+    reserveWithdrawalBatches.forEach((batch, index) => {
+      finalBatchIndexByMint.set(
+        batch[0]!.target.liquidityMint.toBase58(),
+        index
+      );
+    });
 
     const buildWithdrawBatch = async (
       batch: ProvisionalReserveWithdrawal[],
@@ -9405,6 +9543,26 @@ export function createSmartAccountVaultsClient(
     ): Promise<ProvisionalWithdrawBatch> => {
       const firstWithdrawal = batch[0]!;
       const isFinalBatch = batchIndex === finalBatchIndex;
+      // One approval, one mint. Chunking groups by mint, and this re-asserts it
+      // per batch before any account is derived from `batch[0]`.
+      const {
+        mint: batchMint,
+        tokenProgram: batchTokenProgram,
+        vaultAta: batchVaultAta,
+        walletAta: batchWalletAta,
+      } = resolveMintContext(firstWithdrawal.target);
+      for (const withdrawal of batch) {
+        if (!withdrawal.target.liquidityMint.equals(batchMint)) {
+          throw new Error(
+            "Earn withdrawal batched two liquidity mints into one approval."
+          );
+        }
+      }
+      const batchMintKey = batchMint.toBase58();
+      // Each mint's own last batch closes that mint's vault and collateral
+      // ATAs; only the overall last batch sweeps the vault and closes policies.
+      const isFinalBatchForMint =
+        finalBatchIndexByMint.get(batchMintKey) === batchIndex;
       const batchAmountRaw = batch.reduce(
         (total, withdrawal) => total + withdrawal.amountRaw,
         BigInt(0)
@@ -9418,8 +9576,8 @@ export function createSmartAccountVaultsClient(
         BigInt(0)
       );
       const batchVaultUsdcRemainderRaw =
-        isFinalExit && isFinalBatch
-          ? fullWithdrawVaultUsdcRemainderRaw
+        isFinalExit && isFinalBatchForMint
+          ? fullWithdrawVaultRemainderByMint.get(batchMintKey) ?? BigInt(0)
           : BigInt(0);
       // A prior full exit's cleanup closes the vault's USDC and collateral
       // ATAs while sweeps/rebalances can still land funds afterwards; klend's
@@ -9429,10 +9587,10 @@ export function createSmartAccountVaultsClient(
       const vaultAtaSetupInstructions = [
         createAssociatedTokenAccountIdempotentInstruction(
           args.feePayer,
-          vaultUsdcAta,
+          batchVaultAta,
           vaultPda,
-          usdcMint,
-          liquidityTokenProgram
+          batchMint,
+          batchTokenProgram
         ),
       ];
       const seenVaultCollateralAtas = new Set<string>();
@@ -9468,9 +9626,9 @@ export function createSmartAccountVaultsClient(
             ),
             connection: config.connection,
           }),
-          isFinalExit && isFinalBatch
-            ? Promise.resolve(fullWithdrawVaultUsdcRemainderRaw)
-            : getTokenAccountAmountOrZero(config.connection, vaultUsdcAta),
+          isFinalExit && isFinalBatchForMint
+            ? Promise.resolve(batchVaultUsdcRemainderRaw)
+            : getTokenAccountAmountOrZero(config.connection, batchVaultAta),
         ]);
       const simulateWithdrawPrefix = async () => {
         const compiledWithdrawPrefix =
@@ -9504,10 +9662,10 @@ export function createSmartAccountVaultsClient(
             instructions: [
               createAssociatedTokenAccountIdempotentInstruction(
                 args.feePayer,
-                walletUsdcAta,
+                batchWalletAta,
                 args.walletAddress,
-                usdcMint,
-                liquidityTokenProgram
+                batchMint,
+                batchTokenProgram
               ),
               ...vaultAtaSetupInstructions,
               ...withdrawPrefixExecution.instructions,
@@ -9517,7 +9675,7 @@ export function createSmartAccountVaultsClient(
               ...batchKaminoLookupTableAccounts,
             ]),
           }),
-          tokenAccount: vaultUsdcAta,
+          tokenAccount: batchVaultAta,
         });
       };
 
@@ -9631,22 +9789,28 @@ export function createSmartAccountVaultsClient(
       const walletTransferAmountRaw =
         args.mode !== "full"
           ? batchAmountRaw
-          : isFinalBatch
+          : isFinalBatchForMint
           ? batchVaultUsdcRemainderRaw + redeemedTransferAmountRaw
           : redeemedTransferAmountRaw;
+      // Close only THIS mint's collateral ATAs, in this mint's own final
+      // batch: another mint's reserves are still unwinding in a later step.
       const closeableCollateralAtas =
-        isFinalExit && isFinalBatch
+        isFinalExit && isFinalBatchForMint
           ? (
               await Promise.all(
-                reserveWithdrawals.map(async (withdrawal) =>
-                  (await isTokenAccountOwnedBy({
-                    account: withdrawal.collateralAta,
-                    connection: config.connection,
-                    owner: vaultPda,
-                  }))
-                    ? withdrawal.collateralAta
-                    : null
-                )
+                reserveWithdrawals
+                  .filter((withdrawal) =>
+                    withdrawal.target.liquidityMint.equals(batchMint)
+                  )
+                  .map(async (withdrawal) =>
+                    (await isTokenAccountOwnedBy({
+                      account: withdrawal.collateralAta,
+                      connection: config.connection,
+                      owner: vaultPda,
+                    }))
+                      ? withdrawal.collateralAta
+                      : null
+                  )
               )
             ).filter((account): account is PublicKey => account !== null)
           : [];
@@ -9660,25 +9824,27 @@ export function createSmartAccountVaultsClient(
       );
       const transferInstruction = makeSignerWritable(
         createTransferCheckedInstruction(
-          vaultUsdcAta,
-          usdcMint,
-          walletUsdcAta,
+          batchVaultAta,
+          batchMint,
+          batchWalletAta,
           vaultPda,
           walletTransferAmountRaw,
           EARN_DEPOSIT_USDC_DECIMALS,
           [],
-          liquidityTokenProgram
+          batchTokenProgram
         ),
         vaultPda
       );
       const cleanupInstructions =
-        isFinalExit && isFinalBatch
+        isFinalExit && isFinalBatchForMint
           ? createEarnFullWithdrawCleanupInstructions({
               vaultCollateralAtas: uniqueCloseableCollateralAtas,
               vaultPda,
-              vaultSweepLamports,
-              vaultUsdcAta,
-              liquidityTokenProgram,
+              // Sweeping the vault is one-time final-exit work: it must run
+              // after the last mint's withdraw, not after each mint's.
+              vaultSweepLamports: isFinalBatch ? vaultSweepLamports : BigInt(0),
+              vaultUsdcAta: batchVaultAta,
+              liquidityTokenProgram: batchTokenProgram,
               walletAddress: args.walletAddress,
             })
           : [];
@@ -9729,10 +9895,10 @@ export function createSmartAccountVaultsClient(
         instructions: [
           createAssociatedTokenAccountIdempotentInstruction(
             args.feePayer,
-            walletUsdcAta,
+            batchWalletAta,
             args.walletAddress,
-            usdcMint,
-            liquidityTokenProgram
+            batchMint,
+            batchTokenProgram
           ),
           ...vaultAtaSetupInstructions,
           ...operations.flatMap((operation) => operation.instructions),
@@ -9795,7 +9961,7 @@ export function createSmartAccountVaultsClient(
           reserveWithdrawals: reserveWithdrawalMetadata,
           vaultCollateralCleanupIncluded:
             args.mode === "full" &&
-            isFinalBatch &&
+            isFinalBatchForMint &&
             uniqueCloseableCollateralAtas.length > 0,
           vaultUsdcRemainderRaw: batchVaultUsdcRemainderRaw.toString(),
           walletTransferAmountRaw: walletTransferAmountRaw.toString(),
@@ -9804,7 +9970,7 @@ export function createSmartAccountVaultsClient(
         reserveWithdrawals: reserveWithdrawalMetadata,
         vaultCollateralCleanupIncluded:
           args.mode === "full" &&
-          isFinalBatch &&
+          isFinalBatchForMint &&
           uniqueCloseableCollateralAtas.length > 0,
         vaultUsdcRemainderRaw: batchVaultUsdcRemainderRaw,
         walletTransferAmountRaw,
@@ -9845,6 +10011,12 @@ export function createSmartAccountVaultsClient(
     const resolvedVaultCollateralAta = firstWithdrawStep.collateralAta;
     const prepared = firstWithdrawStep.prepared;
     const topLevelAccountingReserve = firstWithdrawStep.accountingReserve;
+    // The top-level summary describes the FIRST step, so its mint accounts
+    // must come from that step's target: on a mixed-mint exit the outer
+    // `usdcMint` is only the mint the requested top-level target named.
+    const topLevelMintContext = resolveMintContext(
+      reserveWithdrawalBatches[0]![0]!.target
+    );
 
     return {
       autodepositClosePrepared: autodepositCloseOperation,
@@ -9872,14 +10044,14 @@ export function createSmartAccountVaultsClient(
       vault: {
         accountIndex: EARN_DEPOSIT_VAULT_INDEX,
         pubkey: vaultPda,
-        usdcAta: vaultUsdcAta,
+        usdcAta: topLevelMintContext.vaultAta,
         collateralAta: resolvedVaultCollateralAta,
       },
       targetReserve: {
         reserve: topLevelAccountingReserve.reserve,
         market: topLevelAccountingReserve.market,
-        liquidityMint: usdcMint,
-        liquidityTokenProgram,
+        liquidityMint: topLevelMintContext.mint,
+        liquidityTokenProgram: topLevelMintContext.tokenProgram,
         obligation: topLevelAccountingReserve.obligation,
       },
       persistence: {
@@ -9901,7 +10073,7 @@ export function createSmartAccountVaultsClient(
           : {}),
         targetReserve: topLevelAccountingReserve.reserve.toBase58(),
         market: topLevelAccountingReserve.market.toBase58(),
-        liquidityMint: usdcMint.toBase58(),
+        liquidityMint: topLevelMintContext.mint.toBase58(),
         requestedWithdrawAmountRaw: args.amountRaw.toString(),
         withdrawnAmountRaw: finalWithdrawStep.persistence.withdrawnAmountRaw,
         mode: args.mode,
