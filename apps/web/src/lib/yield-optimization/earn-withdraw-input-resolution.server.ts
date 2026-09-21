@@ -8,8 +8,10 @@ import {
 import { type Connection, PublicKey } from "@solana/web3.js";
 
 import {
-  type EarnUsdcReserveTarget,
-} from "@/lib/yield-optimization/earn-reserve-target.server";
+  selectFullExitForMint,
+  sourceLiquidityMint,
+} from "@/lib/yield-optimization/earn-full-exit-mint";
+import { type EarnUsdcReserveTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   type EarnRpcHolding,
   fetchEarnRpcHoldingsSnapshot,
@@ -103,7 +105,7 @@ type EarnWithdrawSourceId = ReturnType<
   typeof parseEarnWithdrawPrepareRequestBody
 >["sourceId"];
 
-type SelectedEarnWithdrawSource =
+export type SelectedEarnWithdrawSource =
   | {
       amountRaw: bigint;
       id: string;
@@ -205,7 +207,7 @@ function selectLegacyEarnWithdrawSource(
   request: EarnWithdrawLegacySourceRequest
 ): SelectedEarnWithdrawSource | null {
   if (!request) {
-    return sources.length === 1 ? (sources[0] ?? null) : null;
+    return sources.length === 1 ? sources[0] ?? null : null;
   }
 
   const directMatch = sources.find((source) =>
@@ -227,7 +229,7 @@ function selectLegacyEarnWithdrawSource(
   );
 
   return amountMatchedStableMintMatches.length === 1
-    ? (amountMatchedStableMintMatches[0] ?? null)
+    ? amountMatchedStableMintMatches[0] ?? null
     : null;
 }
 
@@ -282,8 +284,9 @@ function snapshotReserveTarget(
   };
 }
 
-// Legacy full exit unwinds EVERY market the wallet holds; the aggregate target
-// list drives the SDK's multi-market full-withdrawal build.
+// Legacy full exit unwinds every market the wallet holds for the selected
+// liquidity mint; the aggregate target list drives the SDK's multi-market
+// full-withdrawal build.
 function snapshotFullWithdrawalTargets(holdings: EarnRpcHolding[]): {
   amountRaw: bigint;
   liquidityMint: PublicKey;
@@ -510,16 +513,28 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     selectedSource =
       largestReserveSource ??
       snapshotSources.find((source) => source.type === "idle")!;
-    effectiveAmountRaw = snapshotSources.reduce(
-      (total, source) => total + source.amountRaw,
-      BigInt(0)
-    );
     mode = "full";
-    fullWithdrawalTargets = snapshotFullWithdrawalTargets(snapshot.holdings);
     withdrawTarget =
       selectedSource.type === "reserve"
         ? reserveSourceWithdrawTarget(selectedSource)
-        : (snapshotReserveTarget(snapshot.holdings) ?? undefined);
+        : snapshotReserveTarget(snapshot.holdings) ?? undefined;
+    // One mint per exit. The SDK builds a full withdrawal around a single
+    // liquidity mint (one vault ATA, one wallet ATA, one token program) and
+    // rejects any target that disagrees, so handing it a mixed-mint vault
+    // failed the whole withdrawal instead of part of it. The optimizer
+    // rebalances across stablecoins and users can deposit a second one, so a
+    // mixed vault is normal. Unwind the selected mint now; the balance that
+    // remains keeps the position open and the user exits it on the next pass.
+    // Cleanup already tolerates a leftover balance — it is best-effort after
+    // the withdrawal lands — so rent and policies are reclaimed on the pass
+    // that empties the vault.
+    const fullExit = selectFullExitForMint({
+      exitMint: sourceLiquidityMint(selectedSource),
+      sources: snapshotSources,
+      targets: snapshotFullWithdrawalTargets(snapshot.holdings),
+    });
+    effectiveAmountRaw = fullExit.amountRaw;
+    fullWithdrawalTargets = fullExit.targets;
   } else if (legacyRequest) {
     const selected = selectLegacyEarnWithdrawSource(
       snapshotSources,
@@ -545,7 +560,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     withdrawTarget =
       selected.type === "reserve"
         ? reserveSourceWithdrawTarget(selected)
-        : (snapshotReserveTarget(snapshot.holdings) ?? undefined);
+        : snapshotReserveTarget(snapshot.holdings) ?? undefined;
   } else {
     if (args.sourceId === null) {
       throw new EarnWithdrawResolveError(
