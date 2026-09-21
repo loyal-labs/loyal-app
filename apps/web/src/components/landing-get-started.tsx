@@ -470,11 +470,17 @@ function PlatformCard({
           <span className="flex items-center justify-center whitespace-nowrap rounded-[100px] bg-white px-3 py-1 text-[14px] font-normal leading-5 text-[#f9363c] transition duration-200 ease-out group-hover:scale-105">
             {platform.label}
           </span>
-          {platform.note ? (
-            <span className="whitespace-nowrap text-[11px] font-normal leading-3 text-[#3c3c43]/45">
-              {platform.note}
-            </span>
-          ) : null}
+          {/* The note line is always rendered, empty when a platform has none.
+              Cards are centred in equal-height grid cells, so a card without a
+              note would sit 8px higher than the "Coming soon" one beside it. */}
+          <span
+            aria-hidden={platform.note ? undefined : "true"}
+            className={`whitespace-nowrap text-[11px] font-normal leading-3 text-[#3c3c43]/45 ${
+              platform.note ? "" : "invisible"
+            }`}
+          >
+            {platform.note ?? "\u00a0"}
+          </span>
         </span>
       </span>
     </>

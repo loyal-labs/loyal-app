@@ -155,7 +155,7 @@ export function LandingFooter() {
                       href={link.href}
                       key={`${column.title}-${link.label}`}
                       label={link.label}
-                      source={`landing_footer_${column.title.toLowerCase()}`}
+                      source={`landing_footer_${column.title.toLowerCase().replace(/\s+/g, "_")}`}
                     />
                   ))}
                 </div>

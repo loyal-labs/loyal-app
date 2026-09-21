@@ -8,7 +8,7 @@
  * is the untagged canonical URL for prose, metadata and structured data.
  */
 
-export const GOOGLE_PLAY_APP_ID = "com.askloyal.app";
+const GOOGLE_PLAY_APP_ID = "com.askloyal.app";
 
 export const GOOGLE_PLAY_URL = `https://play.google.com/store/apps/details?id=${GOOGLE_PLAY_APP_ID}`;
 

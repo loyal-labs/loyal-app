@@ -518,12 +518,14 @@ export default function EarnPage() {
             to the best available rate from there. Loyal lives in four places,
             all on the same Squads-based smart account: web app, Chrome
             extension, Telegram mini-app, and the{" "}
-            <Link
-              className="underline underline-offset-4"
+            <a
+              className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
               href={googlePlayUrl("earn-page")}
+              rel="noopener"
+              target="_blank"
             >
               Android app
-            </Link>
+            </a>
             . <strong>Stay Loyal.</strong>
           </>
         }
