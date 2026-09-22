@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import {
-  getKaminoUsdcEarnTargetForCluster,
   normalizeLoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
@@ -13,6 +12,8 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
+import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
+import { assertSafeEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import { type ConfirmedYieldRoutePolicyInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_POLICY_VAULT_INDEX = 1;
@@ -74,19 +75,33 @@ function createCanonicalPolicyInput(
     settingsPda: settings,
     accountIndex: EARN_POLICY_VAULT_INDEX,
   })[0];
-  const earnTarget = getKaminoUsdcEarnTargetForCluster(cluster);
+  // Prepare routes each mint to the best Safe reserve, not one fixed market
+  // (multi-mint rollout), so validate the reserve the same way deposit
+  // confirm does: supported mint + Safe-universe market. Pinning the main
+  // USDC market here rejected every first deposit routed elsewhere.
+  const productAsset = resolveEarnProductAsset({
+    cluster,
+    mint: requestInput.liquidityMint,
+  });
+  const earnTarget = assertSafeEarnReserveMetadata({
+    cluster,
+    expectedLiquidityMint: productAsset.mint.toBase58(),
+    liquidityMint: requestInput.liquidityMint,
+    market: requestInput.market ?? null,
+    targetReserve: requestInput.targetReserve,
+  });
   const canonicalInput = {
     ...normalizedRequestInput,
     cluster,
-    liquidityMint: earnTarget.liquidityMint.toBase58(),
-    market: earnTarget.market.toBase58(),
+    liquidityMint: earnTarget.liquidityMint,
+    market: earnTarget.market,
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
     setupPolicyAccount: expectedSetupPolicyAccount.toBase58(),
     setupPolicyId: expectedSetupPolicySeed,
     setupPolicySeed: expectedSetupPolicySeed,
-    targetReserve: earnTarget.reserve.toBase58(),
+    targetReserve: earnTarget.targetReserve,
     vaultIndex: EARN_POLICY_VAULT_INDEX,
     vaultPubkey: expectedVault.toBase58(),
   };
