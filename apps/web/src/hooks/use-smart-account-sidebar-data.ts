@@ -5822,6 +5822,43 @@ export function useSmartAccountSidebarData(
             connection,
             transaction: request.transaction,
           });
+        const threshold = overview.threshold ?? 1;
+        const syncOp =
+          threshold <= 1 &&
+          overview.timeLock === 0 &&
+          settingsSigner.canVote &&
+          settingsSigner.canExecute
+            ? await client.prepareCustomInstructionSync({
+                settingsPda,
+                signer: wallet.publicKey,
+                feePayer: wallet.publicKey,
+                instructions,
+                accountIndex: request.accountIndex,
+                addressLookupTableAccounts,
+              })
+            : null;
+        if (syncOp) {
+          const syncSignature = await sendPreparedWithWallet({
+            connection,
+            wallet: walletBridge,
+            prepared: syncOp,
+            confirm: true,
+          });
+          queueMutationRefresh(
+            resolveSmartAccountMutationRefreshPlan({
+              kind: "vault_swap",
+              execution: "executed",
+              accountIndex: request.accountIndex,
+            }),
+            "post-swap"
+          );
+          return {
+            success: true,
+            signature: syncSignature,
+            status: "executed",
+          };
+        }
+
         const preparedProposal = await client.prepareCustomInstructionProposal({
           settingsPda,
           creator: wallet.publicKey,
@@ -5836,7 +5873,6 @@ export function useSmartAccountSidebarData(
           prepared: preparedProposal,
           confirm: true,
         });
-        const threshold = overview.threshold ?? 1;
 
         if (threshold > 1) {
           queueMutationRefresh(
