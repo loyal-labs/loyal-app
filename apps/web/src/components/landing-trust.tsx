@@ -22,12 +22,27 @@ export function LandingTrust() {
               secure over $15 billion. Loyal never holds your keys.
             </p>
 
-            <Link
-              className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
-              href="/trust"
-            >
-              How your funds are secured
-            </Link>
+            <p className="max-w-[620px] text-[18px] leading-[1.2] tracking-[-0.02em] text-black/60 lg:text-[24px] lg:tracking-[-0.48px]">
+              Earn&apos;s automation can only withdraw from and deposit into
+              whitelisted Kamino reserves inside your own account. The worst it
+              can do is pick a lower rate. No user funds lost since October
+              2025.
+            </p>
+
+            <div className="flex flex-wrap items-start gap-2">
+              <Link
+                className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
+                href="/trust"
+              >
+                How your funds are secured
+              </Link>
+              <Link
+                className="inline-flex h-[52px] items-center justify-center rounded-full bg-black/[0.04] px-5 text-center text-[20px] font-normal leading-6 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/[0.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
+                href="/risks"
+              >
+                Earn risks
+              </Link>
+            </div>
           </div>
 
           <div

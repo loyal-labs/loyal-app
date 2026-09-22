@@ -103,14 +103,24 @@ export default function TrustPage() {
       {/* Block 2 — What secures your funds */}
       <CardsGrid
         title="What secures your funds"
-        description="Most of what stands between you and your money is infrastructure that already secures billions on Solana."
+        description={
+          <>
+            Most of what stands between you and your money is infrastructure
+            that already secures billions on Solana. For what can still go
+            wrong, see{" "}
+            <Link className={LINK_CLASS} href="/risks">
+              Earn risks
+            </Link>
+            .
+          </>
+        }
         variant="muted"
         columns={2}
         cards={[
           {
             icon: <ShieldCheck className="size-16 text-[#f9363c]" />,
             title: "Squads",
-            body: "Your account is a Squads V4 smart account. Open source, audited, and the most widely used smart account program on Solana.",
+            body: "Your account runs on the Squads Smart Account program. Open source, audited by OtterSec, and the most widely used smart account standard on Solana.",
           },
           {
             icon: <TrendingUp className="size-16 text-[#f9363c]" />,
@@ -155,10 +165,10 @@ export default function TrustPage() {
         title="Verify it yourself"
         description={
           <>
-            Everything is open source under AGPL-3.0. The wallet, the extension,
-            the SDKs and the on-chain programs. Read the code, build it yourself,
-            or fork the whole thing. State lives on-chain, so a fork stays
-            compatible with everything else.
+            Everything Loyal writes is open source under AGPL-3.0: the wallet,
+            the extension, the SDKs and the automation. Read the code, build it
+            yourself, or fork the whole thing. State lives on-chain, so a fork
+            stays compatible with everything else.
           </>
         }
         variant="muted"
@@ -167,7 +177,7 @@ export default function TrustPage() {
           {
             icon: <CircleCheck className="size-16 text-[#f9363c]" />,
             title: "Smart accounts",
-            body: "Live on Solana mainnet, on the audited Squads program.",
+            body: "Live on Solana mainnet, on the audited Squads Smart Account program.",
           },
           {
             icon: <ShieldCheck className="size-16 text-[#f9363c]" />,

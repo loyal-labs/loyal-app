@@ -81,7 +81,7 @@ const earnFaqs: FaqItem[] = [
     question:
       "How do I get the best stablecoin lending yield on Solana automatically?",
     answer:
-      "Deposit dollars into Loyal and set how much goes to earning. Loyal routes that allocation to whichever reputable Kamino reserve currently pays the most, swapping between risk-equivalent stablecoins (USDC, PYUSD, USDT, USDS) when a better market uses a different dollar, and re-routing as rates move. It runs through an on-chain Squads policy, so the automation never takes custody. You withdraw to the dollar asset you started with, any time.",
+      "Deposit dollars into Loyal and set how much goes to earning. Loyal routes that allocation to whichever whitelisted Kamino reserve currently pays the most for the stablecoin you deposited, and re-routes as rates move. It runs through an on-chain Squads policy, so the automation never takes custody. You can withdraw any time.",
   },
   {
     question: "Why do lending APYs spike?",
@@ -91,7 +91,7 @@ const earnFaqs: FaqItem[] = [
   {
     question: "Is this custodial?",
     answer:
-      "No. The automation runs as a policy on your Squads smart account with whitelisted intents (approved swaps, deposits, and withdrawals). Loyal's backend can trigger those moves but never holds your private key and can't act outside the whitelist. Only your key owns the funds, and you can optionally require your confirmation on each swap.",
+      "No. The automation runs as a policy on your Squads smart account with two whitelisted intents: withdraw from an approved Kamino reserve and deposit into an approved one, with your smart account as the owner on both sides. Loyal's backend can trigger those moves but never holds your private key and can't act outside the whitelist. Only your key can move funds out of your account.",
   },
   {
     question: "What APY can I expect?",
@@ -101,7 +101,7 @@ const earnFaqs: FaqItem[] = [
   {
     question: "Can I lose money?",
     answer:
-      "The strategy is built to be low-variance. It's plain stablecoin lending, with no liquidations and no impermanent loss, because it uses neither leverage nor liquidity-provider positions. Your dollars sit in established Kamino reserves and the whitelist sticks to reputable dollars, so the residual risks are the ordinary ones any lender takes: a smart-contract issue in a reserve, or a stablecoin losing its peg. You keep custody the entire time, and the automation can never move funds outside the whitelisted intents.",
+      "The strategy is built to be low-variance. It's plain stablecoin lending, with no liquidations and no impermanent loss, because it uses neither leverage nor liquidity-provider positions. Your dollars sit in five whitelisted Kamino markets, in the stablecoin you deposited, so the residual risks are the ordinary ones any lender takes: a smart-contract issue or bad debt in a reserve, or that stablecoin losing its peg. You keep custody the entire time, and the automation can never move funds outside the whitelisted intents. The full breakdown is at askloyal.com/risks.",
   },
   {
     question: "How is this different from a yield vault like Kamino Earn?",
@@ -111,12 +111,12 @@ const earnFaqs: FaqItem[] = [
   {
     question: "Do I have to manage anything?",
     answer:
-      "No. You deposit dollars and set how much goes to earning. The routing runs on its own from there, moving your allocation to the best reserve as rates change. If you'd rather stay in the loop, you can set the policy to ask you to confirm each swap.",
+      "No. You deposit dollars and set how much goes to earning. The routing runs on its own from there, moving your allocation to the best reserve as rates change. Your funds stay in your own smart account the whole time, and you can withdraw whenever you want.",
   },
   {
     question: "Has Loyal been audited?",
     answer:
-      "Loyal hasn't commissioned its own standalone audit yet, but it's built on primitives that have been audited heavily. Squads, which holds the funds and enforces the policy, has been through multiple independent audits, and the earning happens in Kamino, one of Solana's most-used lending protocols. The full Loyal stack is open-source, so you can review it directly.",
+      "The programs that hold and lend your funds have been. Squads Smart Account, which holds the funds and enforces the policy, and Kamino K-Lend, where the earning happens, were each assessed by OtterSec. Loyal doesn't deploy a program of its own for Earn. Its off-chain automation hasn't had a standalone audit, but it's open source and the on-chain policy limits what it can do.",
   },
 ];
 
@@ -166,8 +166,7 @@ export default function EarnPage() {
                   agent
                 </Link>{" "}
                 continuously moves your allocation to the best-paying reserve
-                instead of leaving it in one pool, swapping between
-                risk-equivalent stablecoins to reach a better market.
+                instead of leaving it in one pool.
               </>
             ),
           },
@@ -177,8 +176,8 @@ export default function EarnPage() {
               <>
                 <strong>Bounded by a policy you approve.</strong> The routing
                 runs through an on-chain Squads policy on your own smart
-                account, limited to a whitelist of reputable stablecoins and
-                established reserves. It never takes custody, and you can
+                account, limited to a whitelist of established Kamino
+                reserves. It never takes custody, and you can
                 withdraw any time.
               </>
             ),
@@ -209,10 +208,9 @@ export default function EarnPage() {
                 Once you accept that, a question follows: why pin your dollars
                 to one token in one lending reserve, when a different reserve,
                 sometimes holding a different dollar, is paying more right now?
-                There&apos;s no good reason. You see dollars. Under the hood,
-                Loyal moves between risk-equivalent stablecoins to reach a
-                better reserve, and when you withdraw, you get back the dollar
-                asset you started with.
+                There&apos;s no good reason. Today Loyal rotates your dollars
+                between whitelisted reserves for the stablecoin you deposited.
+                Routing across different dollars is next on the roadmap.
               </>
             ),
           },
@@ -266,11 +264,8 @@ export default function EarnPage() {
                 Moving from a worse reserve to a better one is mechanically
                 simple. You <strong>withdraw</strong> from the first and{" "}
                 <strong>deposit</strong> into the second, and that can happen
-                in a single transaction. Sometimes the better market uses a
-                different dollar, so the move also needs a{" "}
-                <strong>swap</strong>, for example PYUSD into USDT, before the
-                deposit. Withdraw, maybe swap, deposit. That&apos;s the whole
-                motion.
+                in a single transaction. Withdraw, deposit. That&apos;s the
+                whole motion.
               </>
             ),
           },
@@ -326,10 +321,8 @@ export default function EarnPage() {
             size: "lg",
             body: (
               <>
-                Instead of a big contract that manages all the routing,
-                there&apos;s a <strong>thin helper contract</strong> that only
-                bundles a move into a single transaction, constrained by a{" "}
-                <strong>smart-account policy</strong> on{" "}
+                Instead of a big contract that manages all the routing, the
+                routing is a <strong>smart-account policy</strong> on{" "}
                 <a
                   className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
                   href="https://squads.so"
@@ -339,9 +332,9 @@ export default function EarnPage() {
                   Squads
                 </a>
                 . The actions it can run are <strong>whitelisted intents</strong>:
-                swap between approved stablecoins, deposit into approved
-                reserves, withdraw from approved reserves. Each action is
-                harmless on its own and easy to verify.
+                withdraw from an approved Kamino reserve and deposit into an
+                approved one, with your smart account as the owner on both
+                sides. Each action is harmless on its own and easy to verify.
               </>
             ),
           },
@@ -349,15 +342,13 @@ export default function EarnPage() {
             size: "lg",
             body: (
               <>
-                The policy constrains the intents so your balance{" "}
-                <strong>can&apos;t decrease</strong>, which is why the
-                yield-only operations are <strong>auto-approved</strong> by
+                Neither intent can move funds out of your account, which is why
+                the yield-only operations are <strong>auto-approved</strong> by
                 default. Loyal&apos;s backend can trigger those moves, but it
                 never holds your key and can never step outside the whitelist.
                 There&apos;s no private key sitting in a server waiting to be
                 stolen, because the policy lives on-chain and the funds stay in
-                your own smart account. If you want an extra layer, the policy
-                can require you to confirm each swap.
+                your own smart account.
               </>
             ),
           },
@@ -367,14 +358,26 @@ export default function EarnPage() {
       {/* Block 8 — CardsGrid (muted, 2 cols): Risk */}
       <CardsGrid
         title="Understanding the risks"
-        description="Plain stablecoin lending: no liquidations, no impermanent loss, no leverage. What's left is the ordinary risk any lender takes."
+        description={
+          <>
+            Plain stablecoin lending: no liquidations, no impermanent loss, no
+            leverage. What&apos;s left is the ordinary risk any lender takes.{" "}
+            <Link
+              className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+              href="/risks"
+            >
+              See every risk
+            </Link>
+            .
+          </>
+        }
         variant="muted"
         columns={2}
         cards={[
           {
             icon: <TrendingDown className="size-16 text-[#f9363c]" />,
             title: "Reserve smart-contract and depeg risk",
-            body: "Your dollars sit in Kamino reserves that carry smart-contract risk, where an exploit or a bad-debt event could affect the principal, the same exposure every lender in that reserve takes. Because the strategy moves between stablecoins, a stablecoin losing its peg is also a genuine risk, which is why the whitelist is limited to reputable dollars and established reserves.",
+            body: "Your dollars sit in five whitelisted Kamino markets that carry smart-contract risk, where an exploit or a bad-debt event could affect the principal, the same exposure every lender in that reserve takes. The stablecoin you deposited losing its peg is also a genuine risk.",
           },
           {
             icon: <ShieldCheck className="size-16 text-[#f9363c]" />,
@@ -391,9 +394,9 @@ export default function EarnPage() {
             title: "Every part is open-source",
             body: (
               <>
-                Loyal hasn&apos;t commissioned its own standalone audit yet,
-                but the substrate has been audited heavily: Squads, which holds
-                the funds and enforces the policy. Every line of
+                Loyal doesn&apos;t deploy a program of its own for Earn. The
+                programs that hold and lend your funds, Squads Smart Account
+                and Kamino K-Lend, were each audited by OtterSec. Every line of
                 Loyal-specific code on top is{" "}
                 <a
                   className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
@@ -476,9 +479,8 @@ export default function EarnPage() {
               Squads
             </a>{" "}
             smart accounts, the most-deployed smart-account framework on
-            Solana. Routing is a <strong>policy with whitelisted intents</strong>{" "}
-            plus a thin helper contract that bundles a move into one
-            transaction, rather than a big custom program. The lending itself
+            Solana. Routing is a <strong>policy with whitelisted intents</strong>,{" "}
+            rather than a big custom program. The lending itself
             happens in{" "}
             <a
               className="underline underline-offset-4 transition-colors hover:text-white"

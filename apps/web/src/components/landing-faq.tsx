@@ -19,6 +19,16 @@ export const LANDING_FAQS: FaqItem[] = [
       "Deposit dollars and set how much goes to earning. Loyal routes that allocation to whichever reputable lending reserve currently pays the most and re-routes as rates move. The automation runs through an on-chain policy on your own smart account, so it never takes custody, and you can withdraw any time.",
   },
   {
+    question: "Is Loyal safe? What are the risks?",
+    answer:
+      "Loyal Earn carries the risk of supplying stablecoins to Kamino: a reserve bug, bad debt, or the stablecoin losing its peg. Your funds stay in your own Squads smart account, and an on-chain policy lets the automation only withdraw from and deposit into whitelisted Kamino reserves, so the worst it can do is pick a lower rate. No user funds lost since October 2025. The full breakdown is at askloyal.com/risks.",
+  },
+  {
+    question: "Does Loyal have its own smart contract?",
+    answer:
+      "Not in Loyal Earn today. Earn runs on the Squads Smart Account program and Kamino K-Lend, both audited by OtterSec. Loyal's own code is the off-chain automation and the apps, which are open source and bounded by the on-chain policy.",
+  },
+  {
     question: "How can I use Loyal?",
     answer:
       "Start with the browser extension, web app, or mobile app, create a wallet, turn on earning, and approve only the permissions each app or agent needs.",
