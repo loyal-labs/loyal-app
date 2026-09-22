@@ -12,7 +12,7 @@ main="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
 [ "$worktree" != "$main" ] || exit 0
 [ ! -d "$worktree/node_modules" ] || exit 0
 
-echo "[post-checkout] New worktree: copying .env files from $main and running bun install"
+echo "[post-checkout] New worktree: copying .env files from $main, bun install, build:packages"
 for app in apps/*/ packages/*/; do
   for env in "$main/$app".env "$main/$app".env.*; do
     [ -f "$env" ] || continue
@@ -23,7 +23,7 @@ done
 cp -n "$main"/.env "$main"/.env.* "$worktree"/ 2>/dev/null || true
 
 if command -v bun >/dev/null 2>&1; then
-  (cd "$worktree" && bun install --frozen-lockfile)
+  (cd "$worktree" && bun install --frozen-lockfile && bun run build:packages)
 else
   echo "[post-checkout] bun not found; run bun install manually" >&2
 fi
