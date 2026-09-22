@@ -13,7 +13,11 @@ import { WalletTab } from "./wallet-tab";
  * between the sign-in modal and the on-page signed-out pane so the captcha
  * coordination lives in one place.
  */
-export function WalletSignIn() {
+export function WalletSignIn({
+  defaultUseLedgerProof = false,
+}: {
+  defaultUseLedgerProof?: boolean;
+} = {}) {
   const { captcha } = usePublicEnv();
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const captchaSatisfied = captcha.mode === "disabled" || captchaToken !== null;
@@ -66,6 +70,7 @@ export function WalletSignIn() {
       <WalletTab
         captchaSatisfied={captchaSatisfied}
         captchaToken={captchaToken}
+        defaultUseLedgerProof={defaultUseLedgerProof}
         onCaptchaConsumed={() => {
           setCaptchaToken(null);
           setWidgetEpoch((epoch) => epoch + 1);
