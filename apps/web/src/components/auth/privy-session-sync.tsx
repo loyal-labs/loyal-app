@@ -150,7 +150,13 @@ function Inner({ children }: { children: ReactNode }) {
     onError: (code) => {
       setWantsSession(false);
       setStep("idle");
-      setError(`Privy login failed: ${code}`);
+      // Closing Privy's modal is not an error to show. Either way, fall back
+      // to our modal: Privy's wallet list has no path for Ledger users (its
+      // Solana login is SIWS, which Ledger refuses to sign), ours does.
+      setError(
+        code === "exited_auth_flow" ? null : `Privy login failed: ${code}`
+      );
+      openSignInModal();
     },
   });
 
