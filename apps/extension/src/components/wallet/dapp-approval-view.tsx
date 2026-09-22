@@ -49,6 +49,10 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes;
 }
 
+const DECODE_FAILED: InstructionSummary[] = [
+  { program: "Unknown", description: "Failed to decode transaction" },
+];
+
 async function decodeTransaction(
   base64: string,
 ): Promise<InstructionSummary[]> {
@@ -113,7 +117,7 @@ async function decodeTransaction(
 
     return summaries;
   } catch {
-    return [{ program: "Unknown", description: "Failed to decode transaction" }];
+    return DECODE_FAILED;
   }
 }
 
@@ -202,13 +206,14 @@ function extractHostname(origin: string): string {
 // Transaction details component
 // ---------------------------------------------------------------------------
 
-function TransactionDetails({ base64 }: { base64: string }) {
-  const [summaries, setSummaries] = useState<InstructionSummary[] | null>(null);
+function TransactionDetails({
+  base64,
+  summaries,
+}: {
+  base64: string;
+  summaries: InstructionSummary[] | null;
+}) {
   const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    void decodeTransaction(base64).then(setSummaries);
-  }, [base64]);
 
   if (!summaries) {
     return (
@@ -367,6 +372,15 @@ export function DappApprovalView({
   const permissions = getPermissionsText(kind);
   const hostname = extractHostname(origin);
   const approveLabel = kind === "connect" ? "Connect" : "Sign";
+  const [txSummaries, setTxSummaries] = useState<InstructionSummary[] | null>(
+    null,
+  );
+  const approveDisabled = txSummaries === DECODE_FAILED;
+
+  useEffect(() => {
+    if (kind !== "signTransaction" || !transactionBase64) return;
+    void decodeTransaction(transactionBase64).then(setTxSummaries);
+  }, [kind, transactionBase64]);
 
   useEffect(() => {
     const event =
@@ -398,7 +412,7 @@ export function DappApprovalView({
         .dapp-deny-btn:hover {
           background: rgba(249, 54, 60, 0.22) !important;
         }
-        .dapp-approve-btn:hover {
+        .dapp-approve-btn:hover:not(:disabled) {
           background: #222 !important;
         }
       `}</style>
@@ -562,7 +576,10 @@ export function DappApprovalView({
 
             {/* Transaction details */}
             {kind === "signTransaction" && transactionBase64 && (
-              <TransactionDetails base64={transactionBase64} />
+              <TransactionDetails
+                base64={transactionBase64}
+                summaries={txSummaries}
+              />
             )}
 
             {/* Message details */}
@@ -600,14 +617,15 @@ export function DappApprovalView({
           </button>
           <button
             className="dapp-approve-btn"
+            disabled={approveDisabled}
             onClick={handleApprove}
             style={{
               flex: 1,
               padding: "12px 16px",
               borderRadius: "9999px",
-              background: "#000",
+              background: approveDisabled ? "#CCCDCD" : "#000",
               border: "none",
-              cursor: "pointer",
+              cursor: approveDisabled ? "default" : "pointer",
               fontFamily: font,
               fontSize: "16px",
               fontWeight: 400,

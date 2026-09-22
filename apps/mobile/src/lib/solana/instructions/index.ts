@@ -1,4 +1,5 @@
 export {
+  DECODE_FAILED_INSTRUCTIONS,
   decodeMessageBase64,
   decodeMessageBytes,
   decodeTransactionBase64,

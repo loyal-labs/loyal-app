@@ -17,6 +17,7 @@ import type { PendingApproval } from "../model/types";
 import { SiteAvatar } from "./SiteAvatar";
 
 import {
+  DECODE_FAILED_INSTRUCTIONS,
   decodeMessageBase64,
   decodeTransactionBase64,
   type DecodedInstruction,
@@ -128,12 +129,11 @@ function DetailRow({
   );
 }
 
-function InstructionsCard({ transactionBase64 }: { transactionBase64: string }) {
-  const instructions = useMemo<DecodedInstruction[]>(
-    () => decodeTransactionBase64(transactionBase64),
-    [transactionBase64],
-  );
-
+function InstructionsCard({
+  instructions,
+}: {
+  instructions: DecodedInstruction[];
+}) {
   return (
     <DetailRow label={`Instructions (${instructions.length})`}>
       <View className="gap-1.5">
@@ -245,6 +245,16 @@ export function DappApprovalSheet({
   const modalRef = useRef<BottomSheetModal>(null);
   const snapPoints = useMemo(() => ["92%"], []);
   const backdrop = useMemo(() => ApprovalBackdrop, []);
+  const transactionBase64 =
+    approval && "transactionBase64" in approval
+      ? approval.transactionBase64
+      : null;
+  const instructions = useMemo(
+    () =>
+      transactionBase64 ? decodeTransactionBase64(transactionBase64) : null,
+    [transactionBase64],
+  );
+  const approveDisabled = instructions === DECODE_FAILED_INSTRUCTIONS;
 
   useEffect(() => {
     if (approval) {
@@ -331,9 +341,7 @@ export function DappApprovalSheet({
 
             {showTransactionDetails ? (
               <>
-                <InstructionsCard
-                  transactionBase64={approval.transactionBase64}
-                />
+                <InstructionsCard instructions={instructions ?? []} />
                 <RawDataDisclosure base64={approval.transactionBase64} />
               </>
             ) : null}
@@ -386,7 +394,11 @@ export function DappApprovalSheet({
           </Pressable>
           <Pressable
             className="flex-1 items-center rounded-[22px] px-4 py-4"
-            style={{ backgroundColor: "#f97362" }}
+            style={{
+              backgroundColor: "#f97362",
+              opacity: approveDisabled ? 0.4 : 1,
+            }}
+            disabled={approveDisabled}
             onPress={onApprove}
           >
             <Text className="text-[16px] font-[Geist_700Bold] text-white">
