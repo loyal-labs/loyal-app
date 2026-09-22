@@ -26,6 +26,7 @@ import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
 import {
+  lifecycleErrorMessage,
   type LifecycleTracker,
   normalizeLifecycleErrorCode,
 } from "@/features/observability/lifecycle-contract";
@@ -332,6 +333,7 @@ function Inner({ children }: { children: ReactNode }) {
               ? (e as { code?: unknown }).code
               : undefined
           ),
+          errorMessage: lifecycleErrorMessage(e),
         });
         setError(e instanceof Error ? e.message : String(e));
         openSignInModal();

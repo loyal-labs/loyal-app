@@ -80,18 +80,20 @@ function LedgerModeToggle({
 export function WalletTab({
   captchaSatisfied,
   captchaToken,
+  defaultUseLedgerProof = false,
   onCaptchaConsumed,
   onFlowStart,
 }: {
   captchaSatisfied: boolean;
   captchaToken?: string | null;
+  defaultUseLedgerProof?: boolean;
   onCaptchaConsumed?: () => void;
   onFlowStart?: () => void;
 }) {
   const cherryRuntime = useCherryRuntime();
   const isCherryEmbedded = cherryRuntime.mode === "cherry_embedded";
   const { wallet } = useWallet();
-  const [useLedgerProof, setUseLedgerProof] = useState(false);
+  const [useLedgerProof, setUseLedgerProof] = useState(defaultUseLedgerProof);
   const [showWalletSelection, setShowWalletSelection] = useState(false);
   // Brave Wallet validates `recentBlockhash` against the chain before
   // signing, so it can never sign the non-broadcastable Ledger proof
