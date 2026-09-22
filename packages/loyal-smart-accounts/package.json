@@ -45,7 +45,7 @@
   },
   "homepage": "https://github.com/loyal/loyal-app/tree/main/sdk/loyal-smart-accounts#readme",
   "peerDependencies": {
-    "@solana/web3.js": "^1.98.0"
+    "@solana/web3.js": "^1.99.0"
   },
   "dependencies": {
     "@loyal-labs/loyal-smart-accounts-core": "workspace:*"

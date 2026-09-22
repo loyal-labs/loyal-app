@@ -658,7 +658,7 @@ export const getAccountTransactionHistory = async (
   const parsedTransactions = await connection.getParsedTransactions(
     signatureList,
     {
-      maxSupportedTransactionVersion: 0,
+      maxSupportedTransactionVersion: 1,
     },
   );
 

@@ -182,7 +182,7 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
       args.input.withdrawalSignature,
       {
         commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
+        maxSupportedTransactionVersion: 1,
       }
     );
     // Parsed transactions propagate later than signature statuses — a null

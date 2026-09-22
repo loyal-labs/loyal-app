@@ -471,7 +471,7 @@ async function resolveConfirmedDepositTransactionProof(args: {
       args.input.depositSignature,
       {
         commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
+        maxSupportedTransactionVersion: 1,
       }
     );
     // Parsed transactions propagate later than signature statuses — a null

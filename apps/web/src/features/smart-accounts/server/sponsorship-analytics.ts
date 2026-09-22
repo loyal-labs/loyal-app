@@ -51,7 +51,7 @@ async function fetchParsedTransactionWithRetry(
         signature,
         {
           commitment: "finalized",
-          maxSupportedTransactionVersion: 0,
+          maxSupportedTransactionVersion: 1,
         }
       );
 
