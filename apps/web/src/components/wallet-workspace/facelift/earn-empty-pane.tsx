@@ -6,6 +6,7 @@ import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
+import { LedgerSignInLink } from "@/components/auth/ledger-sign-in-link";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import {
@@ -141,13 +142,16 @@ export function EarnEmptyPane({
           }
           if (!isSignedIn) {
             return (
-              <button
-                className="t-hover flex h-14 items-center justify-center rounded-full bg-foreground px-8 font-medium text-[20px] leading-6 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
-                onClick={openSignIn}
-                type="button"
-              >
-                <span className="text-background">Connect to loyal</span>
-              </button>
+              <div className="flex flex-col items-center gap-3">
+                <button
+                  className="t-hover flex h-14 items-center justify-center rounded-full bg-foreground px-8 font-medium text-[20px] leading-6 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
+                  onClick={openSignIn}
+                  type="button"
+                >
+                  <span className="text-background">Connect to loyal</span>
+                </button>
+                <LedgerSignInLink />
+              </div>
             );
           }
           return (
