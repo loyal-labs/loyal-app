@@ -836,17 +836,21 @@ async function recordCurrentVaultSourceWithdrawal(args: {
     return;
   }
 
-  const snapshotPositionValues = nextRows.map((row) => ({
-    amountRaw: row.amountRaw,
-    borrowApyBps: row.borrowApyBps,
-    hasValue: row.hasValue,
-    liquidityMint: row.liquidityMint,
-    market: row.market,
-    planningMetadata: row.planningMetadata,
-    reserve: row.reserve,
-    snapshotId: snapshot.id,
-    supplyApyBps: row.supplyApyBps,
-  }));
+  // History keeps only funded reserves; the current-state rows below keep
+  // the full set. Readers treat a missing history row as zero.
+  const snapshotPositionValues = nextRows
+    .filter((row) => row.amountRaw > BigInt(0))
+    .map((row) => ({
+      amountRaw: row.amountRaw,
+      borrowApyBps: row.borrowApyBps,
+      hasValue: row.hasValue,
+      liquidityMint: row.liquidityMint,
+      market: row.market,
+      planningMetadata: row.planningMetadata,
+      reserve: row.reserve,
+      snapshotId: snapshot.id,
+      supplyApyBps: row.supplyApyBps,
+    }));
   const currentPositionValues = nextRows.map((row) => ({
     amountRaw: row.amountRaw,
     borrowApyBps: row.borrowApyBps,
@@ -873,9 +877,13 @@ async function recordCurrentVaultSourceWithdrawal(args: {
       .update(vaultPositionSnapshots)
       .set({ isCurrent: false })
       .where(eq(vaultPositionSnapshots.vaultId, resolution.vault.id)) as never,
-    dependencies.client.db
-      .insert(vaultPositionSnapshotPositions)
-      .values(snapshotPositionValues) as never,
+    ...(snapshotPositionValues.length > 0
+      ? [
+          dependencies.client.db
+            .insert(vaultPositionSnapshotPositions)
+            .values(snapshotPositionValues) as never,
+        ]
+      : []),
     dependencies.client.db
       .delete(vaultReservePositionsCurrent)
       .where(
@@ -3680,6 +3688,10 @@ export async function recordReconciledYieldVaultSnapshot(
     supplyApyBps: position.supplyApyBps,
     vaultId: input.vaultId,
   }));
+  // History keeps only funded reserves; current-state keeps the full set.
+  const fundedSnapshotPositionValues = snapshotPositionValues.filter(
+    (position) => position.amountRaw > BigInt(0)
+  );
 
   const statements: never[] = [
     // Must stay first: everything after it is only safe once this vault's
@@ -3697,12 +3709,14 @@ export async function recordReconciledYieldVaultSnapshot(
       .where(eq(vaultIdleTokenBalancesCurrent.vaultId, input.vaultId)) as never,
   ];
 
-  if (snapshotPositionValues.length > 0) {
+  if (fundedSnapshotPositionValues.length > 0) {
     statements.push(
       dependencies.client.db
         .insert(vaultPositionSnapshotPositions)
-        .values(snapshotPositionValues) as never
+        .values(fundedSnapshotPositionValues) as never
     );
+  }
+  if (currentPositionValues.length > 0) {
     statements.push(
       dependencies.client.db
         .insert(vaultReservePositionsCurrent)
