@@ -126,7 +126,7 @@ function ConnectedView() {
 }
 
 export function SignInModal() {
-  const { isOpen, close } = useSignInModal();
+  const { isOpen, isLedgerMode, close } = useSignInModal();
   const { hasAuthSession } = useAuthCapability();
   const cherryRuntime = useCherryRuntime();
   const { privyAppId } = usePublicEnv();
@@ -186,8 +186,8 @@ export function SignInModal() {
                 </DialogDescription>
               </DialogHeader>
               <div className="px-6 pb-6">
-                {!privyAppId ? (
-                  <WalletSignIn />
+                {!privyAppId || isLedgerMode ? (
+                  <WalletSignIn defaultUseLedgerProof={isLedgerMode} />
                 ) : cherryRuntime.mode === "cherry_embedded" ? (
                   <CherryPrivySignIn />
                 ) : (

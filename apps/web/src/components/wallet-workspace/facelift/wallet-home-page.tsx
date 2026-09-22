@@ -22,6 +22,7 @@ import { SplitAmount } from "@/components/wallet-workspace/facelift/sidebar";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { AddEmailNudge } from "@/components/auth/add-email-nudge";
+import { LedgerSignInLink } from "@/components/auth/ledger-sign-in-link";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { WalletHomeBanners } from "@/components/wallet-workspace/facelift/wallet-home-banners";
@@ -169,24 +170,29 @@ export function WalletHomePage({
           <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-card max-[795px]:rounded-none">
             <div className="flex w-full shrink-0 items-center gap-2.5 pr-2 pl-1">
               {isHydrated && !isSignedIn ? (
-                <button
-                  className="t-hover flex h-[60px] items-center rounded-2xl px-3 text-left hover:bg-accent"
-                  onClick={openSignIn}
-                  type="button"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="mr-3 size-11 shrink-0 rounded-[11px]"
-                    src="/agents/Agent-01.svg"
-                  />
-                  <span className="whitespace-nowrap text-[16px] text-foreground leading-5">
-                    {cherryRuntime.mode === "cherry_embedded"
-                      ? "Verify account"
-                      : "Connect account"}
-                  </span>
-                </button>
+                <>
+                  <button
+                    className="t-hover flex h-[60px] items-center rounded-2xl px-3 text-left hover:bg-accent"
+                    onClick={openSignIn}
+                    type="button"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="mr-3 size-11 shrink-0 rounded-[11px]"
+                      src="/agents/Agent-01.svg"
+                    />
+                    <span className="whitespace-nowrap text-[16px] text-foreground leading-5">
+                      {cherryRuntime.mode === "cherry_embedded"
+                        ? "Verify account"
+                        : "Connect account"}
+                    </span>
+                  </button>
+                  {cherryRuntime.mode === "standalone" ? (
+                    <LedgerSignInLink />
+                  ) : null}
+                </>
               ) : (
                 <div className="flex h-[60px] items-center rounded-2xl px-3">
                   {/* Same Main Account image the desktop sidebar chip uses. */}

@@ -16,6 +16,9 @@ type SignInModalContextValue = {
   close: () => void;
   /** Open the modal itself, bypassing any registered sign-in handler. */
   openAccount: () => void;
+  /** Open the modal on the legacy wallet flow with the Ledger proof preselected. */
+  openLedger: () => void;
+  isLedgerMode: boolean;
   /**
    * Register a sign-in handler. When set, `open()` calls it instead of
    * showing the modal (Privy opens its own modal). Return false to fall
@@ -28,13 +31,22 @@ const SignInModalContext = createContext<SignInModalContextValue | null>(null);
 
 export function SignInModalProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isLedgerMode, setIsLedgerMode] = useState(false);
   const handlerRef = useRef<(() => boolean) | null>(null);
 
   const open = useCallback(() => {
     if (handlerRef.current?.()) return;
+    setIsLedgerMode(false);
     setIsOpen(true);
   }, []);
-  const openAccount = useCallback(() => setIsOpen(true), []);
+  const openAccount = useCallback(() => {
+    setIsLedgerMode(false);
+    setIsOpen(true);
+  }, []);
+  const openLedger = useCallback(() => {
+    setIsLedgerMode(true);
+    setIsOpen(true);
+  }, []);
   const close = useCallback(() => setIsOpen(false), []);
 
   const registerHandler = useCallback((handler: (() => boolean) | null) => {
@@ -42,8 +54,24 @@ export function SignInModalProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ isOpen, open, close, openAccount, registerHandler }),
-    [isOpen, open, close, openAccount, registerHandler]
+    () => ({
+      isOpen,
+      isLedgerMode,
+      open,
+      close,
+      openAccount,
+      openLedger,
+      registerHandler,
+    }),
+    [
+      isOpen,
+      isLedgerMode,
+      open,
+      close,
+      openAccount,
+      openLedger,
+      registerHandler,
+    ]
   );
 
   return (

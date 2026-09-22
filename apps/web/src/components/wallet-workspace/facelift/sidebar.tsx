@@ -23,6 +23,7 @@ import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { AddEmailNudge } from "@/components/auth/add-email-nudge";
+import { LedgerSignInLink } from "@/components/auth/ledger-sign-in-link";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useAuthSession } from "@/contexts/auth-session-context";
@@ -622,7 +623,7 @@ export function FaceliftSidebar({
           Signed out it collapses to a single Connect-account trigger with
           the og sidebar's Main Account image. */}
       {isHydrated && !isSignedIn ? (
-        <div className="flex w-full shrink-0 items-center">
+        <div className="flex w-full shrink-0 items-center gap-2">
           <button
             className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-accent"
             onClick={openSignIn}
@@ -641,6 +642,7 @@ export function FaceliftSidebar({
                 : "Connect account"}
             </span>
           </button>
+          {cherryRuntime.mode === "standalone" ? <LedgerSignInLink /> : null}
         </div>
       ) : (
         <div className="relative flex w-full shrink-0 items-center">
