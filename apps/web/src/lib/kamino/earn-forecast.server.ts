@@ -519,7 +519,7 @@ export function computeMediumFeeAwareEarnForecast(
   };
 }
 
-function resolveEarnForecastCluster(): string {
+export function resolveEarnForecastCluster(): string {
   const cluster = process.env[SOLANA_ENV_ENV_NAME];
   if (cluster === "devnet" || cluster === "localnet") {
     return cluster;
