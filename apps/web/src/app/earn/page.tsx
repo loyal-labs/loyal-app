@@ -116,7 +116,7 @@ const earnFaqs: FaqItem[] = [
   {
     question: "Has Loyal been audited?",
     answer:
-      "The programs that hold and lend your funds have been. Squads Smart Account, which holds the funds and enforces the policy, and Kamino K-Lend, where the earning happens, were each assessed by OtterSec. Loyal doesn't deploy a program of its own for Earn. Its off-chain automation hasn't had a standalone audit, but it's open source and the on-chain policy limits what it can do.",
+      "Loyal Earn has no audit of its own because it has no smart contract of its own to audit. A security audit reviews on-chain program code, and Earn deploys none. Your funds sit in the Squads Smart Account program and earn in Kamino K-Lend, both audited by OtterSec. What Loyal adds is a policy: configuration stored in your Squads account and enforced by the audited Squads program, listing the two instructions the automation may call (deposit and withdraw) and the Kamino reserves it may call them on. Anyone can read it on-chain. Loyal's off-chain automation is open source and hasn't been audited, but it can only submit transactions the policy allows, so a bug in it can't move funds out of your account.",
   },
 ];
 

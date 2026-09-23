@@ -195,7 +195,7 @@ const pageFaqs: FaqItem[] = [
   {
     question: "Has Loyal been audited?",
     answer:
-      "The programs that hold and lend your funds have been. Squads Smart Account and Kamino K-Lend were each assessed by OtterSec. Loyal hasn't commissioned a standalone audit of its own off-chain code, which is open source, and the on-chain policy limits what that code can do regardless of bugs in it.",
+      "Loyal Earn has no audit of its own because it has no smart contract of its own to audit. A security audit reviews on-chain program code, and Earn deploys none. Your funds sit in the Squads Smart Account program and earn in Kamino K-Lend, both audited by OtterSec. What Loyal adds is a policy: configuration stored in your Squads account and enforced by the audited Squads program, listing the two instructions the automation may call (deposit and withdraw) and the Kamino reserves it may call them on. Anyone can read it on-chain. Loyal's off-chain automation is open source and hasn't been audited, but it can only submit transactions the policy allows, so a bug in it can't move funds out of your account.",
   },
   {
     question: "Does Loyal protect against a Kamino exploit?",
@@ -327,8 +327,9 @@ export default function RisksPage() {
             title: "Audits",
             body: (
               <>
-                Squads Smart Account and Kamino K-Lend were each assessed by
-                OtterSec.{" "}
+                Earn has no contract of its own to audit. Squads Smart Account
+                and Kamino K-Lend, which hold and lend your funds, were each
+                assessed by OtterSec.{" "}
                 <Link
                   className={LINK_CLASS}
                   href="https://docs.askloyal.com/trust/audits-and-deployments"
