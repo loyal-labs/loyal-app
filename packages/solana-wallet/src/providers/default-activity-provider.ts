@@ -84,7 +84,7 @@ export function createRpcActivityProvider(args: {
       const signatureList = signatures.map((item) => item.signature);
       const parsedTransactions = await connection.getParsedTransactions(
         signatureList,
-        { maxSupportedTransactionVersion: 0 }
+        { maxSupportedTransactionVersion: 1 }
       );
 
       for (let index = 0; index < parsedTransactions.length; index += 1) {
@@ -152,7 +152,7 @@ export function createRpcActivityProvider(args: {
             const parsedTransaction = await connection.getParsedTransaction(
               signature,
               {
-                maxSupportedTransactionVersion: 0,
+                maxSupportedTransactionVersion: 1,
               }
             );
             if (!parsedTransaction) {

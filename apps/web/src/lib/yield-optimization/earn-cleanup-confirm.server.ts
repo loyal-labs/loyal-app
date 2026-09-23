@@ -56,7 +56,7 @@ export async function resolveConfirmedSignatureSlot(args: {
 
     const transaction = await args.connection.getTransaction(args.signature, {
       commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
+      maxSupportedTransactionVersion: 1,
     });
     if (transaction?.meta?.err) {
       throw new EarnCleanupConfirmError(

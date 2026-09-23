@@ -1113,7 +1113,7 @@ async function loadSettingsAuthoritySpend(
               .map((batch) =>
                 connection.getTransactions(batch, {
                   commitment: "finalized",
-                  maxSupportedTransactionVersion: 0,
+                  maxSupportedTransactionVersion: 1,
                 })
               )
           )

@@ -2895,7 +2895,7 @@ async function resolveConfirmedSignatureSlot(args: {
 
     const transaction = await args.connection.getTransaction(args.signature, {
       commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
+      maxSupportedTransactionVersion: 1,
     });
     if (typeof transaction?.slot === "number") {
       return String(transaction.slot);
