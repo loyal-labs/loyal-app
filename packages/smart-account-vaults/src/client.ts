@@ -5847,6 +5847,93 @@ export function createSmartAccountVaultsClient(
     });
   }
 
+  // Threshold-1, timeLock-0 accounts whose signer holds initiate+vote+execute
+  // can run the vault transfer in one executeTransactionSyncV2 instead of
+  // propose/approve/execute. The program rejects anything else on chain.
+  async function prepareVaultTransferSync(args: {
+    operation: string;
+    settingsPda: PublicKey;
+    signer: PublicKey;
+    feePayer: PublicKey;
+    accountIndex?: number;
+    memo?: string;
+    buildMessage: (
+      vaultPda: PublicKey
+    ) => Promise<{ instructions: TransactionInstruction[] }>;
+  }) {
+    const accountIndex = resolveVaultAccountIndex(args.accountIndex);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex,
+    })[0];
+    const message = await args.buildMessage(vaultPda);
+    const compiled = instructionsToSynchronousTransactionDetailsV2({
+      vaultPda,
+      members: [args.signer],
+      transaction_instructions: message.instructions,
+    });
+    const execution =
+      await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
+        {
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          accountIndex,
+          numSigners: 1,
+          instructions: compiled.instructions,
+          instruction_accounts: compiled.accounts,
+          memo: args.memo,
+        } as never
+      );
+    return mergePreparedOperations({
+      operation: args.operation,
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      operations: [execution],
+    });
+  }
+
+  function prepareSolTransferSync(
+    args: Omit<SmartAccountTransferProposalInput, "creator"> & {
+      signer: PublicKey;
+    }
+  ) {
+    return prepareVaultTransferSync({
+      ...args,
+      operation: "executeSolTransferSync",
+      buildMessage: (vaultPda) =>
+        createVaultSolTransferMessage({
+          connection: config.connection,
+          vaultPda,
+          destination: args.destination,
+          amountLamports: args.amountLamports,
+        }),
+    });
+  }
+
+  function prepareSplTransferSync(
+    args: Omit<SmartAccountTokenTransferProposalInput, "creator"> & {
+      signer: PublicKey;
+    }
+  ) {
+    return prepareVaultTransferSync({
+      ...args,
+      operation: "executeSplTransferSync",
+      buildMessage: (vaultPda) =>
+        createVaultSplTransferMessage({
+          connection: config.connection,
+          vaultPda,
+          mint: args.mint,
+          destinationOwner: args.destinationOwner,
+          amount: args.amount,
+          decimals: args.decimals,
+          destinationTokenAccount: args.destinationTokenAccount,
+          tokenProgramId: args.tokenProgramId,
+          createDestinationAta: args.createDestinationAta,
+        }),
+    });
+  }
+
   async function prepareCustomInstructionProposal(
     args: SmartAccountCustomInstructionProposalInput
   ) {
@@ -12328,6 +12415,8 @@ export function createSmartAccountVaultsClient(
     fetchOverview,
     prepareSolTransferProposal,
     prepareSplTransferProposal,
+    prepareSolTransferSync,
+    prepareSplTransferSync,
     prepareCustomInstructionProposal,
     preparePolicyCustomInstructionProposal,
     prepareAddInitiateSigner,
