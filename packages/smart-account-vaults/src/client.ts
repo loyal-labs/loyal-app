@@ -6415,7 +6415,7 @@ export function createSmartAccountVaultsClient(
     });
     const operationLength = preparedPacketLength(operation);
     if (
-      operationLength !== null &&
+      operationLength === null ||
       operationLength > EARN_POLICY_PACKET_DATA_SIZE
     ) {
       throw new Error(
@@ -6431,7 +6431,7 @@ export function createSmartAccountVaultsClient(
     });
     const setupOperationLength = preparedPacketLength(setupOperation);
     if (
-      setupOperationLength !== null &&
+      setupOperationLength === null ||
       setupOperationLength > EARN_POLICY_PACKET_DATA_SIZE
     ) {
       throw new Error(
@@ -8421,9 +8421,9 @@ export function createSmartAccountVaultsClient(
               ],
             } as never
           );
-      const packetLength = prepared ? preparedPacketLength(prepared) : null;
+      const packetLength = prepared ? preparedPacketLength(prepared) : 0;
       if (
-        packetLength !== null &&
+        packetLength === null ||
         packetLength > EARN_POLICY_PACKET_DATA_SIZE
       ) {
         throw new Error(
