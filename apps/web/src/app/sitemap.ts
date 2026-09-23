@@ -33,10 +33,11 @@ import { siteUrl } from "@/lib/seo/site";
  * the date here when you change a page's content.
  */
 const STATIC_ROUTES: ReadonlyArray<{ path: string; lastModified: string }> = [
-  { path: "/", lastModified: "2026-06-01" },
-  { path: "/earn", lastModified: "2026-05-28" },
+  { path: "/", lastModified: "2026-09-22" },
+  { path: "/earn", lastModified: "2026-09-22" },
   { path: "/agents", lastModified: "2026-05-28" },
-  { path: "/trust", lastModified: "2026-06-01" },
+  { path: "/trust", lastModified: "2026-09-22" },
+  { path: "/risks", lastModified: "2026-09-22" },
   { path: "/privacy-policy", lastModified: "2026-02-23" },
 ];
 

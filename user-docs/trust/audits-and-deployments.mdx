@@ -7,6 +7,21 @@ import { AuditRecord } from "/snippets/audit-record.jsx";
 
 The upstream programs publish scoped security reviews. This page selects one report per component. Each record names the reviewed code with its reviewer and date. Deployment matching remains a separate check.
 
+## Audit status of Loyal Earn
+
+Loyal Earn has no audit of its own because it deploys no on-chain program of its own. A security audit reviews program code, and there is no Loyal program in the Earn path to review.
+
+The Earn path runs on two externally audited programs:
+
+- **Squads Smart Account Program** holds the user's funds and enforces the policy. Reviewed by OtterSec.
+- **Kamino K-Lend** holds the lending reserves that pay the yield. Reviewed by OtterSec.
+
+Loyal's on-chain contribution is a **policy**: configuration stored in the user's Squads smart account and enforced by the audited Squads program. The Earn policy allows exactly two Kamino instructions, deposit and withdraw, on a whitelist of reserves, with the user's smart account as the owner on both sides. The policy is data rather than code, and anyone can read it on-chain.
+
+Loyal's off-chain automation, which decides when to rebalance, is open source and has not been audited. It can only submit transactions the policy allows, so a defect in it can at worst choose a lower-paying reserve. It cannot move funds out of the user's account.
+
+For a layer-by-layer breakdown of what can go wrong, see [Loyal Earn risks](https://askloyal.com/risks).
+
 <AccordionGroup>
   <Accordion title="Squads Smart Account Program" icon="wallet">
     <AuditRecord
@@ -38,6 +53,6 @@ The upstream programs publish scoped security reviews. This page selects one rep
 
 For each production release, compare the configured program address and deployed binary or release identity with the reviewed scope. Record the date and evidence. Do not infer a match from a program name alone.
 
-This page does not claim that every deployed dependency matches every reviewed commit. It also does not claim that the full Loyal product has received an external audit.
+This page does not claim that every deployed dependency matches every reviewed commit. Loyal's off-chain automation has not received an external audit; see [Audit status of Loyal Earn](#audit-status-of-loyal-earn) for why the Earn path has no Loyal program to audit.
 
 Use [Networks and deployments](/build/networks-and-deployments) for configured identities and verification dates.
