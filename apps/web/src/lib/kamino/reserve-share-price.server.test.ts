@@ -5,6 +5,7 @@ mock.module("server-only", () => ({}));
 
 const D6Q6 = "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59";
 const AYL4 = "AYL4LMc4ZCVyq3Z7XPJGWDM4H9PiWjqXAAuuHBEGVR2Z";
+const CANDIDATE_ONLY_RESERVE = "9TD2QVSU8T5uKfBEV6E8G3ynwn1yQU8tRvHXpQaqcWZy";
 const fixture = Buffer.from(
   await Bun.file(
     new URL("./__fixtures__/d6q6-reserve.base64", import.meta.url)
@@ -50,6 +51,9 @@ describe("recordEarnReserveSharePrices", () => {
           };
         },
       },
+      // AYL4 is requested both as a weighted reserve and (redundantly) as a
+      // candidate to assert dedup against the weights set.
+      loadCandidateReserves: async () => [AYL4, CANDIDATE_ONLY_RESERVE],
       loadWeights: async () => new Map([[AYL4, 1_000_000]]),
       now,
       upsert: async (cluster, rows) => {
@@ -57,8 +61,13 @@ describe("recordEarnReserveSharePrices", () => {
       },
     });
 
-    expect(requested.sort()).toEqual([AYL4, D6Q6].sort());
-    expect(result).toEqual({ missing: [AYL4], recorded: 1 });
+    expect(requested.sort()).toEqual(
+      [AYL4, CANDIDATE_ONLY_RESERVE, D6Q6].sort()
+    );
+    expect(result).toEqual({
+      missing: [AYL4, CANDIDATE_ONLY_RESERVE],
+      recorded: 1,
+    });
     expect(upserts).toHaveLength(1);
     expect(upserts[0].cluster).toBe("mainnet-beta");
     expect(upserts[0].rows[0]).toMatchObject({

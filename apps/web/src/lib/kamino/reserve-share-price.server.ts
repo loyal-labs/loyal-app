@@ -20,6 +20,10 @@ import {
   type ReserveSharePriceRow,
   upsertReserveSharePrices,
 } from "./earn-reserve-share-price-repository.server";
+import {
+  getTimescaleReserveDatabaseUrl,
+  TimescaleReserveClient,
+} from "./timescale-reserve-client.server";
 
 const HOUR_MS = 60 * 60 * 1000;
 const ACCOUNTS_PER_REQUEST = 100;
@@ -31,6 +35,8 @@ export function sharePriceFromReserveAccount(data: Buffer): {
   sharePrice: number;
   market: string;
   liquidityMint: string;
+  collateralSupplyRaw: bigint;
+  totalLiquiditySupplyScaled: bigint;
 } {
   const snapshot = parseKaminoReserveSnapshot(data);
   const accounts = parseKaminoReserveTokenAccounts(data);
@@ -40,9 +46,11 @@ export function sharePriceFromReserveAccount(data: Buffer): {
   });
 
   return {
+    collateralSupplyRaw: snapshot.collateralSupplyRaw,
     liquidityMint: accounts.reserveLiquidityMint.toBase58(),
     market: accounts.lendingMarket.toBase58(),
     sharePrice: Number(liquidityRaw) / Number(SHARE_PRICE_PROBE_COLLATERAL_RAW),
+    totalLiquiditySupplyScaled: snapshot.totalLiquiditySupplyScaled,
   };
 }
 
@@ -54,6 +62,7 @@ export type RecordSharePriceDependencies = {
       value: (Pick<AccountInfo<Buffer>, "data"> | null)[];
     }>;
   };
+  loadCandidateReserves: () => Promise<string[]>;
   loadWeights: () => Promise<Map<string, number>>;
   now: Date;
   upsert: (
@@ -66,8 +75,13 @@ export async function recordEarnReserveSharePrices(
   deps: RecordSharePriceDependencies
 ): Promise<{ recorded: number; missing: string[] }> {
   const weights = await deps.loadWeights();
+  const candidates = await deps.loadCandidateReserves();
   const reserves = [
-    ...new Set([...weights.keys(), KAMINO_MAIN_MARKET_USDC_RESERVE]),
+    ...new Set([
+      ...weights.keys(),
+      ...candidates,
+      KAMINO_MAIN_MARKET_USDC_RESERVE,
+    ]),
   ];
   const observedHour = new Date(
     Math.floor(deps.now.getTime() / HOUR_MS) * HOUR_MS
@@ -90,11 +104,20 @@ export async function recordEarnReserveSharePrices(
       }
       try {
         const parsed = sharePriceFromReserveAccount(account.data);
+        if (
+          parsed.collateralSupplyRaw === BigInt(0) ||
+          parsed.totalLiquiditySupplyScaled === BigInt(0)
+        ) {
+          missing.push(reserve);
+          return;
+        }
         rows.push({
-          ...parsed,
+          liquidityMint: parsed.liquidityMint,
+          market: parsed.market,
           observedAt: deps.now,
           observedHour,
           reserve,
+          sharePrice: parsed.sharePrice,
           slot: context.slot,
         });
       } catch (error) {
@@ -125,8 +148,32 @@ export async function recordEarnReserveSharePricesNow(
   return recordEarnReserveSharePrices({
     cluster: resolveEarnForecastCluster(),
     connection,
+    loadCandidateReserves: () => loadCandidateSupportedStableReserves(),
     loadWeights: () => loadEarnAumWeightsByReserve(),
     now,
     upsert: (cluster, rows) => upsertReserveSharePrices(cluster, rows),
   });
+}
+
+// Best-effort: the candidate universe only widens what we probe, so a
+// Timescale outage must never fail the hourly recording cron.
+async function loadCandidateSupportedStableReserves(): Promise<string[]> {
+  const databaseUrl = getTimescaleReserveDatabaseUrl();
+  if (!databaseUrl) {
+    return [];
+  }
+
+  const client = new TimescaleReserveClient({
+    databaseUrl,
+    maxConnections: 1,
+  });
+  try {
+    const supportedReserves = await client.getMediumStableSupportedReserves();
+    return supportedReserves.map((reserve) => reserve.reserve);
+  } catch (error) {
+    console.warn("[earn-share-price] candidate reserves unavailable", error);
+    return [];
+  } finally {
+    await client.close();
+  }
 }
