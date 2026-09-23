@@ -5,6 +5,10 @@
       "schedule": "17 8 * * *"
     },
     {
+      "path": "/api/cron/earn-reserve-share-prices",
+      "schedule": "5 * * * *"
+    },
+    {
       "path": "/api/cron/smart-account-reconcile",
       "schedule": "*/15 * * * *"
     },
