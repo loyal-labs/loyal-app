@@ -103,6 +103,10 @@ export function deserializeTransaction(
   }
 }
 
+export const DECODE_FAILED_INSTRUCTIONS: DecodedInstruction[] = [
+  { program: "Unknown", description: "Failed to decode transaction" },
+];
+
 export function decodeTransactionBase64(
   base64: string,
 ): DecodedInstruction[] {
@@ -111,7 +115,7 @@ export function decodeTransactionBase64(
     const tx = deserializeTransaction(bytes);
     return decodeTransactionInstructions(tx);
   } catch {
-    return [{ program: "Unknown", description: "Failed to decode transaction" }];
+    return DECODE_FAILED_INSTRUCTIONS;
   }
 }
 
