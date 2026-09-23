@@ -41,6 +41,13 @@ const MAX_SUPPLY_APY = 0.5;
 const CROSS_MINT_FEE_BPS = 1;
 const CROSS_MINT_FEE_RATE = CROSS_MINT_FEE_BPS / 10_000;
 const HISTORY_SAMPLE_INTERVAL_MS = 60 * 60 * 1000;
+// Extra lookback so the point just before the first series hour's window
+// start is not dropped, which would null the first realized-series sample(s).
+const HISTORY_LOOKBACK_SLACK_MS = 2 * 60 * 60 * 1000;
+// Diagnostic-only threshold for the "realized APY unavailable" warning below;
+// mirrors computeRealizedApy's own staleness cutoff so the log reports the
+// same reserves it silently excluded.
+const REALIZED_APY_STALE_LOG_THRESHOLD_MS = 3 * 60 * 60 * 1000;
 const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
 const USDC_MINT = STABLECOIN_MINTS[Stablecoin.USDC].toBase58();
 export const KAMINO_MAIN_MARKET =
@@ -665,7 +672,10 @@ export async function getRealizedEarnForecastFromDependencies(
   ];
   const histories = await deps.loadHistories(
     reserves,
-    now.getTime() - SERIES_WINDOW_MS - REALIZED_WINDOW_MS
+    now.getTime() -
+      SERIES_WINDOW_MS -
+      REALIZED_WINDOW_MS -
+      HISTORY_LOOKBACK_SLACK_MS
   );
   const result = computeRealizedApy({
     benchmarkReserve: KAMINO_MAIN_MARKET_USDC_RESERVE,
@@ -673,7 +683,23 @@ export async function getRealizedEarnForecastFromDependencies(
     nowMs: now.getTime(),
     weights,
   });
-  return result ? realizedResultToForecast(result, now) : null;
+  if (!result) {
+    const nowMs = now.getTime();
+    const staleOrMissingReserves = [...weights.keys()].filter((reserve) => {
+      const points = histories.get(reserve);
+      const latest = points?.[points.length - 1];
+      return (
+        !latest ||
+        nowMs - latest.observedAtMs > REALIZED_APY_STALE_LOG_THRESHOLD_MS
+      );
+    });
+    console.warn("[earn-forecast] realized APY unavailable", {
+      staleOrMissingReserves,
+      weightedReserveCount: weights.size,
+    });
+    return null;
+  }
+  return realizedResultToForecast(result, now);
 }
 
 export async function getMediumFeeAwareEarnForecastFromClient(

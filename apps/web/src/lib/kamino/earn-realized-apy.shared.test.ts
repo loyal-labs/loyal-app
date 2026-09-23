@@ -151,4 +151,24 @@ describe("computeRealizedApy", () => {
     const first = Date.parse(result!.loyalSeries[0].observedAt);
     expect(first).toBeGreaterThanOrEqual(NOW - 10 * DAY + 7 * DAY);
   });
+
+  // Dangerous pure calculation: this is the exact bug the fix corrects — a
+  // losing reserve (share price decline from loss socialization) must pull
+  // the weighted headline down, not get floored to 0 before weighting and so
+  // silently disappear from (and inflate) the blended APY.
+  test("weights a losing reserve down instead of flooring it to 0 before weighting", () => {
+    const result = run(
+      [
+        [A, history(0.06, 8)],
+        [B, history(-0.1, 8)],
+      ],
+      [
+        [A, 8],
+        [B, 2],
+      ]
+    );
+    // 0.8 * 600bps + 0.2 * (-1000bps) = 280bps, not
+    // 0.8 * 600bps + 0.2 * max(0, -1000bps) = 480bps.
+    expect(result?.realized7dBps).toBe(280);
+  });
 });

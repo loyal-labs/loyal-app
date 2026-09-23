@@ -83,7 +83,11 @@ function sharePriceAt(
   return before.sharePrice * (after.sharePrice / before.sharePrice) ** fraction;
 }
 
-function annualizedGrowthBps(
+// Signed, unrounded bps. Callers clamp (floor at 0 — a loss must not push
+// the headline negative) and round exactly once, after any weighting, so a
+// reserve with negative growth (loss socialization) still pulls the
+// weighted headline down instead of being floored to 0 per-reserve first.
+function annualizedGrowth(
   points: readonly SharePricePoint[],
   endMs: number,
   windowMs: number,
@@ -103,7 +107,11 @@ function annualizedGrowthBps(
     return null;
   }
   const apy = (endPrice / startPrice) ** (YEAR_MS / spanMs) - 1;
-  return Math.max(0, Math.round(apy * 10_000));
+  return apy * 10_000;
+}
+
+function clampAndRoundBps(bps: number): number {
+  return Math.max(0, Math.round(bps));
 }
 
 function weightedBps(
@@ -130,7 +138,7 @@ function weightedBps(
   ) {
     return null;
   }
-  return Math.round(weightedSum / coveredWeight);
+  return clampAndRoundBps(weightedSum / coveredWeight);
 }
 
 export function computeRealizedApy(
@@ -149,7 +157,7 @@ export function computeRealizedApy(
     }
     realizedByReserve.set(
       reserve,
-      annualizedGrowthBps(
+      annualizedGrowth(
         points,
         latest.observedAtMs,
         REALIZED_WINDOW_MS,
@@ -158,7 +166,7 @@ export function computeRealizedApy(
     );
     liveByReserve.set(
       reserve,
-      annualizedGrowthBps(
+      annualizedGrowth(
         points,
         latest.observedAtMs,
         LIVE_WINDOW_MS,
@@ -211,7 +219,7 @@ function buildLoyalSeries(input: RealizedApyInput): RealizedApySample[] {
     for (const reserve of input.weights.keys()) {
       values.set(
         reserve,
-        annualizedGrowthBps(
+        annualizedGrowth(
           input.histories.get(reserve) ?? [],
           hour,
           REALIZED_WINDOW_MS,
@@ -233,14 +241,17 @@ function buildReserveSeries(
 ): RealizedApySample[] {
   const samples: RealizedApySample[] = [];
   for (const hour of seriesHours(nowMs)) {
-    const apyBps = annualizedGrowthBps(
+    const growth = annualizedGrowth(
       points,
       hour,
       REALIZED_WINDOW_MS,
       REALIZED_WINDOW_MS
     );
-    if (apyBps !== null) {
-      samples.push({ apyBps, observedAt: new Date(hour).toISOString() });
+    if (growth !== null) {
+      samples.push({
+        apyBps: clampAndRoundBps(growth),
+        observedAt: new Date(hour).toISOString(),
+      });
     }
   }
   return samples;
