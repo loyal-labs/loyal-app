@@ -1,1 +1,1 @@
-Critical update: restart now to keep using the app. Balances and transactions will stop working on older versions.
+Fixes full Earn withdrawals when your Earn balance is spread across more than one stablecoin.
