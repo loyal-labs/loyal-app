@@ -184,6 +184,10 @@ bun run frontend:build     # build loyal web frontend from repo root
 
 - Run once per clone/worktree to enable repo hooks.
 - Hooks enforce commit message format (`commit-msg`) and run lint+build for the telegram, admin, and web apps before push.
+- `post-checkout` seeds a new worktree with the main worktree's `.env*` files, runs `bun install`, then `bun run build:packages` so `@loyal-labs/*` types resolve.
+# failed: fresh worktrees failed pre-push with "ASKLOYAL_TGBOT_KEY is not set" (2026-09-01 ASK-2254, 2026-09-22 PR #782); tsc failed on unbuilt @loyal-labs/* (2026-09-22 PR #786)
+# outcome: hook verified on a fresh worktree 2026-09-22, env + node_modules present with no manual steps
+# recurred: 3
 - Temporary bypass (only when necessary): `SKIP_VERIFY=1 git push`
 - CI note: app builds are intentionally not run in GitHub Actions; Vercel is the build/deploy gate.
 
