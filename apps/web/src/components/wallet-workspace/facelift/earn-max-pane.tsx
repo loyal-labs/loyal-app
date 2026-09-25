@@ -49,6 +49,7 @@ import {
   EarnedBarsChart,
   type EarnedChartBar,
 } from "@/components/wallet-workspace/facelift/earned-chart";
+import { EarnMaxInvitePane } from "@/components/wallet-workspace/facelift/earn-max-invite-pane";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { isEscapeGuardedTarget } from "@/components/wallet-workspace/facelift/keyboard";
 import {
@@ -68,6 +69,7 @@ import {
   EARN_MAX_STRATEGY_NAME,
   type EarnMaxActions,
   type EarnMaxActivityItem,
+  type EarnMaxInviteState,
   type EarnMaxViewModel,
 } from "@/features/earn-max";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -1068,12 +1070,15 @@ function EarnMaxMainPane({
 export function EarnMaxWorkspace({
   earnData,
   earnMax,
+  invite,
   onBack,
   onOpenSettings,
   onViewAllActivity,
 }: {
   earnData: EarnPositionData;
   earnMax: { actions: EarnMaxActions; view: EarnMaxViewModel };
+  /** Invite gate: signed-in wallets without a redeemed code see the code pane. */
+  invite: EarnMaxInviteState;
   /** Mobile back chevron to the wallet home. */
   onBack: () => void;
   /** Mobile settings gear on the signed-out screen. */
@@ -1181,8 +1186,17 @@ export function EarnMaxWorkspace({
               tooltipText={EARN_MAX_TOOLTIP_TEXT}
             />
           </PaneReveal>
-        ) : !isHydrated ? (
+        ) : !isHydrated || invite.redeemed === null ? (
           <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-card max-[795px]:rounded-none" />
+        ) : !invite.redeemed ? (
+          <PaneReveal>
+            <EarnMaxInvitePane
+              apyBadgeLabel={`Up to ${formatEarnMaxApyLabel(view.forecastApyBps)}`}
+              onBack={onBack}
+              onRedeem={invite.redeem}
+              tooltipText={EARN_MAX_TOOLTIP_TEXT}
+            />
+          </PaneReveal>
         ) : isVirgin ? (
           // Figma 5459:71433 — a wallet with no Earn MAX history gets the
           // first-deposit screen (same pane Earn's empty state uses).

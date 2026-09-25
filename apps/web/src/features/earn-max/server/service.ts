@@ -7,6 +7,8 @@ import { assertAuthenticatedWalletControlsSettings } from "@/features/smart-acco
 import { getServerEnv } from "@/lib/core/config/server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 
+import { hasRedeemedInvite, redeemInvite } from "./invite.server";
+import { consumeInviteAttempt } from "./invite-rate-limit.server";
 import { readEarnMaxActivity, readEarnMaxSummary } from "./repository.server";
 
 import type { EarnMaxSummaryResponse } from "../types";
@@ -23,7 +25,7 @@ function json<T>(value: T, status = 200) {
   return NextResponse.json(value, { headers, status });
 }
 
-async function settingsFor(request: Request): Promise<string | null> {
+async function principalFor(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
   if (!principal) return null;
   await assertAuthenticatedWalletControlsSettings({
@@ -31,23 +33,25 @@ async function settingsFor(request: Request): Promise<string | null> {
     smartAccountAddress: principal.smartAccountAddress,
     walletAddress: principal.walletAddress,
   });
-  return principal.settingsPda;
+  return principal;
 }
+
+const unauthenticated = () =>
+  json(
+    { error: { code: "unauthenticated", message: "No active auth session." } },
+    401
+  );
 
 async function authenticatedRead<T>(
   request: Request,
   read: (settings: string) => Promise<T>
 ) {
-  const settings = await settingsFor(request);
-  if (!settings) {
-    return json(
-      {
-        error: { code: "unauthenticated", message: "No active auth session." },
-      },
-      401
-    );
+  const principal = await principalFor(request);
+  if (!principal) return unauthenticated();
+  if (!(await hasRedeemedInvite(principal.walletAddress))) {
+    return json({ error: { code: "invite_required" } }, 403);
   }
-  return json(await read(settings));
+  return json(await read(principal.settingsPda));
 }
 
 export function getSummary(request: Request) {
@@ -65,4 +69,30 @@ export function getSummary(request: Request) {
 
 export function getActivity(request: Request) {
   return authenticatedRead(request, readEarnMaxActivity);
+}
+
+export async function getInvite(request: Request) {
+  const principal = await principalFor(request);
+  if (!principal) return unauthenticated();
+  return json({ redeemed: await hasRedeemedInvite(principal.walletAddress) });
+}
+
+export async function postInvite(request: Request) {
+  const principal = await principalFor(request);
+  if (!principal) return unauthenticated();
+  if (!consumeInviteAttempt(principal.walletAddress)) {
+    return json({ error: { code: "rate_limited" } }, 429);
+  }
+  const body = (await request.json().catch(() => null)) as {
+    code?: unknown;
+  } | null;
+  const result = await redeemInvite({
+    code: body?.code,
+    settingsPda: principal.settingsPda,
+    walletAddress: principal.walletAddress,
+  });
+  if (result === "redeemed" || result === "already_redeemed") {
+    return json({ redeemed: true });
+  }
+  return json({ error: { code: result } }, result === "code_used" ? 409 : 400);
 }

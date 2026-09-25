@@ -371,6 +371,16 @@ wallet, configured cluster, vault index `1`, and canonical target reserve. The
 workspace uses it to decide whether to show the active Earn view, set the
 displayed principal, and cap partial/full withdrawals.
 
+### Earn MAX invite gate
+
+Earn MAX is invite-only. Valid codes are six uppercase letters/digits and
+live only as comma-separated SHA-256 hex hashes in the server env var
+`EARN_MAX_INVITE_CODE_HASHES` (unset = nobody gets in). The plain codes are
+never committed. `GET`/`POST /api/smart-accounts/earn-max/invite` reads or
+redeems a code for the authenticated wallet; the App Neon table
+`earn_max_invite_redemptions` crosses codes out (unique per code and per
+wallet). Earn MAX data routes must refuse wallets without a redemption.
+
 Schema conventions used in `/packages/db-core/src/schema.ts`:
 
 | Convention   | Rule                                                                                                       |

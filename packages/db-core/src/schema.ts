@@ -997,6 +997,33 @@ export const appUserWallets = pgTable(
  * Env-scoped Loyal smart accounts attached to app users.
  * The settings PDA is the source of truth for deriving smart account PDAs.
  */
+// Earn MAX is invite-only. The valid codes live only as SHA-256 hashes in the
+// EARN_MAX_INVITE_CODE_HASHES env var; a redemption row crosses a code out.
+// Unique on code_hash (one use per code) and wallet (one code per wallet).
+export const earnMaxInviteRedemptions = pgTable(
+  "earn_max_invite_redemptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    codeHash: text("code_hash").notNull(),
+    walletAddress: text("wallet_address").notNull(),
+    settingsPda: text("settings_pda").notNull(),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_max_invite_redemptions_code_uidx").on(table.codeHash),
+    uniqueIndex("earn_max_invite_redemptions_wallet_uidx").on(
+      table.walletAddress
+    ),
+  ]
+);
+
+export type EarnMaxInviteRedemption =
+  typeof earnMaxInviteRedemptions.$inferSelect;
+export type InsertEarnMaxInviteRedemption =
+  typeof earnMaxInviteRedemptions.$inferInsert;
+
 export const appUserSmartAccounts = pgTable(
   "app_user_smart_accounts",
   {

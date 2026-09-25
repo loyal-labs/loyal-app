@@ -51,7 +51,7 @@ import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-ho
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
-import { useEarnMax } from "@/features/earn-max";
+import { useEarnMax, useEarnMaxInvite } from "@/features/earn-max";
 import { useAuthCapability } from "@/lib/auth/capability";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
@@ -183,9 +183,15 @@ export function WorkspaceFaceliftShell() {
   // so the mobile tab bar's clock shows the same badge.
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const earnData = useEarnPositionData();
+  const earnMaxInvite = useEarnMaxInvite(
+    EARN_MAX_VISIBLE ? earnData.walletAddress : null
+  );
+  // Earn MAX data is fetched only for wallets past the invite gate; the
+  // server refuses the rest anyway.
+  const earnMaxUnlocked = EARN_MAX_VISIBLE && earnMaxInvite.redeemed === true;
   const earnMax = useEarnMax({
-    settingsPda: EARN_MAX_VISIBLE ? earnData.settingsPda : undefined,
-    walletAddress: EARN_MAX_VISIBLE ? earnData.walletAddress : null,
+    settingsPda: earnMaxUnlocked ? earnData.settingsPda : undefined,
+    walletAddress: earnMaxUnlocked ? earnData.walletAddress : null,
   });
   // 30-day earned figures for the mobile home product cards (Figma
   // 5465:83340) — same feeds the Earned charts render, just summed.
@@ -470,6 +476,7 @@ export function WorkspaceFaceliftShell() {
             <EarnMaxWorkspace
               earnData={earnData}
               earnMax={earnMax}
+              invite={earnMaxInvite}
               onBack={() => handleSelectPage("wallet")}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onViewAllActivity={() => handleSelectPage("activity")}
