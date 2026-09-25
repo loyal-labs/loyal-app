@@ -324,14 +324,15 @@ an application-consistent export.
 ## Current limits
 
 - One Render Pro ClickStack service, one Starter private Telegram relay service,
-  and one 10 GB persistent disk.
+  and one 20 GB persistent disk.
 - ClickHouse, HyperDX, MongoDB, collector, and nginx share one failure boundary.
 - The relay runs one instance and keeps window and recap state in memory, with
   no mounted disk. A restart loses the running daily tally; a 120-second grace
   period after boot collapses the alert burst ClickStack replays into a single
   message.
 - No high availability or zero-downtime deploys.
-- No tested backup/restore runbook or explicit retention TTL.
+- No tested backup/restore runbook. The upstream schema keeps OTel rows for 30
+  days, so the startup smoke renews its persisted marker after 25 days.
 - No disk-capacity alert or ingestion SLO.
 
 Add retention, capacity monitoring, and tested backups before materially
