@@ -26,7 +26,7 @@ import type {
   EarnMaxViewModel,
 } from "./types";
 
-async function readJson<T>(path: string): Promise<T> {
+export async function readJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
     cache: "no-store",
     credentials: "include",
@@ -38,7 +38,9 @@ async function readJson<T>(path: string): Promise<T> {
   return body;
 }
 
-function walletBridge(wallet: ReturnType<typeof useWallet>): WalletAdapterLike {
+export function walletBridge(
+  wallet: ReturnType<typeof useWallet>
+): WalletAdapterLike {
   if (!wallet.publicKey || !wallet.signTransaction) {
     throw new Error("Connected wallet cannot sign Earn MAX transactions.");
   }
@@ -54,7 +56,7 @@ function walletBridge(wallet: ReturnType<typeof useWallet>): WalletAdapterLike {
   };
 }
 
-function viewModel(input: {
+export function viewModel(input: {
   activity: EarnMaxActivityResponse | null;
   busy: boolean;
   error: string | null;

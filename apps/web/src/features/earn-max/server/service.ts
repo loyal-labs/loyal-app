@@ -7,6 +7,8 @@ import { assertAuthenticatedWalletControlsSettings } from "@/features/smart-acco
 import { getServerEnv } from "@/lib/core/config/server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 
+import { EARN_MAX_BACKEND } from "../constants";
+import { readEarnMaxVoltrSummary } from "../voltr/summary.server";
 import { hasRedeemedInvite, redeemInvite } from "./invite.server";
 import { consumeInviteAttempt } from "./invite-rate-limit.server";
 import { readEarnMaxActivity, readEarnMaxSummary } from "./repository.server";
@@ -55,20 +57,34 @@ async function authenticatedRead<T>(
 }
 
 export function getSummary(request: Request) {
-  return authenticatedRead<EarnMaxSummaryResponse>(
-    request,
-    async (settings) => ({
-      config: {
-        delegatedSigner: getDeploymentPolicySignerPublicKey().toBase58(),
-        programId: getServerEnv().loyalSmartAccounts.programId,
-      },
-      summary: await readEarnMaxSummary(settings),
-    })
+  return authenticatedRead<EarnMaxSummaryResponse>(request, async (settings) =>
+    EARN_MAX_BACKEND === "voltr"
+      ? {
+          // Voltr has no delegated worker signer on the user's account.
+          config: {
+            delegatedSigner: "",
+            programId: getServerEnv().loyalSmartAccounts.programId,
+          },
+          summary: await readEarnMaxVoltrSummary(settings),
+        }
+      : {
+          config: {
+            delegatedSigner: getDeploymentPolicySignerPublicKey().toBase58(),
+            programId: getServerEnv().loyalSmartAccounts.programId,
+          },
+          summary: await readEarnMaxSummary(settings),
+        }
   );
 }
 
 export function getActivity(request: Request) {
-  return authenticatedRead(request, readEarnMaxActivity);
+  return authenticatedRead(request, (settings) =>
+    EARN_MAX_BACKEND === "voltr"
+      ? // ponytail: no Voltr activity feed yet (empty list/chart); index
+        // deposit/request/claim signatures when the UI needs history.
+        Promise.resolve({ operations: [], performance: [] })
+      : readEarnMaxActivity(settings)
+  );
 }
 
 export async function getInvite(request: Request) {
