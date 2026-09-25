@@ -65,7 +65,6 @@ import {
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import {
-  EARN_MAX_FALLBACK_APY_BPS,
   EARN_MAX_STRATEGY_NAME,
   type EarnMaxActions,
   type EarnMaxActivityItem,
@@ -371,8 +370,7 @@ export function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[]
 // forecast figure — the Kamino benchmark lines stay for comparison.
 function buildEarnMaxApySamples(view: EarnMaxViewModel): HistoricalApySample[] {
   const baselinePercent =
-    (view.realizedApyBps ?? view.forecastApyBps ?? EARN_MAX_FALLBACK_APY_BPS) /
-    100;
+    (view.realizedApyBps ?? view.forecastApyBps ?? 0) / 100;
   return buildEarnMaxDailySeries(view).days.map((day) => {
     const dailyPercent =
       day.equityUsd && day.equityUsd > 0 && day.earnedUsd !== 0
@@ -1191,7 +1189,7 @@ export function EarnMaxWorkspace({
         ) : !invite.redeemed ? (
           <PaneReveal>
             <EarnMaxInvitePane
-              apyBadgeLabel={`Up to ${formatEarnMaxApyLabel(view.forecastApyBps)}`}
+              apyBadgeLabel={formatEarnMaxApyLabel(view.forecastApyBps)}
               onBack={onBack}
               onRedeem={invite.redeem}
               tooltipText={EARN_MAX_TOOLTIP_TEXT}
@@ -1202,7 +1200,7 @@ export function EarnMaxWorkspace({
           // first-deposit screen (same pane Earn's empty state uses).
           <PaneReveal>
             <EarnEmptyPane
-              apyBadgeLabel={`Up to ${formatEarnMaxApyLabel(view.forecastApyBps)}`}
+              apyBadgeLabel={formatEarnMaxApyLabel(view.forecastApyBps)}
               onBack={onBack}
               onDeposit={() => setScreen("deposit")}
               title="Earn MAX"
@@ -1250,9 +1248,10 @@ export function EarnMaxWorkspace({
           />
         ) : null}
       </SheetReveal>
-      {screen !== "main" ? null : isHydrated && !isSignedIn ? (
-        <EarnMaxMockRail />
-      ) : selectedTransaction && transactionDetail ? (
+      {/* ponytail: the logged-out Strategies/Stats rail (EarnMaxMockRail)
+          stays hidden while its figures are design mocks; show it again
+          once a public Earn MAX stats feed exists. */}
+      {screen !== "main" || (isHydrated && !isSignedIn) ? null : selectedTransaction && transactionDetail ? (
         <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">
           <PaneReveal key={transactionDetail.id}>
             <EarnMaxTransactionDetailPane

@@ -12,7 +12,6 @@ import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import {
-  EARN_MAX_FALLBACK_APY_BPS,
   EARN_MAX_STRATEGY_NAME,
   type EarnMaxActions,
   type EarnMaxViewModel,
@@ -27,7 +26,8 @@ const ASSET_BASE = "/wallet-workspace/facelift";
 const MIN_DEPOSIT_USD = 1;
 
 export function formatEarnMaxApyLabel(bps: number | null): string {
-  return `${((bps ?? EARN_MAX_FALLBACK_APY_BPS) / 100).toFixed(2)}% APY`;
+  // Realized Voltr APY only; no made-up fallback before history exists.
+  return bps === null ? "— APY" : `${(bps / 100).toFixed(2)}% APY`;
 }
 
 /** Red Earn MAX marker (the strategy's infinity glyph on the brand red). */

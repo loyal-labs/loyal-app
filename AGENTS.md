@@ -383,7 +383,7 @@ wallet). Earn MAX data routes must refuse wallets without a redemption.
 
 ### Earn MAX (Voltr)
 
-Invited users see only the pooled Voltr RWA vault `HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA` (switch: `EARN_MAX_BACKEND` in `apps/web/src/features/earn-max/constants.ts`; old per-user Earn MAX on vault index `0` stays unused). Smart-account vault `accountIndex = 2` is the Voltr `userTransferAuthority`: deposits go wallet -> vault-2 USDC ATA -> Voltr in one sync execution; withdrawals request LP (600 s wait), then claim and sweep USDC to the wallet. Voltr instructions are hand-encoded in `features/earn-max/voltr/` because `@voltr/vault-sdk` needs `@solana/kit` 6 (apps/web uses 8).
+Invited users see only the pooled Voltr RWA vault `HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA` (switch: `EARN_MAX_BACKEND` in `apps/web/src/features/earn-max/constants.ts`; old per-user Earn MAX on vault index `0` stays unused). Smart-account vault `accountIndex = 2` is the Voltr `userTransferAuthority`: deposits go wallet -> vault-2 USDC ATA -> Voltr in one sync execution; withdrawals request LP (600 s wait), then claim and sweep USDC to the wallet. Voltr instructions are hand-encoded in `features/earn-max/voltr/` because `@voltr/vault-sdk` needs `@solana/kit` 6 (apps/web uses 8). APY is the realized vault APY from Voltr's public API (`api.voltr.xyz/vault/<vault>`: 7-day, else all-time; cached 5 min server-side); there is no fallback figure, so no data shows a dash.
 # failed: Voltr SDK cannot be added to apps/web (kit 6 vs 8), 2026-09-25
 # outcome: wire format pinned by voltr/program.test.ts plus a mainnet simulation
 # recurred: 1

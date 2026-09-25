@@ -16,6 +16,7 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
+import { formatEarnMaxApyLabel } from "@/components/wallet-workspace/facelift/earn-max-action-panes";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { ReceiveSheet } from "@/components/wallet-workspace/facelift/receive-sheet";
@@ -29,7 +30,6 @@ import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
-import { EARN_MAX_FALLBACK_APY_BPS } from "@/features/earn-max";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { captureBrowserLoadingMetricAfterPaint } from "@/features/observability/client";
@@ -252,9 +252,7 @@ export function FaceliftSidebar({
   const cryptoBalance = splitUsdBalance(cryptoUsd);
   const earnBalance = splitUsdBalance(earnBalanceUsd);
   const earnMaxBalance = splitUsdBalance(earnMaxBalanceUsd);
-  const earnMaxApyLabel = `${(
-    (earnMaxForecastApyBps ?? EARN_MAX_FALLBACK_APY_BPS) / 100
-  ).toFixed(2)}% APY`;
+  const earnMaxApyLabel = formatEarnMaxApyLabel(earnMaxForecastApyBps);
   // Hidden products must not affect the public wallet total.
   const totalBalance = splitUsdBalance(
     data.totalUsd + earnBalanceUsd + (showEarnMax ? earnMaxBalanceUsd : 0)

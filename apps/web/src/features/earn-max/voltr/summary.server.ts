@@ -1,23 +1,18 @@
 import "server-only";
 
 import { Connection } from "@solana/web3.js";
-import { sql } from "drizzle-orm";
 
 import { getServerEnv } from "@/lib/core/config/server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getYieldOptimizationClient } from "@/lib/yield-optimization/yield-neon-client.server";
 
 import type { EarnMaxSummary } from "../types";
+import { readEarnMaxVoltrApy } from "./apy.server";
 import {
   deriveEarnMaxVoltrAuthority,
   readVoltrPosition,
   voltrUserAccounts,
 } from "./program";
-
-// The pooled worker's route; its forecast is the strategy APY for everyone.
-const VOLTR_ROUTE_KEY =
-  "rwa-multiply:ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh";
 
 let connection: Connection | null = null;
 
@@ -33,19 +28,6 @@ function getConnection(): Connection {
   return connection;
 }
 
-async function readForecastApyBps(): Promise<number | null> {
-  const result = (await getYieldOptimizationClient().db.execute(sql`
-    SELECT forecast_apy_bps
-    FROM loyal_yield.multiply_position_snapshots
-    WHERE route_key = ${VOLTR_ROUTE_KEY} AND forecast_apy_bps IS NOT NULL
-    ORDER BY observed_at DESC, id DESC
-    LIMIT 1
-  `)) as
-    | { rows?: { forecast_apy_bps: unknown }[] }
-    | { forecast_apy_bps: unknown }[];
-  const row = (Array.isArray(result) ? result : result.rows ?? [])[0];
-  return row ? Number(row.forecast_apy_bps) : null;
-}
 
 export async function readEarnMaxVoltrSummary(
   settings: string
@@ -54,9 +36,9 @@ export async function readEarnMaxVoltrSummary(
     settings,
     getServerEnv().loyalSmartAccounts.programId
   );
-  const [position, forecastApyBps] = await Promise.all([
+  const [position, apy] = await Promise.all([
     readVoltrPosition(getConnection(), authority),
-    readForecastApyBps(),
+    readEarnMaxVoltrApy(),
   ]);
   const pending = position.withdrawal;
   const canClaim =
@@ -67,12 +49,13 @@ export async function readEarnMaxVoltrSummary(
     coverage: "history_incomplete",
     currentOperationId: null,
     earnedUsd: null,
-    forecastApyBps,
+    // Realized vault APY from Voltr (7-day, else all-time); null = dash.
+    forecastApyBps: apy.apyBps,
     // Pooled vault: nothing to install, so the deposit pane skips install().
     goal: "active",
     policyAccounts: [],
     policyStatus: "ready",
-    realizedApyBps: null,
+    realizedApyBps: apy.apyBps,
     strategyKey: null,
     withdrawal: pending
       ? {
