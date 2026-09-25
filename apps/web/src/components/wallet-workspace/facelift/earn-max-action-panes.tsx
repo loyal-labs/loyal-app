@@ -424,7 +424,10 @@ export function EarnMaxWithdrawPane({
   const [amount, setAmount] = useState("");
 
   const balanceUsd = view.balanceUsd;
-  const maxFillUsd = Math.floor(balanceUsd * 100) / 100;
+  // Round to the nearest cent: Voltr's dead-weight shares leave a $1 deposit
+  // worth $0.9998, which floors to a misleading 0.99. A full fill still sends
+  // "max" (all LP), so nothing is left behind or overdrawn.
+  const maxFillUsd = Math.round(balanceUsd * 100) / 100;
   const sourceBalance = splitUsdBalance(balanceUsd);
   const destinationBalance = splitUsdBalance(
     earnData.actions.mainUsdcAmount ?? 0
@@ -441,7 +444,9 @@ export function EarnMaxWithdrawPane({
   // One unwind at a time — the strategy queues a single withdrawal request.
   const hasPendingWithdrawal =
     view.withdrawal !== null && view.withdrawal.status !== "claimed";
-  const isInsufficient = amountUsd > balanceUsd;
+  // The rounded Max fill may sit a fraction of a cent above the balance;
+  // it is sent as "max", so only amounts beyond it are insufficient.
+  const isInsufficient = amountUsd > Math.max(balanceUsd, maxFillUsd);
   const isValidAmount =
     amountUsd > 0 && !isInsufficient && !hasPendingWithdrawal;
 
@@ -477,7 +482,7 @@ export function EarnMaxWithdrawPane({
             onSubmit={() => void handleSubmit()}
           />
           <CaptionNote
-            text="Withdrawals take up to 5 minutes to process. Once ready, you'll need to claim your funds from the transaction list."
+            text="Withdrawals are ready to claim 10 minutes after you request them. Then claim your funds from the transaction list."
             tone="warn"
           />
         </div>
