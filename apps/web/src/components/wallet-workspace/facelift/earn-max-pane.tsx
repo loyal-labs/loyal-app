@@ -112,13 +112,24 @@ function PanelHeader({ title }: { title: string }) {
 
 // Figma 5429:36915 — Earn MAX empty/logged-out rail: the Strategies card on
 // top of the shared Loyal Stats card (same live /api/earn/stats as Earn).
-export function EarnMaxStrategiesCard({
-  apyBps,
-  apyWindowDays,
-}: {
-  apyBps: number | null;
-  apyWindowDays: number | null;
-}) {
+export function EarnMaxStrategiesCard() {
+  // Public figure, so it also shows before the invite unlocks the account.
+  const [{ apyBps, apyWindowDays }, setApy] = useState<{
+    apyBps: number | null;
+    apyWindowDays: number | null;
+  }>({ apyBps: null, apyWindowDays: null });
+  useEffect(() => {
+    let isCurrent = true;
+    fetch("/api/earn-max/apy")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((value) => {
+        if (isCurrent && value) setApy(value);
+      })
+      .catch(() => undefined);
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
   return (
     <div className="flex shrink-0 flex-col rounded-3xl bg-card">
       <PanelHeader title="Strategies" />
@@ -1197,14 +1208,13 @@ export function EarnMaxWorkspace({
         ) : null}
       </SheetReveal>
       {screen !== "main" ? null : (isHydrated && !isSignedIn) ||
-        (isVirgin && invite.redeemed === true) ? (
-        // Figma 5429:36915 — no position yet: Strategies + the shared,
-        // live Loyal Stats card instead of the personal chart.
+        invite.redeemed !== true ||
+        isVirgin ? (
+        // Figma 5429:36915 — logged out, not invited yet, or no position:
+        // Strategies + the shared live Loyal Stats card, never a personal
+        // (empty) Earned chart.
         <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-          <EarnMaxStrategiesCard
-            apyBps={view.forecastApyBps}
-            apyWindowDays={view.apyWindowDays}
-          />
+          <EarnMaxStrategiesCard />
           <EarnStatsPanel />
         </aside>
       ) : selectedTransaction && transactionDetail ? (

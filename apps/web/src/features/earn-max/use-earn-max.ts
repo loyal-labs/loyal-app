@@ -17,7 +17,7 @@ import {
 } from "@loyal-labs/smart-account-vaults";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   EarnMaxActions,
@@ -109,8 +109,21 @@ export function useEarnMax(input: {
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The account a response belongs to; a response for an account the user
+  // switched away from mid-request is dropped.
+  const accountRef = useRef<string | null>(null);
+  accountRef.current =
+    input.settingsPda && input.walletAddress
+      ? `${input.walletAddress}:${input.settingsPda}`
+      : null;
+
   const refresh = useCallback(async () => {
+    const account = accountRef.current;
     if (!(input.settingsPda && input.walletAddress)) {
+      // Signed out, switched wallet, or not unlocked: never keep showing the
+      // previous account's position.
+      setSummary(null);
+      setActivity(null);
       setIsLoading(false);
       return;
     }
@@ -123,6 +136,7 @@ export function useEarnMax(input: {
           "/api/smart-accounts/earn-max/activity"
         ),
       ]);
+      if (accountRef.current !== account) return;
       setSummary(nextSummary);
       setActivity(nextActivity);
       setError(null);
