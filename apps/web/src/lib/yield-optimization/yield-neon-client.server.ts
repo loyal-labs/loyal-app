@@ -10,6 +10,7 @@ import {
   boolean,
   check,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -659,6 +660,34 @@ export const earnApyHourlySnapshots = loyalYieldSchema.table(
   ]
 );
 
+// Hourly Kamino reserve share prices (liquidity per collateral token).
+// Migration owned by loyal-yield-routing (0074_earn_reserve_share_prices).
+export const earnReserveSharePrices = loyalYieldSchema.table(
+  "earn_reserve_share_prices",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    cluster: text("cluster").notNull(),
+    reserve: text("reserve").notNull(),
+    market: text("market").notNull(),
+    liquidityMint: text("liquidity_mint").notNull(),
+    observedHour: timestamp("observed_hour", { withTimezone: true }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    slot: bigint("slot", { mode: "bigint" }).notNull(),
+    sharePrice: doublePrecision("share_price").notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_reserve_share_prices_hour_uidx").on(
+      table.cluster,
+      table.reserve,
+      table.observedHour
+    ),
+    index("earn_reserve_share_prices_observed_idx").on(
+      table.cluster,
+      table.observedAt
+    ),
+  ]
+);
+
 export const balanceSweepPolicies = loyalYieldSchema.table(
   "balance_sweep_policies",
   {
@@ -1261,6 +1290,7 @@ export const yieldOptimizationSchema = {
   earnDepositOnboardingAttempts,
   earnEarningsSnapshots,
   earnApyHourlySnapshots,
+  earnReserveSharePrices,
   earnForecastSnapshots,
   managedVaults,
   pushCampaignSends,
@@ -1302,6 +1332,7 @@ export type YieldOptimizationClientTables = {
   earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
   earnEarningsSnapshots: typeof earnEarningsSnapshots;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
+  earnReserveSharePrices: typeof earnReserveSharePrices;
   earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
   rebalanceDecisions: typeof rebalanceDecisions;
@@ -1336,6 +1367,7 @@ export class YieldOptimizationClient {
     earnDepositOnboardingAttempts,
     earnEarningsSnapshots,
     earnApyHourlySnapshots,
+    earnReserveSharePrices,
     earnForecastSnapshots,
     managedVaults,
     realtimeEvents,
