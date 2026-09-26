@@ -4,6 +4,17 @@ import { STABLECOIN_MINTS, STABLECOINS } from "@loyal-labs/actions/constants";
 import { Stablecoin } from "@loyal-labs/actions/types";
 
 import {
+  computeRealizedApy,
+  REALIZED_WINDOW_MS,
+  type RealizedApyResult,
+  SERIES_WINDOW_MS,
+  type SharePricePoint,
+} from "./earn-realized-apy.shared";
+import {
+  loadEarnAumWeightsByReserve,
+  loadReserveSharePriceHistories,
+} from "./earn-reserve-share-price-repository.server";
+import {
   FALLBACK_EARN_FORECAST,
   type EarnForecastApyHistoryResponse,
   type EarnForecastResponse,
@@ -19,9 +30,6 @@ import {
   resolveLoyalWebSolanaEnvFromEnv,
 } from "@/lib/core/config/solana-env-override";
 import {
-  getLatestEarnApyHourlyForecast,
-  getLatestEarnForecastSnapshot,
-  snapshotRecordToEarnForecast,
   toEarnForecastSnapshotInput,
   upsertEarnForecastSnapshot,
 } from "@/lib/yield-optimization/earn-forecast-snapshot-repository.server";
@@ -33,6 +41,13 @@ const MAX_SUPPLY_APY = 0.5;
 const CROSS_MINT_FEE_BPS = 1;
 const CROSS_MINT_FEE_RATE = CROSS_MINT_FEE_BPS / 10_000;
 const HISTORY_SAMPLE_INTERVAL_MS = 60 * 60 * 1000;
+// Extra lookback so the point just before the first series hour's window
+// start is not dropped, which would null the first realized-series sample(s).
+const HISTORY_LOOKBACK_SLACK_MS = 2 * 60 * 60 * 1000;
+// Diagnostic-only threshold for the "realized APY unavailable" warning below;
+// mirrors computeRealizedApy's own staleness cutoff so the log reports the
+// same reserves it silently excluded.
+const REALIZED_APY_STALE_LOG_THRESHOLD_MS = 3 * 60 * 60 * 1000;
 const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
 const USDC_MINT = STABLECOIN_MINTS[Stablecoin.USDC].toBase58();
 export const KAMINO_MAIN_MARKET =
@@ -41,8 +56,9 @@ export const KAMINO_MAIN_MARKET_USDC_RESERVE =
   "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59";
 export const KAMINO_MAIN_MARKET_USDC_MINT =
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const SAFE_FEE_AWARE_STRATEGY = "safe_fee_aware_1bps";
 const MEDIUM_FEE_AWARE_STRATEGY = "medium_fee_aware_1bps";
+const REALIZED_STRATEGY = "realized_7d_share_price";
+const REALIZED_METRIC = "realized_7d_apy_bps";
 const SAFE_RISK_PROFILE = "safe";
 const MEDIUM_RISK_PROFILE = "medium";
 const STABLECOIN_MINT_SET = new Set(
@@ -112,6 +128,7 @@ let cache: {
   expiresAt: number;
   value: MediumFeeAwareEarnForecastResult;
 } | null = null;
+let lastRealized: MediumFeeAwareEarnForecastResult | null = null;
 
 function toBps(apy: number): number {
   return Math.round(apy * 10_000);
@@ -574,6 +591,115 @@ function fallbackResult(now: Date): MediumFeeAwareEarnForecastResult {
 
 export function resetEarnForecastCacheForTests() {
   cache = null;
+  lastRealized = null;
+}
+
+export type RealizedEarnForecastDependencies = {
+  cluster: string;
+  loadWeights: () => Promise<Map<string, number>>;
+  loadHistories: (
+    reserves: string[],
+    sinceMs: number
+  ) => Promise<Map<string, SharePricePoint[]>>;
+};
+
+function createRealizedDependencies(): RealizedEarnForecastDependencies {
+  const cluster = resolveEarnForecastCluster();
+  return {
+    cluster,
+    loadHistories: (reserves, sinceMs) =>
+      loadReserveSharePriceHistories(cluster, reserves, sinceMs),
+    loadWeights: () => loadEarnAumWeightsByReserve(),
+  };
+}
+
+function realizedResultToForecast(
+  result: RealizedApyResult,
+  now: Date
+): MediumFeeAwareEarnForecastResult {
+  const window = {
+    endedAt: now.toISOString(),
+    startedAt: result.loyalSeries[0]?.observedAt ?? now.toISOString(),
+  };
+  const seriesBps = result.loyalSeries.map((sample) => sample.apyBps);
+
+  return {
+    history: {
+      feeBps: CROSS_MINT_FEE_BPS,
+      generatedAt: now.toISOString(),
+      riskProfile: SAFE_RISK_PROFILE,
+      samples: result.loyalSeries,
+      series: [
+        {
+          key: "loyal",
+          label: "Loyal Earn",
+          metadata: { metric: REALIZED_METRIC },
+          samples: result.loyalSeries,
+        },
+        {
+          key: "mainUsdcReserve",
+          label: "Kamino Main USDC",
+          metadata: {
+            liquidityMint: KAMINO_MAIN_MARKET_USDC_MINT,
+            market: KAMINO_MAIN_MARKET,
+            metric: REALIZED_METRIC,
+            reserve: KAMINO_MAIN_MARKET_USDC_RESERVE,
+          },
+          samples: result.mainUsdcReserveSeries,
+        },
+      ],
+      window,
+    },
+    summary: {
+      apyBps: result.headlineBps,
+      rangeHighBps: Math.max(result.headlineBps, ...seriesBps),
+      rangeLowBps: Math.min(result.headlineBps, ...seriesBps),
+      source: result.source,
+      strategy: REALIZED_STRATEGY,
+      updatedAt: now.toISOString(),
+      window,
+    },
+  };
+}
+
+export async function getRealizedEarnForecastFromDependencies(
+  deps: RealizedEarnForecastDependencies,
+  now = new Date()
+): Promise<MediumFeeAwareEarnForecastResult | null> {
+  const weights = await deps.loadWeights();
+  const reserves = [
+    ...new Set([...weights.keys(), KAMINO_MAIN_MARKET_USDC_RESERVE]),
+  ];
+  const histories = await deps.loadHistories(
+    reserves,
+    now.getTime() -
+      SERIES_WINDOW_MS -
+      REALIZED_WINDOW_MS -
+      HISTORY_LOOKBACK_SLACK_MS
+  );
+  const result = computeRealizedApy({
+    benchmarkReserve: KAMINO_MAIN_MARKET_USDC_RESERVE,
+    histories,
+    nowMs: now.getTime(),
+    weights,
+  });
+  if (!result) {
+    const nowMs = now.getTime();
+    const staleOrMissingReserves = [...weights.keys()].filter((reserve) => {
+      const points = histories.get(reserve);
+      const latest = points?.[points.length - 1];
+      return (
+        !latest ||
+        nowMs - latest.observedAtMs > REALIZED_APY_STALE_LOG_THRESHOLD_MS
+      );
+    });
+    console.warn("[earn-forecast] realized APY unavailable", {
+      staleOrMissingReserves,
+      weightedReserveCount: weights.size,
+    });
+    return null;
+  }
+  return realizedResultToForecast(result, now);
 }
 
 export async function getMediumFeeAwareEarnForecastFromClient(
@@ -617,39 +743,6 @@ export async function getMediumFeeAwareEarnForecastFromClient(
     await client.close().catch((error) => {
       console.warn("[earn-forecast] failed to close Timescale client", error);
     });
-  }
-}
-
-async function getPersistedMediumFeeAwareEarnForecast(): Promise<MediumFeeAwareEarnForecastResult | null> {
-  try {
-    try {
-      const hourly = await getLatestEarnApyHourlyForecast({
-        cluster: resolveEarnForecastCluster(),
-        feeBps: CROSS_MINT_FEE_BPS,
-        riskProfile: SAFE_RISK_PROFILE,
-        strategy: SAFE_FEE_AWARE_STRATEGY,
-      });
-      if (hourly) {
-        return hourly;
-      }
-    } catch (error) {
-      console.warn(
-        "[earn-forecast] failed to load hourly persisted snapshot",
-        error
-      );
-    }
-
-    const snapshot = await getLatestEarnForecastSnapshot({
-      cluster: resolveEarnForecastCluster(),
-      feeBps: CROSS_MINT_FEE_BPS,
-      riskProfile: MEDIUM_RISK_PROFILE,
-      strategy: MEDIUM_FEE_AWARE_STRATEGY,
-    });
-
-    return snapshot ? snapshotRecordToEarnForecast(snapshot) : null;
-  } catch (error) {
-    console.warn("[earn-forecast] failed to load persisted snapshot", error);
-    return null;
   }
 }
 
@@ -699,7 +792,6 @@ export async function refreshMediumFeeAwareEarnForecastSnapshot(
     : fallbackResult(now);
 
   await persistMediumFeeAwareEarnForecast(forecast);
-  cache = { expiresAt: now.getTime() + CACHE_TTL_MS, value: forecast };
 
   return {
     forecast,
@@ -722,32 +814,24 @@ export async function refreshMediumFeeAwareEarnForecastSnapshot(
 }
 
 export async function getMediumFeeAwareEarnForecast(
-  now = new Date()
+  now = new Date(),
+  deps: RealizedEarnForecastDependencies = createRealizedDependencies()
 ): Promise<MediumFeeAwareEarnForecastResult> {
   if (cache && cache.expiresAt > now.getTime()) {
     return cache.value;
   }
 
-  const persisted = await getPersistedMediumFeeAwareEarnForecast();
-  if (persisted) {
-    cache = { expiresAt: now.getTime() + CACHE_TTL_MS, value: persisted };
-    return persisted;
+  let realized: MediumFeeAwareEarnForecastResult | null = null;
+  try {
+    realized = await getRealizedEarnForecastFromDependencies(deps, now);
+  } catch (error) {
+    console.warn("[earn-forecast] realized APY read failed", error);
+  }
+  if (realized) {
+    lastRealized = realized;
   }
 
-  const databaseUrl = getTimescaleDatabaseUrl();
-  if (!databaseUrl) {
-    const value = fallbackResult(now);
-    cache = {
-      expiresAt: now.getTime() + CACHE_TTL_MS,
-      value,
-    };
-    return value;
-  }
-
-  const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
-  const value = await getMediumFeeAwareEarnForecastFromClient(client, now);
-  await persistMediumFeeAwareEarnForecast(value);
+  const value = realized ?? lastRealized ?? fallbackResult(now);
   cache = { expiresAt: now.getTime() + CACHE_TTL_MS, value };
-
   return value;
 }

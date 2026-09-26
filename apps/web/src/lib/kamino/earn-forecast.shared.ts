@@ -2,7 +2,13 @@ const FALLBACK_UPDATED_AT = "2026-06-01T00:00:00.000Z";
 const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type EarnForecastResponse = {
-  strategy: "safe_no_fees" | "safe_fee_aware_1bps" | "medium_fee_aware_1bps";
+  strategy:
+    | "safe_no_fees"
+    | "safe_fee_aware_1bps"
+    | "medium_fee_aware_1bps"
+    | "realized_7d_share_price";
+  // Which measurement won for the realized strategy; absent otherwise.
+  source?: "realized_7d" | "live";
   apyBps: number;
   rangeLowBps: number;
   rangeHighBps: number;
@@ -41,10 +47,13 @@ export type EarnForecastSummaryResponse = {
   history: EarnForecastApyHistoryResponse;
 };
 
+// Shown only when no realized measurement has ever loaded. Deliberately
+// below the measured realized APY (6.44%, 2026-09-22) so an outage cannot
+// overpromise.
 export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
-  apyBps: 1197,
-  rangeHighBps: 1325,
-  rangeLowBps: 856,
+  apyBps: 600,
+  rangeHighBps: 600,
+  rangeLowBps: 600,
   strategy: "safe_no_fees",
   updatedAt: FALLBACK_UPDATED_AT,
   window: {
