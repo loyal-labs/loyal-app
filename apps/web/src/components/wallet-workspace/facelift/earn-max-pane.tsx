@@ -320,24 +320,24 @@ export function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[]
 // Vault share-price APY per day (not the user's own flows), so every holder
 // sees the same line; days before launch are left out.
 // The chart needs 2+ samples or it silently plots Earn's own history, so the
-// line always ends at "now" on the badge's figure (header = label).
+// line always ends at "now" on the badge's figure (header = label). It also
+// spans the standard 30-day window: the x axis is set by these samples, and
+// a young vault's few-hour span squeezed Kamino's 30-day line into one
+// vertical stroke. Days before launch hold the first known figure flat.
+const EARN_MAX_APY_WINDOW_MS = 30 * 86_400_000;
+
 function buildEarnMaxApySamples(view: EarnMaxViewModel): HistoricalApySample[] {
+  const now = Date.now();
   const samples = view.apyHistory.map((point) => ({
     apyPercent: point.apyBps / 100,
     observedAtMs: Date.parse(`${point.date}T00:00:00Z`),
   }));
   if (view.forecastApyBps !== null) {
-    samples.push({
-      apyPercent: view.forecastApyBps / 100,
-      observedAtMs: Date.now(),
-    });
+    samples.push({ apyPercent: view.forecastApyBps / 100, observedAtMs: now });
   }
-  // One point cannot draw a line: hold it flat from the first day.
-  if (samples.length === 1) {
-    samples.unshift({
-      ...samples[0]!,
-      observedAtMs: samples[0]!.observedAtMs - 86_400_000,
-    });
+  const first = samples[0];
+  if (first && first.observedAtMs > now - EARN_MAX_APY_WINDOW_MS) {
+    samples.unshift({ ...first, observedAtMs: now - EARN_MAX_APY_WINDOW_MS });
   }
   return samples;
 }
