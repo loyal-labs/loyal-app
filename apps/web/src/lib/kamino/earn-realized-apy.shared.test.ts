@@ -64,16 +64,17 @@ describe("computeRealizedApy", () => {
     });
   });
 
-  test("headline is the higher of realized and live", () => {
+  test("headline stays on realized 7d even when live is higher", () => {
     const older = history(0.05, 7, NOW - DAY);
     const last = older[older.length - 1];
     const recent = history(0.1, 1, NOW, last.sharePrice).slice(1);
     const result = run([[A, [...older, ...recent]]], [[A, 1]]);
-    expect(result?.source).toBe("live");
+    expect(result?.source).toBe("realized_7d");
     expect(result?.liveBps).toBe(1000);
-    expect(result?.realized7dBps).toBeGreaterThan(500);
-    expect(result?.realized7dBps).toBeLessThan(1000);
-    expect(result?.headlineBps).toBe(1000);
+    const realized = result?.realized7dBps ?? 0;
+    expect(realized).toBeGreaterThan(500);
+    expect(realized).toBeLessThan(1000);
+    expect(result?.headlineBps).toBe(realized);
   });
 
   test("weights reserves by Earn AUM", () => {

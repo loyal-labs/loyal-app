@@ -181,8 +181,10 @@ export function computeRealizedApy(
     return null;
   }
 
-  const useRealized =
-    realized7dBps !== null && (liveBps === null || realized7dBps >= liveBps);
+  // Prefer the 7-day figure. The 24h rate is noisy and taking the max of the
+  // two would surface every short spike; live is only a stand-in until a full
+  // 7-day window exists.
+  const useRealized = realized7dBps !== null;
 
   return {
     headlineBps: useRealized ? realized7dBps : (liveBps as number),
