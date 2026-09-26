@@ -37,6 +37,7 @@ import {
   formatEarnMaxApyLabel,
 } from "@/components/wallet-workspace/facelift/earn-max-action-panes";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
+import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import {
   EarnMaxTransactionDetailPane,
   earnMaxActivityLabel,
@@ -76,14 +77,6 @@ import { useAuthCapability } from "@/lib/auth/capability";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
-// ponytail: the logged-out Strategies/Stats rail is a hardcoded design mock
-// (Figma 5429:36788) until a public Earn MAX stats feed exists.
-const MOCK_AVERAGE_NET_APY = "16.72%";
-const MOCK_AUM = { fraction: ".54", whole: "$410,513" };
-const MOCK_AUM_DELTA = "+$53,007.21 vs prior week";
-const MOCK_OPTIMIZATION_VOLUME = { fraction: ".17", whole: "$2,462,602" };
-const MOCK_TOTAL_USERS = "8,046";
-const MOCK_AUM_BARS = [8, 73, 119, 157, 193, 227, 240];
 
 function usdcRawLabel(amountRaw: string): string {
   return `${formatEarnMaxUsdcAmount(amountRaw)} USDC`;
@@ -117,126 +110,70 @@ function PanelHeader({ title }: { title: string }) {
   );
 }
 
-// Figma 5429:36788 — logged-out right rail: Strategies + Stats, mock data.
-export function EarnMaxMockRail() {
+// Figma 5429:36915 — Earn MAX empty/logged-out rail: the Strategies card on
+// top of the shared Loyal Stats card (same live /api/earn/stats as Earn).
+export function EarnMaxStrategiesCard({
+  apyBps,
+  apyWindowDays,
+}: {
+  apyBps: number | null;
+  apyWindowDays: number | null;
+}) {
   return (
-    <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto min-[1204px]:flex">
-      <div className="flex shrink-0 flex-col rounded-3xl bg-card">
-        <PanelHeader title="Strategies" />
-        <div className="flex w-full flex-col gap-2 px-2 pb-2">
-          <div className="flex flex-col rounded-2xl bg-accent">
-            <div className="flex w-full items-center px-4">
-              <span className="flex items-center py-2">
-                <GrayInfinityIcon />
-              </span>
-              <span className="min-w-0 flex-1 py-2 font-medium text-[16px] text-foreground leading-5">
-                {EARN_MAX_STRATEGY_NAME}
-              </span>
-              {/* ponytail: mock tooltip copy — real copy comes with the
-                  content pass */}
-              <InfoTooltip
-                iconClassName="size-6"
-                text="A leveraged loop over tokenized real-world asset yield"
-              />
-            </div>
-            <div className="flex flex-col gap-0.5 px-4 pt-2 pb-4">
-              <span className="flex items-center gap-1">
-                <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
-                  Average Net APY
-                </span>
-                <InfoTooltip text="Average net yield after borrow costs and fees" />
-              </span>
-              <span className="font-semibold text-[28px] text-foreground leading-8">
-                {MOCK_AVERAGE_NET_APY}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center rounded-2xl bg-accent px-4 opacity-40">
+    <div className="flex shrink-0 flex-col rounded-3xl bg-card">
+      <PanelHeader title="Strategies" />
+      <div className="flex w-full flex-col gap-2 px-2 pb-2">
+        <div className="flex flex-col rounded-2xl bg-accent">
+          <div className="flex w-full items-center px-4">
             <span className="flex items-center py-2">
-              <span className="mr-3 flex size-11 shrink-0 items-center justify-center rounded-[11px] bg-accent">
-                <ThemedIcon
-                  className="size-6 text-foreground"
-                  src={`${ASSET_BASE}/icon-clock.svg`}
-                />
-              </span>
+              <GrayInfinityIcon />
             </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-2">
-              <span className="font-medium text-[16px] text-foreground leading-5">
-                Delta neutral
-              </span>
-              <span className="text-[13px] text-foreground leading-4">
-                Coming soon
-              </span>
+            <span className="min-w-0 flex-1 py-2 font-medium text-[16px] text-foreground leading-5">
+              {EARN_MAX_STRATEGY_NAME}
             </span>
+            <InfoTooltip
+              iconClassName="size-6"
+              text="A leveraged loop over tokenized real-world asset yield"
+            />
           </div>
-        </div>
-      </div>
-
-      <div className="flex shrink-0 flex-col rounded-3xl bg-card pb-2">
-        <PanelHeader title="Stats" />
-        <div className="flex w-full flex-col gap-0.5 px-6 pt-2 pb-2">
-          <span className="flex items-center gap-1">
-            <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
-              Earn AUM
-            </span>
-            <InfoTooltip text="Total assets managed across Earn strategies" />
-          </span>
-          <span className="font-semibold text-[40px] text-foreground leading-[48px]">
-            {MOCK_AUM.whole}
-            <span className="text-tertiary">{MOCK_AUM.fraction}</span>
-          </span>
-          <span className="text-[16px] text-positive leading-5">
-            {MOCK_AUM_DELTA}
-          </span>
-        </div>
-        <div className="flex w-full flex-col px-4">
-          <div className="flex w-full items-center justify-between px-2 pb-2 text-[13px] text-muted-foreground leading-4">
-            <span>Jul 26</span>
-            <span>$420K</span>
-          </div>
-          <div className="flex h-60 w-full items-end justify-center gap-2 px-2">
-            {MOCK_AUM_BARS.map((height, index) => (
-              <div
-                className={`min-w-px flex-1 rounded-[4px] bg-positive ${
-                  index === MOCK_AUM_BARS.length - 2 ? "" : "opacity-20"
-                }`}
-                key={index}
-                style={{ height: `${height}px` }}
+          <div className="flex flex-col gap-0.5 px-4 pt-2 pb-4">
+            <span className="flex items-center gap-1">
+              <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
+                Average Net APY
+              </span>
+              <InfoTooltip
+                text={
+                  apyWindowDays !== null && apyWindowDays < 7
+                    ? `Vault share-price growth over the ${apyWindowDays} day${apyWindowDays === 1 ? "" : "s"} since launch, annualized, after all costs`
+                    : "Vault share-price growth over the last 7 days, annualized, after all costs"
+                }
               />
-            ))}
-          </div>
-          <div className="flex w-full items-center justify-between px-2 py-2 text-[13px] text-muted-foreground leading-4">
-            <span>Jun 1</span>
-            <span>Jun 30</span>
+            </span>
+            <span className="font-semibold text-[28px] text-foreground leading-8">
+              {apyBps === null ? "—" : `${(apyBps / 100).toFixed(2)}%`}
+            </span>
           </div>
         </div>
-        <div className="flex w-full flex-col gap-0.5 px-6 pt-2 pb-2">
-          <span className="flex items-center gap-1">
-            <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
-              Optimization Volume
-            </span>
-            <InfoTooltip text="Total volume routed by Earn optimization" />
-          </span>
-          <span className="font-semibold text-[40px] text-foreground leading-[48px]">
-            {MOCK_OPTIMIZATION_VOLUME.whole}
-            <span className="text-tertiary">
-              {MOCK_OPTIMIZATION_VOLUME.fraction}
+        <div className="flex items-center rounded-2xl bg-accent px-4 opacity-40">
+          <span className="flex items-center py-2">
+            <span className="mr-3 flex size-11 shrink-0 items-center justify-center rounded-[11px] bg-accent">
+              <ThemedIcon
+                className="size-6 text-foreground"
+                src={`${ASSET_BASE}/icon-clock.svg`}
+              />
             </span>
           </span>
-        </div>
-        <div className="flex w-full flex-col gap-0.5 px-6 pt-2 pb-4">
-          <span className="flex items-center gap-1">
-            <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
-              Total Users
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-2">
+            <span className="font-medium text-[16px] text-foreground leading-5">
+              Delta neutral
             </span>
-            <InfoTooltip text="Wallets that have used Earn" />
-          </span>
-          <span className="font-semibold text-[40px] text-foreground leading-[48px]">
-            {MOCK_TOTAL_USERS}
+            <span className="text-[13px] text-foreground leading-4">
+              Coming soon
+            </span>
           </span>
         </div>
       </div>
-    </aside>
+    </div>
   );
 }
 
@@ -367,19 +304,13 @@ export function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[]
 // Earn MAX rides Earn's animated HistoricalApyChart: days with confirmed
 // history plot their realized daily APY, the rest sit at the realized /
 // forecast figure — the Kamino benchmark lines stay for comparison.
+// Vault share-price APY per day (not the user's own flows), so every holder
+// sees the same line; days before launch are left out.
 function buildEarnMaxApySamples(view: EarnMaxViewModel): HistoricalApySample[] {
-  const baselinePercent =
-    (view.realizedApyBps ?? view.forecastApyBps ?? 0) / 100;
-  return buildEarnMaxDailySeries(view).days.map((day) => {
-    const dailyPercent =
-      day.equityUsd && day.equityUsd > 0 && day.earnedUsd !== 0
-        ? Math.max((day.earnedUsd / day.equityUsd) * 365 * 100, 0)
-        : null;
-    return {
-      apyPercent: dailyPercent ?? baselinePercent,
-      observedAtMs: day.date.getTime(),
-    };
-  });
+  return view.apyHistory.map((point) => ({
+    apyPercent: point.apyBps / 100,
+    observedAtMs: Date.parse(`${point.date}T12:00:00Z`),
+  }));
 }
 
 function SmallPill({
@@ -1179,6 +1110,7 @@ export function EarnMaxWorkspace({
           <PaneReveal>
             <EarnEmptyPane
               onOpenSettings={onOpenSettings}
+              staticHeadline
               title="Earn MAX"
               tooltipText={EARN_MAX_TOOLTIP_TEXT}
             />
@@ -1202,6 +1134,7 @@ export function EarnMaxWorkspace({
               apyBadgeLabel={formatEarnMaxApyLabel(view.forecastApyBps)}
               onBack={onBack}
               onDeposit={() => setScreen("deposit")}
+              staticHeadline
               title="Earn MAX"
               tooltipText={EARN_MAX_TOOLTIP_TEXT}
             />
@@ -1247,10 +1180,18 @@ export function EarnMaxWorkspace({
           />
         ) : null}
       </SheetReveal>
-      {/* ponytail: the logged-out Strategies/Stats rail (EarnMaxMockRail)
-          stays hidden while its figures are design mocks; show it again
-          once a public Earn MAX stats feed exists. */}
-      {screen !== "main" || (isHydrated && !isSignedIn) ? null : selectedTransaction && transactionDetail ? (
+      {screen !== "main" ? null : (isHydrated && !isSignedIn) ||
+        (isVirgin && invite.redeemed === true) ? (
+        // Figma 5429:36915 — no position yet: Strategies + the shared,
+        // live Loyal Stats card instead of the personal chart.
+        <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
+          <EarnMaxStrategiesCard
+            apyBps={view.forecastApyBps}
+            apyWindowDays={view.apyWindowDays}
+          />
+          <EarnStatsPanel />
+        </aside>
+      ) : selectedTransaction && transactionDetail ? (
         <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">
           <PaneReveal key={transactionDetail.id}>
             <EarnMaxTransactionDetailPane

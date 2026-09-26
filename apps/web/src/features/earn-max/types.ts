@@ -30,7 +30,17 @@ export type EarnMaxWithdrawalView = {
   status: "requested" | "unwinding" | "claimable" | "claimed";
 };
 
+export type EarnMaxApyPoint = {
+  apyBps: number;
+  /** UTC day, YYYY-MM-DD. */
+  date: string;
+};
+
 export type EarnMaxSummary = {
+  /** Daily vault share-price APY for the chart; empty when unknown. */
+  apyHistory?: EarnMaxApyPoint[];
+  /** Days the headline APY covers (7 once the vault is a week old). */
+  apyWindowDays?: number | null;
   balanceUsd: number;
   claimAmountRaw: string;
   coverage: EarnMaxCoverage;
@@ -60,6 +70,8 @@ export type EarnMaxActivityResponse = {
 
 export type EarnMaxViewModel = {
   activity: EarnMaxActivityItem[];
+  apyHistory: EarnMaxApyPoint[];
+  apyWindowDays: number | null;
   balanceUsd: number;
   coverage: EarnMaxCoverage;
   earnedUsd: number | null;

@@ -65,7 +65,9 @@ export async function readEarnMaxVoltrSummary(
     coverage: history.complete ? "complete" : "history_incomplete",
     currentOperationId: null,
     earnedUsd: earnedRaw === null ? null : Number(earnedRaw) / 1_000_000,
-    // Realized vault APY from Voltr (7-day, else all-time); null = dash.
+    // Share-price APY over 7 days (or since launch, apyWindowDays); null = dash.
+    apyHistory: apy.daily,
+    apyWindowDays: apy.apyWindowDays,
     forecastApyBps: apy.apyBps,
     // Pooled vault: nothing to install, so the deposit pane skips install().
     goal: "active",

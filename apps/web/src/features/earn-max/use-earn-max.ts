@@ -75,6 +75,8 @@ export function viewModel(input: {
   };
   return {
     activity: input.activity?.operations ?? [],
+    apyHistory: summary?.apyHistory ?? [],
+    apyWindowDays: summary?.apyWindowDays ?? null,
     balanceUsd: summary?.balanceUsd ?? 0,
     coverage: summary?.coverage ?? "history_incomplete",
     earnedUsd: summary?.earnedUsd ?? null,

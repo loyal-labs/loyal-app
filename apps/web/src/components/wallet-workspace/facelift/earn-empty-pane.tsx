@@ -28,6 +28,7 @@ export function EarnEmptyPane({
   onManageAutoswap,
   onOpenChart,
   onOpenSettings,
+  staticHeadline = false,
   title = "Earn",
   tooltipText = "Earn yield on your idle USDC",
 }: {
@@ -40,6 +41,9 @@ export function EarnEmptyPane({
   onOpenChart?: () => void;
   /** Mobile-only gear on the signed-out screen (Figma 5459:71296). */
   onOpenSettings?: () => void;
+  /** Earn MAX: the static headline everywhere (Figma 5429:36915); Earn's
+   * "Turn $6,000 into..." math uses Earn's Kamino APY, not this product's. */
+  staticHeadline?: boolean;
   /** "Earn MAX" reuses this pane as its logged-out connect screen. */
   title?: string;
   tooltipText?: string;
@@ -191,49 +195,49 @@ export function EarnEmptyPane({
             {/* Figma 5429:36626 — the logged-out connect pane leads with a
                 static line; the APY math headline is for signed-in users
                 (the pane only mounts post-hydration, so no state flash). */}
-            {isHydrated && !isSignedIn ? (
+            {isHydrated && (!isSignedIn || staticHeadline) ? (
               <span className="text-center text-foreground">
                 Make your money work smarter
               </span>
             ) : null}
             {/* Figma 5459:71363/71433 — mobile keeps the static line for
                 signed-in users too; the APY math headline is desktop-only. */}
-            {isHydrated && isSignedIn ? (
+            {isHydrated && isSignedIn && !staticHeadline ? (
               <span className="hidden text-center text-foreground max-[795px]:inline">
                 Make your money work smarter
               </span>
             ) : null}
-            {isHydrated && !isSignedIn ? null : (
+            {isHydrated && (!isSignedIn || staticHeadline) ? null : (
               <span className="contents max-[795px]:hidden">
                 {headlineWords.map((word, index) => {
-              const colorClassName = word.emphasized
-                ? "text-foreground"
-                : "text-muted-foreground";
-              if (!word.apyDependent) {
-                return (
-                  <span className={colorClassName} key={index}>
-                    {word.text}
-                  </span>
-                );
-              }
-              // Index keys keep the skeleton wrap mounted when the word's
-              // text changes at load — a remount would skip the cross-fade.
-              return (
-                <SkeletonReveal
-                  isRevealed={isApyLoaded}
-                  key={index}
-                  skeletonClassName="rounded-[8px] bg-accent-selected"
-                >
-                  <span className={colorClassName}>
-                    {isApyLoaded ? (
-                      <PopDigits segments={[{ text: word.text }]} />
-                    ) : (
-                      word.text
-                    )}
-                  </span>
-                </SkeletonReveal>
-              );
-            })}
+                  const colorClassName = word.emphasized
+                    ? "text-foreground"
+                    : "text-muted-foreground";
+                  if (!word.apyDependent) {
+                    return (
+                      <span className={colorClassName} key={index}>
+                        {word.text}
+                      </span>
+                    );
+                  }
+                  // Index keys keep the skeleton wrap mounted when the word's
+                  // text changes at load — a remount would skip the cross-fade.
+                  return (
+                    <SkeletonReveal
+                      isRevealed={isApyLoaded}
+                      key={index}
+                      skeletonClassName="rounded-[8px] bg-accent-selected"
+                    >
+                      <span className={colorClassName}>
+                        {isApyLoaded ? (
+                          <PopDigits segments={[{ text: word.text }]} />
+                        ) : (
+                          word.text
+                        )}
+                      </span>
+                    </SkeletonReveal>
+                  );
+                })}
               </span>
             )}
           </p>
