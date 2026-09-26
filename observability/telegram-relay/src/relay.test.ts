@@ -628,6 +628,37 @@ describe("AlertRelay windows", () => {
     expect(kinds).toEqual(["new"]);
   });
 
+  test("pages every latch, even inside the window an earlier latch opened", async () => {
+    let now = 1_000;
+    const kinds: AlertMessageKind[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        kinds.push(context.kind);
+      },
+      () => now,
+      { analyze }
+    );
+    const service = "backyard-rwa-worker";
+    const latch = [row(service, "backyard_rwa.latched", "")];
+    const evening = { startTime: 60_000, endTime: 120_000 };
+
+    // 2026-09-26: a morning latch opened a day-long window, and the evening
+    // latch had the same row signature, so it was answered "suppressed".
+    expect(await relay.handle(csvPayload(service, latch), "d-1")).toEqual({
+      outcome: "sent",
+    });
+    now += 60_000;
+    expect(
+      await relay.handle(csvPayload(service, latch, evening), "d-2")
+    ).toEqual({ outcome: "sent" });
+    // ClickStack re-sends the same evaluation under a fresh key.
+    expect(
+      await relay.handle(csvPayload(service, latch, evening), "d-3")
+    ).toEqual({ outcome: "suppressed" });
+
+    expect(kinds).toEqual(["new", "new"]);
+  });
+
   test("folds the post-restart burst into a single recap", async () => {
     let now = 1_000;
     const sent: AlertContext[] = [];
