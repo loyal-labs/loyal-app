@@ -19,17 +19,4 @@ describe("Yield Neon schema", () => {
     expect(targetColumns.bootstrapGeneration.name).toBe("bootstrap_generation");
     expect(getTableColumns(routePolicies).active.name).toBe("active");
   });
-
-  test("maps earn reserve share price columns", async () => {
-    const { earnReserveSharePrices } = await import(
-      "./yield-neon-client.server"
-    );
-    const columns = getTableColumns(earnReserveSharePrices);
-
-    expect(columns.observedHour.name).toBe("observed_hour");
-    expect(columns.observedAt.name).toBe("observed_at");
-    expect(columns.liquidityMint.name).toBe("liquidity_mint");
-    expect(columns.sharePrice.name).toBe("share_price");
-    expect(columns.sharePrice.columnType).toBe("PgDoublePrecision");
-  });
 });

@@ -7,13 +7,13 @@ import {
 } from "@loyal-labs/smart-account-vaults";
 import { type AccountInfo, Connection, PublicKey } from "@solana/web3.js";
 
-import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 
 import {
   KAMINO_MAIN_MARKET_USDC_RESERVE,
   resolveEarnForecastCluster,
+  resolveEarnForecastSolanaEnv,
 } from "./earn-forecast.server";
 import {
   loadEarnAumWeightsByReserve,
@@ -137,8 +137,9 @@ export async function recordEarnReserveSharePrices(
 export async function recordEarnReserveSharePricesNow(
   now = new Date()
 ): Promise<{ recorded: number; missing: string[] }> {
-  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
-  const { rpcEndpoint } = getServerSolanaEndpoints(solanaEnv);
+  const { rpcEndpoint } = getServerSolanaEndpoints(
+    resolveEarnForecastSolanaEnv()
+  );
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,

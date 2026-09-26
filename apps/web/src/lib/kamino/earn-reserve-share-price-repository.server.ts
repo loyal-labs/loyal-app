@@ -58,6 +58,10 @@ export async function upsertReserveSharePrices(
     });
 }
 
+// Loyal Earn positions live in vault 1; vault 0 is agent-managed and must not
+// weight the Earn APY.
+const EARN_VAULT_INDEX = 1;
+
 // Earn AUM per current reserve, in raw token units. Every Earn product
 // stablecoin has 6 decimals, so raw sums are comparable across reserves.
 export async function loadEarnAumWeightsByReserve(
@@ -69,7 +73,12 @@ export async function loadEarnAumWeightsByReserve(
       reserve: userYieldPositions.currentReserve,
     })
     .from(userYieldPositions)
-    .where(eq(userYieldPositions.status, "active"))
+    .where(
+      and(
+        eq(userYieldPositions.status, "active"),
+        eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX)
+      )
+    )
     .groupBy(userYieldPositions.currentReserve);
 
   const weights = new Map<string, number>();
