@@ -306,11 +306,27 @@ export function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[]
 // forecast figure — the Kamino benchmark lines stay for comparison.
 // Vault share-price APY per day (not the user's own flows), so every holder
 // sees the same line; days before launch are left out.
+// The chart needs 2+ samples or it silently plots Earn's own history, so the
+// line always ends at "now" on the badge's figure (header = label).
 function buildEarnMaxApySamples(view: EarnMaxViewModel): HistoricalApySample[] {
-  return view.apyHistory.map((point) => ({
+  const samples = view.apyHistory.map((point) => ({
     apyPercent: point.apyBps / 100,
-    observedAtMs: Date.parse(`${point.date}T12:00:00Z`),
+    observedAtMs: Date.parse(`${point.date}T00:00:00Z`),
   }));
+  if (view.forecastApyBps !== null) {
+    samples.push({
+      apyPercent: view.forecastApyBps / 100,
+      observedAtMs: Date.now(),
+    });
+  }
+  // One point cannot draw a line: hold it flat from the first day.
+  if (samples.length === 1) {
+    samples.unshift({
+      ...samples[0]!,
+      observedAtMs: samples[0]!.observedAtMs - 86_400_000,
+    });
+  }
+  return samples;
 }
 
 function SmallPill({
