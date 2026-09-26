@@ -189,10 +189,29 @@ export function WorkspaceFaceliftShell() {
   // Earn MAX data is fetched only for wallets past the invite gate; the
   // server refuses the rest anyway.
   const earnMaxUnlocked = EARN_MAX_VISIBLE && earnMaxInvite.redeemed === true;
-  const earnMax = useEarnMax({
+  const { actions: earnMaxRawActions, view: earnMaxView } = useEarnMax({
     settingsPda: earnMaxUnlocked ? earnData.settingsPda : undefined,
     walletAddress: earnMaxUnlocked ? earnData.walletAddress : null,
   });
+  // Signing actions go through the same sign-in / reconnect-wallet prompt as
+  // Earn, instead of failing with "Connect the authenticated wallet".
+  const { ensureCanSignAccountAction } = earnData.actions;
+  const earnMax = useMemo(() => {
+    const signed =
+      <A extends unknown[]>(run: (...args: A) => Promise<boolean>) =>
+      (...args: A) =>
+        ensureCanSignAccountAction() ? run(...args) : Promise.resolve(false);
+    const actions = earnMaxRawActions;
+    return {
+      view: earnMaxView,
+      actions: {
+        ...actions,
+        claim: signed(actions.claim),
+        deposit: signed(actions.deposit),
+        requestWithdrawal: signed(actions.requestWithdrawal),
+      },
+    };
+  }, [earnMaxRawActions, earnMaxView, ensureCanSignAccountAction]);
   // 30-day earned figures for the mobile home product cards (Figma
   // 5465:83340) — same feeds the Earned charts render, just summed.
   const earnEarned = useEarnEarnedData(earnData);

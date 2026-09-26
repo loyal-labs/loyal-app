@@ -107,6 +107,11 @@ export function useEarnMaxVoltr(input: {
           !(wallet.publicKey && input.settingsPda && programId) ||
           wallet.publicKey.toBase58() !== input.walletAddress
         ) {
+          // Local wallet state, not a service fault: stays INFO, never pages.
+          tracker.fail("prepare", {
+            chainState: "not_submitted",
+            errorCode: "wallet_unavailable",
+          });
           throw new Error("Connect the authenticated wallet to use Earn MAX.");
         }
         const owner = wallet.publicKey;
