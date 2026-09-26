@@ -371,6 +371,23 @@ wallet, configured cluster, vault index `1`, and canonical target reserve. The
 workspace uses it to decide whether to show the active Earn view, set the
 displayed principal, and cap partial/full withdrawals.
 
+### Earn MAX invite gate
+
+Earn MAX is invite-only. Valid codes are six uppercase letters/digits and
+live only as comma-separated SHA-256 hex hashes in the server env var
+`EARN_MAX_INVITE_CODE_HASHES` (unset = nobody gets in). The plain codes are
+never committed. `GET`/`POST /api/smart-accounts/earn-max/invite` reads or
+redeems a code for the authenticated wallet; the App Neon table
+`earn_max_invite_redemptions` crosses codes out (unique per code and per
+wallet). Earn MAX data routes must refuse wallets without a redemption.
+
+### Earn MAX (Voltr)
+
+Invited users see only the pooled Voltr RWA vault `HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA` (switch: `EARN_MAX_BACKEND` in `apps/web/src/features/earn-max/constants.ts`; old per-user Earn MAX on vault index `0` stays unused). Smart-account vault `accountIndex = 2` is the Voltr `userTransferAuthority`: deposits go wallet -> vault-2 USDC ATA -> Voltr in one sync execution; withdrawals request LP (600 s wait), then claim and sweep USDC to the wallet. Voltr instructions are hand-encoded in `features/earn-max/voltr/` because `@voltr/vault-sdk` needs `@solana/kit` 6 (apps/web uses 8). APY is the vault share-price growth (end-of-day TVL / LP from Voltr's public `dailyStats`, plus the live `/share-price`), compounded over the last 7 days (or since launch while younger) and annualized, in `features/earn-max/voltr/apy.server.ts` (cached 5 min server-side). Voltr's own 1-day figure swings with each NAV report on a small vault, so it is not used. No data shows a dash. The empty/logged-out desktop rail is a Strategies card (this APY) over the shared live `EarnStatsPanel`. History (transactions list, earned chart, lifetime earned) is read from chain in `features/earn-max/voltr/activity.server.ts`: the authority's last 100 signatures, decoded Voltr deposit / request_withdraw / claim instructions (claim amount = the vault idle ATA's USDC outflow), cached per authority until a new signature appears; negative earned under 1 cent (Voltr deposit rounding) shows as 0. ClickStack lifecycle flows: `earn_max.invite` (redeem; never the code) and `earn_max.vault` (deposit / request_withdrawal / claim: intent -> prepare -> wallet_submit_confirm -> ui_commit); a failed send or a 5xx invite pages through the Errors alert, a wrong code or a wallet cancel stays INFO.
+# failed: Voltr SDK cannot be added to apps/web (kit 6 vs 8), 2026-09-25
+# outcome: wire format pinned by voltr/program.test.ts plus a mainnet simulation
+# recurred: 1
+
 Schema conventions used in `/packages/db-core/src/schema.ts`:
 
 | Convention   | Rule                                                                                                       |

@@ -4514,7 +4514,7 @@ function DepositSourceRow({
   );
 }
 
-type HistoricalApySample = {
+export type HistoricalApySample = {
   apyPercent: number;
   observedAtMs: number;
 };
@@ -4749,6 +4749,10 @@ type HistoricalApyChartProps = {
   // (undefined keeps the legacy render byte-identical).
   apyDataRevealed?: boolean;
   axisTickCount?: number;
+  // Earn MAX variant: swaps the fetched Loyal series for a supplied one and
+  // renames the primary legend entry; the benchmark lines stay as-is.
+  primaryLabel?: string;
+  primarySamples?: HistoricalApySample[];
   rangeId: EarningsRangeId;
 };
 
@@ -4778,6 +4782,8 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
 function HydratedHistoricalApyChart({
   apyDataRevealed,
   axisTickCount = 2,
+  primaryLabel,
+  primarySamples,
   rangeId,
 }: HistoricalApyChartProps) {
   // Unique per instance so simultaneously mounted charts (e.g. compact pane +
@@ -4788,6 +4794,9 @@ function HydratedHistoricalApyChart({
   )}`;
   const apyHistory = useEarnForecastApyHistory();
   const samples = useMemo(() => {
+    if (primarySamples && primarySamples.length > 1) {
+      return downsampleHistoricalApySamples(primarySamples);
+    }
     const fetchedSamples = toHistoricalApySamples(apyHistory);
     if (rangeId === "30D" && fetchedSamples.length > 0) {
       return downsampleHistoricalApySamples(fetchedSamples);
@@ -4796,7 +4805,7 @@ function HydratedHistoricalApyChart({
     return downsampleHistoricalApySamples(
       buildHistoricalApySamples(rangeId, new Date())
     );
-  }, [apyHistory, rangeId]);
+  }, [apyHistory, primarySamples, rangeId]);
   const mainUsdcSamples = useMemo(() => {
     if (rangeId !== "30D") {
       return [];
@@ -4884,7 +4893,7 @@ function HydratedHistoricalApyChart({
       apyPercent: focusSample.apyPercent,
       color: EARN_SERIES_DISPLAY.loyal.color,
       key: "loyal" as EarnComparisonSeriesKey,
-      label: EARN_SERIES_DISPLAY.loyal.label,
+      label: primaryLabel ?? EARN_SERIES_DISPLAY.loyal.label,
     },
     ...benchmarks.map((benchmark) => ({
       apyPercent: benchmark.apyPercentAt(focusSample.observedAtMs),

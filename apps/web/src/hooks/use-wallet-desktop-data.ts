@@ -50,6 +50,8 @@ export type WalletDesktopData = {
   isConnected: boolean;
   isLoading: boolean;
   totalUsd: number;
+  /** Wallet SOL balance; null until the first portfolio fetch lands. */
+  totalSol: number | null;
   balanceWhole: string;
   balanceFraction: string;
   balanceSolLabel: string;
@@ -1015,6 +1017,7 @@ export function useWalletDesktopData(
     ),
     isLoading,
     totalUsd: totals.totalUsd,
+    totalSol: totals.totalSol,
     balanceWhole: balance.balanceWhole,
     balanceFraction: balance.balanceFraction,
     balanceSolLabel:

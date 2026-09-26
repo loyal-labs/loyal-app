@@ -3,13 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  groupEarnTransactions,
+  formatEarnTransactionDateGroup,
+  formatEarnTransactionTimestamp,
   resolveEarnTransactionDisplayTimeZone,
 } from "@/components/wallet-workspace/earn-transactions-pane";
 import {
   GroupHeader,
   TransactionRow,
 } from "@/components/wallet-workspace/facelift/earn-activity-card";
+import {
+  EarnMaxTransactionDetailPane,
+  earnMaxActivityLabel,
+  formatEarnMaxUsdcAmount,
+  isEarnMaxWithdrawishAction,
+  OperationRow,
+} from "@/components/wallet-workspace/facelift/earn-max-transaction-detail";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
 import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
@@ -22,6 +30,7 @@ import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import type { EarnMaxActivityItem } from "@/features/earn-max";
 import {
   fetchEarnTransactions,
   type EarnTransactionItem,
@@ -39,12 +48,25 @@ const PAGE_SIZE = 30;
 // date-grouped, extending as the user scrolls. Data comes through
 // fetchEarnTransactions, so Earn ↔ Activity switches reuse one cache and the
 // realtime stack's refreshKey bump refetches after a confirmed mutation.
+// One feed over two indexers: Kamino Earn transactions and Earn MAX
+// operations, merged client-side and sorted by confirmation time.
+type ActivityFeedEntry =
+  | { at: number; item: EarnTransactionItem; type: "earn" }
+  | { at: number; item: EarnMaxActivityItem; type: "earnmax" };
+
+function entryAt(value: string | null | undefined): number {
+  const parsed = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export function ActivityPage({
+  earnMaxActivity,
   onSelectPage,
   refreshKey,
   settingsPda,
   walletAddress,
 }: {
+  earnMaxActivity: EarnMaxActivityItem[];
   onSelectPage: (page: WorkspacePage) => void;
   refreshKey: number;
   settingsPda: string | null | undefined;
@@ -55,12 +77,12 @@ export function ActivityPage({
   const [items, setItems] = useState<EarnTransactionItem[] | null>(null);
   const [hasError, setHasError] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [selectedItem, setSelectedItem] = useState<EarnTransactionItem | null>(
+  const [selectedItem, setSelectedItem] = useState<ActivityFeedEntry | null>(
     null
   );
   // Keeps the last detail rendered through the sheet's close animation so
   // deselecting doesn't slide out an empty sheet.
-  const lastItemRef = useRef<EarnTransactionItem | null>(null);
+  const lastItemRef = useRef<ActivityFeedEntry | null>(null);
   if (selectedItem) {
     lastItemRef.current = selectedItem;
   }
@@ -116,15 +138,41 @@ export function ActivityPage({
     walletAddress,
   ]);
 
-  const groups = useMemo(
-    () =>
-      groupEarnTransactions(
-        (items ?? []).slice(0, visibleCount),
-        resolveEarnTransactionDisplayTimeZone()
-      ),
-    [items, visibleCount]
-  );
-  const hasMore = items !== null && items.length > visibleCount;
+  const entries = useMemo<ActivityFeedEntry[]>(() => {
+    const earn = (items ?? []).map((item) => ({
+      at: entryAt(item.confirmedAt ?? item.sortTimestamp),
+      item,
+      type: "earn" as const,
+    }));
+    const earnMax = earnMaxActivity.map((item) => ({
+      at: entryAt(item.timestamp),
+      item,
+      type: "earnmax" as const,
+    }));
+    return [...earn, ...earnMax].sort((a, b) => b.at - a.at);
+  }, [earnMaxActivity, items]);
+  const groups = useMemo(() => {
+    const timeZone = resolveEarnTransactionDisplayTimeZone();
+    const result: { date: string; entries: ActivityFeedEntry[] }[] = [];
+    for (const entry of entries.slice(0, visibleCount)) {
+      const date =
+        entry.type === "earn"
+          ? formatEarnTransactionDateGroup(
+              entry.item.confirmedAt ?? entry.item.sortTimestamp,
+              timeZone
+            ) ?? entry.item.dateGroup
+          : formatEarnTransactionDateGroup(entry.item.timestamp, timeZone) ??
+            "Confirming";
+      const last = result.at(-1);
+      if (last && last.date === date) {
+        last.entries.push(entry);
+      } else {
+        result.push({ date, entries: [entry] });
+      }
+    }
+    return result;
+  }, [entries, visibleCount]);
+  const hasMore = items !== null && entries.length > visibleCount;
 
   // Extends the window when the tail sentinel nears the viewport. Re-created
   // per visibleCount so a still-intersecting sentinel (list shorter than the
@@ -198,7 +246,7 @@ export function ActivityPage({
                   Failed to load transactions.
                 </p>
               ) : null}
-              {items !== null && items.length === 0 ? (
+              {items !== null && entries.length === 0 ? (
                 <p className="px-4 py-8 text-center text-[14px] leading-5 text-muted-foreground">
                   No activity yet
                 </p>
@@ -211,14 +259,42 @@ export function ActivityPage({
                       const content = (
                         <>
                           <GroupHeader label={group.date} />
-                          {group.items.map((item) => (
-                            <TransactionRow
-                              isSelected={selectedItem?.id === item.id}
-                              item={item}
-                              key={item.id}
-                              onSelect={() => setSelectedItem(item)}
-                            />
-                          ))}
+                          {group.entries.map((entry) =>
+                            entry.type === "earn" ? (
+                              <TransactionRow
+                                isSelected={
+                                  selectedItem?.item.id === entry.item.id
+                                }
+                                item={entry.item}
+                                key={entry.item.id}
+                                onSelect={() => setSelectedItem(entry)}
+                              />
+                            ) : (
+                              <OperationRow
+                                amountLabel={
+                                  entry.item.amountRaw
+                                    ? `${formatEarnMaxUsdcAmount(
+                                        entry.item.amountRaw
+                                      )} USDC`
+                                    : null
+                                }
+                                isSelected={
+                                  selectedItem?.item.id === entry.item.id
+                                }
+                                isWithdraw={isEarnMaxWithdrawishAction(
+                                  entry.item.action
+                                )}
+                                key={entry.item.id}
+                                onSelect={() => setSelectedItem(entry)}
+                                subtitle={
+                                  formatEarnTransactionTimestamp(
+                                    entry.item.timestamp
+                                  ) ?? "Confirming"
+                                }
+                                title={earnMaxActivityLabel(entry.item)}
+                              />
+                            )
+                          )}
                         </>
                       );
                       return resolveGroupKind(group.date) === "stagger" ? (
@@ -246,12 +322,20 @@ export function ActivityPage({
           <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">
             {/* Keyed by tx so switching rows replays the reveal — same as
                 the send flow's per-step PaneReveal. */}
-            <PaneReveal key={selectedItem.id}>
-              <EarnTransactionDetailPane
-                item={selectedItem}
-                onClose={() => setSelectedItem(null)}
-                walletAddress={walletAddress}
-              />
+            <PaneReveal key={selectedItem.item.id}>
+              {selectedItem.type === "earn" ? (
+                <EarnTransactionDetailPane
+                  item={selectedItem.item}
+                  onClose={() => setSelectedItem(null)}
+                  walletAddress={walletAddress}
+                />
+              ) : (
+                <EarnMaxTransactionDetailPane
+                  item={selectedItem.item}
+                  onClose={() => setSelectedItem(null)}
+                  walletAddress={walletAddress}
+                />
+              )}
             </PaneReveal>
           </aside>
         ) : (
@@ -281,12 +365,21 @@ export function ActivityPage({
         sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
         {sheetItem ? (
-          <EarnTransactionDetailPane
-            item={sheetItem}
-            key={sheetItem.id}
-            onClose={() => setSelectedItem(null)}
-            walletAddress={walletAddress}
-          />
+          sheetItem.type === "earn" ? (
+            <EarnTransactionDetailPane
+              item={sheetItem.item}
+              key={sheetItem.item.id}
+              onClose={() => setSelectedItem(null)}
+              walletAddress={walletAddress}
+            />
+          ) : (
+            <EarnMaxTransactionDetailPane
+              item={sheetItem.item}
+              key={sheetItem.item.id}
+              onClose={() => setSelectedItem(null)}
+              walletAddress={walletAddress}
+            />
+          )
         ) : null}
       </SheetReveal>
     </>

@@ -17,7 +17,7 @@ import {
 } from "@loyal-labs/smart-account-vaults";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   EarnMaxActions,
@@ -26,7 +26,7 @@ import type {
   EarnMaxViewModel,
 } from "./types";
 
-async function readJson<T>(path: string): Promise<T> {
+export async function readJson<T>(path: string): Promise<T> {
   const response = await fetch(path, {
     cache: "no-store",
     credentials: "include",
@@ -38,7 +38,9 @@ async function readJson<T>(path: string): Promise<T> {
   return body;
 }
 
-function walletBridge(wallet: ReturnType<typeof useWallet>): WalletAdapterLike {
+export function walletBridge(
+  wallet: ReturnType<typeof useWallet>
+): WalletAdapterLike {
   if (!wallet.publicKey || !wallet.signTransaction) {
     throw new Error("Connected wallet cannot sign Earn MAX transactions.");
   }
@@ -54,7 +56,7 @@ function walletBridge(wallet: ReturnType<typeof useWallet>): WalletAdapterLike {
   };
 }
 
-function viewModel(input: {
+export function viewModel(input: {
   activity: EarnMaxActivityResponse | null;
   busy: boolean;
   error: string | null;
@@ -73,6 +75,8 @@ function viewModel(input: {
   };
   return {
     activity: input.activity?.operations ?? [],
+    apyHistory: summary?.apyHistory ?? [],
+    apyWindowDays: summary?.apyWindowDays ?? null,
     balanceUsd: summary?.balanceUsd ?? 0,
     coverage: summary?.coverage ?? "history_incomplete",
     earnedUsd: summary?.earnedUsd ?? null,
@@ -105,8 +109,21 @@ export function useEarnMax(input: {
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // The account a response belongs to; a response for an account the user
+  // switched away from mid-request is dropped.
+  const accountRef = useRef<string | null>(null);
+  accountRef.current =
+    input.settingsPda && input.walletAddress
+      ? `${input.walletAddress}:${input.settingsPda}`
+      : null;
+
   const refresh = useCallback(async () => {
+    const account = accountRef.current;
     if (!(input.settingsPda && input.walletAddress)) {
+      // Signed out, switched wallet, or not unlocked: never keep showing the
+      // previous account's position.
+      setSummary(null);
+      setActivity(null);
       setIsLoading(false);
       return;
     }
@@ -119,6 +136,7 @@ export function useEarnMax(input: {
           "/api/smart-accounts/earn-max/activity"
         ),
       ]);
+      if (accountRef.current !== account) return;
       setSummary(nextSummary);
       setActivity(nextActivity);
       setError(null);

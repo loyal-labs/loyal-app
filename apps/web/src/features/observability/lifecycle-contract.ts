@@ -18,6 +18,8 @@ export const LIFECYCLE_FLOW_NAMES = [
   "earn.autodeposit.execute_now",
   "earn.autoswap.configuration",
   "wallet.swap",
+  "earn_max.invite",
+  "earn_max.vault",
 ] as const;
 
 export type LifecycleFlowName = (typeof LIFECYCLE_FLOW_NAMES)[number];
@@ -65,6 +67,9 @@ export const LIFECYCLE_VARIANTS = {
   "earn.autoswap.configuration": ["setup", "pause", "resume", "delete"],
   // Direct wallet-adapter signing vs the smart-account execution context.
   "wallet.swap": ["wallet_adapter", "smart_account"],
+  "earn_max.invite": ["redeem"],
+  // Voltr vault actions, each one wallet signature.
+  "earn_max.vault": ["deposit", "request_withdrawal", "claim"],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
 
 export const LIFECYCLE_STAGES = {
@@ -151,6 +156,8 @@ export const LIFECYCLE_STAGES = {
     "wallet_submit_confirm",
     "ui_commit",
   ],
+  "earn_max.invite": ["redeem"],
+  "earn_max.vault": ["intent", "prepare", "wallet_submit_confirm", "ui_commit"],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
 
 export const LIFECYCLE_ERROR_CODES = [
@@ -719,7 +726,8 @@ export function parseBrowserLifecycleEnvelope(
   const isTransactionFlow =
     isMoneyFlow ||
     flowName === "earn.autodeposit.configuration" ||
-    flowName === "earn.autoswap.configuration";
+    flowName === "earn.autoswap.configuration" ||
+    flowName === "earn_max.vault";
   if (
     (record.chainState !== undefined ||
       record.persistenceState !== undefined ||
