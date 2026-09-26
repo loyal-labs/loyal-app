@@ -333,13 +333,12 @@ function buildEarnMaxDailySeries(view: EarnMaxViewModel): {
     const key = dayKey(date);
     const dayEquity = equityByDay.get(key);
     const equity: number | null = dayEquity?.last ?? carryEquity;
-    const base = carryEquity ?? dayEquity?.first ?? null;
+    // The opening day starts from zero, so every flow that day (the first
+    // deposit, a same-day top-up or withdrawal) is subtracted, never earned.
     const earned =
-      base === null || equity === null
+      equity === null
         ? 0
-        : equity -
-          base -
-          (carryEquity === null ? 0 : flowsByDay.get(key) ?? 0);
+        : equity - (carryEquity ?? 0) - (flowsByDay.get(key) ?? 0);
     days.push({
       date,
       earnedUsd: earned,

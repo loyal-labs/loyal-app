@@ -7,6 +7,7 @@ import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 
 import type { EarnMaxSummary } from "../types";
+import { readVoltrHistory, voltrActivity } from "./activity.server";
 import { readEarnMaxVoltrApy } from "./apy.server";
 import {
   deriveEarnMaxVoltrAuthority,
@@ -28,27 +29,42 @@ function getConnection(): Connection {
   return connection;
 }
 
+function authorityFor(settings: string) {
+  return deriveEarnMaxVoltrAuthority(
+    settings,
+    getServerEnv().loyalSmartAccounts.programId
+  );
+}
+
+export async function readEarnMaxVoltrActivity(settings: string) {
+  const authority = authorityFor(settings);
+  const [position, history] = await Promise.all([
+    readVoltrPosition(getConnection(), authority),
+    readVoltrHistory(getConnection(), authority),
+  ]);
+  const { operations, performance } = voltrActivity(history, position);
+  return { operations, performance };
+}
 
 export async function readEarnMaxVoltrSummary(
   settings: string
 ): Promise<EarnMaxSummary> {
-  const authority = deriveEarnMaxVoltrAuthority(
-    settings,
-    getServerEnv().loyalSmartAccounts.programId
-  );
-  const [position, apy] = await Promise.all([
+  const authority = authorityFor(settings);
+  const [position, apy, history] = await Promise.all([
     readVoltrPosition(getConnection(), authority),
     readEarnMaxVoltrApy(),
+    readVoltrHistory(getConnection(), authority),
   ]);
+  const { earnedRaw } = voltrActivity(history, position);
   const pending = position.withdrawal;
   const canClaim =
     pending !== null && Date.now() / 1000 >= pending.withdrawableFromTs;
   return {
     balanceUsd: Number(position.valueRaw) / 1_000_000,
     claimAmountRaw: pending ? pending.payoutRaw.toString() : "0",
-    coverage: "history_incomplete",
+    coverage: history.complete ? "complete" : "history_incomplete",
     currentOperationId: null,
-    earnedUsd: null,
+    earnedUsd: earnedRaw === null ? null : Number(earnedRaw) / 1_000_000,
     // Realized vault APY from Voltr (7-day, else all-time); null = dash.
     forecastApyBps: apy.apyBps,
     // Pooled vault: nothing to install, so the deposit pane skips install().
