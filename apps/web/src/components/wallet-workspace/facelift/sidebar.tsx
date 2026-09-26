@@ -252,7 +252,11 @@ export function FaceliftSidebar({
   const cryptoBalance = splitUsdBalance(cryptoUsd);
   const earnBalance = splitUsdBalance(earnBalanceUsd);
   const earnMaxBalance = splitUsdBalance(earnMaxBalanceUsd);
-  const earnMaxApyLabel = formatEarnMaxApyLabel(earnMaxForecastApyBps);
+  // Only invited, unlocked accounts get an APY; everyone else sees no badge.
+  const earnMaxApyLabel =
+    earnMaxForecastApyBps === null
+      ? null
+      : formatEarnMaxApyLabel(earnMaxForecastApyBps);
   // Hidden products must not affect the public wallet total.
   const totalBalance = splitUsdBalance(
     data.totalUsd + earnBalanceUsd + (showEarnMax ? earnMaxBalanceUsd : 0)
@@ -483,11 +487,13 @@ export function FaceliftSidebar({
               <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
                 Earn MAX
               </span>
-              <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
-                <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                  {earnMaxApyLabel}
+              {earnMaxApyLabel ? (
+                <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
+                  <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                    {earnMaxApyLabel}
+                  </span>
                 </span>
-              </span>
+              ) : null}
             </span>
           </button>
         </nav>
@@ -572,18 +578,20 @@ export function FaceliftSidebar({
                 <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                   Earn MAX
                 </span>
-                <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="h-3 w-2"
-                    src="/wallet-workspace/earn-flash.svg"
-                  />
-                  <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                    {earnMaxApyLabel}
+                {earnMaxApyLabel ? (
+                  <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="h-3 w-2"
+                      src="/wallet-workspace/earn-flash.svg"
+                    />
+                    <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                      {earnMaxApyLabel}
+                    </span>
                   </span>
-                </span>
+                ) : null}
                 <ShortcutKey
                   isFlashed={flashedShortcut === "earnmax"}
                   letter="M"

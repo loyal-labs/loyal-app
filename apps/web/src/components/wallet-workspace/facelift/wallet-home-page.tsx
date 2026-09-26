@@ -147,7 +147,8 @@ function MobileProductCard({
   name,
   onSelect,
 }: {
-  apyBadgeLabel: string;
+  /** null hides the badge (Earn MAX before the invite unlocks it). */
+  apyBadgeLabel: string | null;
   balance: { balanceFraction: string; balanceWhole: string };
   earned30dUsd: number | null;
   hasDeposit: boolean;
@@ -171,11 +172,13 @@ function MobileProductCard({
       </span>
       {hasDeposit ? (
         <span className="flex w-full flex-col gap-0.5">
-          <span className="mb-0.5 inline-flex w-fit items-center rounded-md bg-positive/[0.14] px-1 py-px">
-            <span className="whitespace-nowrap pt-px font-medium text-[11px] text-positive leading-[13px] tracking-[0.06px]">
-              {apyBadgeLabel}
+          {apyBadgeLabel ? (
+            <span className="mb-0.5 inline-flex w-fit items-center rounded-md bg-positive/[0.14] px-1 py-px">
+              <span className="whitespace-nowrap pt-px font-medium text-[11px] text-positive leading-[13px] tracking-[0.06px]">
+                {apyBadgeLabel}
+              </span>
             </span>
-          </span>
+          ) : null}
           <SplitAmount
             fraction={balance.balanceFraction}
             isHidden={isBalanceHidden}
@@ -209,16 +212,18 @@ function MobileProductCard({
               Start earning
             </span>
           </span>
-          <span className="flex flex-col gap-1">
-            <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
-              Average APY
-            </span>
-            <span className="inline-flex w-fit items-center rounded-lg bg-positive/[0.14] px-2 py-0.5">
-              <span className="whitespace-nowrap font-medium text-[16px] text-positive leading-5 tracking-[0.06px]">
-                {apyBadgeLabel}
+          {apyBadgeLabel ? (
+            <span className="flex flex-col gap-1">
+              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                Average APY
+              </span>
+              <span className="inline-flex w-fit items-center rounded-lg bg-positive/[0.14] px-2 py-0.5">
+                <span className="whitespace-nowrap font-medium text-[16px] text-positive leading-5 tracking-[0.06px]">
+                  {apyBadgeLabel}
+                </span>
               </span>
             </span>
-          </span>
+          ) : null}
         </>
       )}
     </button>
@@ -298,9 +303,10 @@ export function WalletHomePage({
   );
   const earnBalance = splitUsdBalance(earnBalanceUsd);
   const earnMaxBalance = splitUsdBalance(earnMaxBalanceUsd);
+  // Only invited, unlocked accounts get an APY; everyone else sees no badge.
   const earnMaxApyLabel =
     earnMaxForecastApyBps === null
-      ? "—"
+      ? null
       : `${(earnMaxForecastApyBps / 100).toFixed(2)}%`;
   const totalBalance = splitUsdBalance(
     data.totalUsd + earnBalanceUsd + (showEarnMax ? earnMaxBalanceUsd : 0)
@@ -646,18 +652,20 @@ export function WalletHomePage({
                         <span className="whitespace-nowrap font-semibold text-[15px] text-foreground leading-5">
                           Earn MAX
                         </span>
-                        <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            alt=""
-                            aria-hidden="true"
-                            className="h-3 w-2"
-                            src="/wallet-workspace/earn-flash.svg"
-                          />
-                          <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                            {earnMaxApyLabel}
+                        {earnMaxApyLabel ? (
+                          <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              alt=""
+                              aria-hidden="true"
+                              className="h-3 w-2"
+                              src="/wallet-workspace/earn-flash.svg"
+                            />
+                            <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                              {earnMaxApyLabel}
+                            </span>
                           </span>
-                        </span>
+                        ) : null}
                       </span>
                       <SplitAmount
                         fraction={earnMaxBalance.balanceFraction}
@@ -748,7 +756,7 @@ export function WalletHomePage({
                   {showEarnMax ? (
                     <MobileProductCard
                       apyBadgeLabel={
-                        earnMaxBalanceUsd > 0
+                        earnMaxApyLabel && earnMaxBalanceUsd > 0
                           ? `${earnMaxApyLabel} APY`
                           : earnMaxApyLabel
                       }
