@@ -283,10 +283,12 @@ function buildEarnMaxDailySeries(view: EarnMaxViewModel): {
     const equity: number | null = dayEquity?.last ?? carryEquity;
     // The opening day starts from zero, so every flow that day (the first
     // deposit, a same-day top-up or withdrawal) is subtracted, never earned.
-    const earned =
+    const raw =
       equity === null
         ? 0
         : equity - (carryEquity ?? 0) - (flowsByDay.get(key) ?? 0);
+    // Deposit rounding dust (< 1 cent) is not a loss; real losses still chart.
+    const earned = raw < 0 && raw > -0.01 ? 0 : raw;
     days.push({
       date,
       earnedUsd: earned,
@@ -757,10 +759,15 @@ function EarnMaxMainPane({
 }) {
   const { isBalanceHidden } = useBalanceVisibility();
   const balance = splitUsdBalance(view.balanceUsd);
+  // Sign outside the dollar sign; a rounded -0.00 reads as +$0.00.
+  const earnedCents =
+    view.earnedUsd === null ? null : Math.round(view.earnedUsd * 100);
   const earnedLabel =
-    view.earnedUsd === null
+    earnedCents === null
       ? null
-      : `+$${view.earnedUsd.toLocaleString("en-US", {
+      : `${earnedCents < 0 ? "-" : "+"}$${(
+          Math.abs(earnedCents) / 100
+        ).toLocaleString("en-US", {
           maximumFractionDigits: 2,
           minimumFractionDigits: 2,
         })}`;
@@ -909,7 +916,13 @@ function EarnMaxMainPane({
                   />
                 </span>
                 {earnedLabel ? (
-                  <span className="whitespace-nowrap text-[13px] text-positive leading-4">
+                  <span
+                    className={`whitespace-nowrap text-[13px] leading-4 ${
+                      earnedCents !== null && earnedCents < 0
+                        ? "text-destructive"
+                        : "text-positive"
+                    }`}
+                  >
                     {earnedLabel}
                   </span>
                 ) : null}

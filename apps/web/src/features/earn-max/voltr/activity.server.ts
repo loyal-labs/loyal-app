@@ -18,7 +18,6 @@ import {
 } from "./program";
 
 const HISTORY_LIMIT = 100;
-const CACHE_MS = 60_000;
 
 // First 8 data bytes of the Voltr instructions a user signs (program.ts).
 const ACTIONS: [action: string, discriminator: number[]][] = [
@@ -104,7 +103,9 @@ function decode(
   return entries;
 }
 
-const cache = new Map<string, { at: number; value: EarnMaxVoltrHistory }>();
+// ponytail: unbounded per-instance map, one entry per Earn MAX account;
+// fine for an invite-only product, add an LRU if it ever goes public.
+const cache = new Map<string, { newest: string; value: EarnMaxVoltrHistory }>();
 
 /** Newest first. Deposits, withdrawal requests and claims of one authority. */
 export async function readVoltrHistory(
@@ -112,13 +113,17 @@ export async function readVoltrHistory(
   authority: PublicKey
 ): Promise<EarnMaxVoltrHistory> {
   const key = authority.toBase58();
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+  // The newest signature is one cheap call: reuse the decoded history only
+  // while no new transaction touched the account (a fresh deposit must never
+  // pair a new balance with a stale, empty list).
   const signatures = (
     await connection.getSignaturesForAddress(authority, {
       limit: HISTORY_LIMIT,
     })
   ).filter((s) => s.err === null);
+  const newest = signatures[0]?.signature ?? "";
+  const hit = cache.get(key);
+  if (hit && hit.newest === newest) return hit.value;
   const transactions = await connection.getParsedTransactions(
     signatures.map((s) => s.signature),
     { maxSupportedTransactionVersion: 0 }
@@ -141,9 +146,13 @@ export async function readVoltrHistory(
   // ponytail: first 100 signatures only; page with `before` once an account
   // outgrows that (the UI then treats history as incomplete).
   const value = { complete: signatures.length < HISTORY_LIMIT, entries };
-  cache.set(key, { at: Date.now(), value });
+  cache.set(key, { newest, value });
   return value;
 }
+
+const DUST_RAW = BigInt(10_000); // 1 cent
+const withoutDust = (raw: bigint) =>
+  raw < BigInt(0) && -raw < DUST_RAW ? BigInt(0) : raw;
 
 /** Fills the pending request's amount and derives the feeds the pane charts. */
 export function voltrActivity(
@@ -197,8 +206,12 @@ export function voltrActivity(
   const pendingRaw = position.withdrawal?.payoutRaw ?? BigInt(0);
   return {
     // Lifetime: what the user holds + is owed + got back, minus what went in.
+    // Voltr rounds deposit LP down, so a fresh position reads a few raw
+    // units under its deposit; hide that dust (< 1 cent), keep real losses.
     earnedRaw: history.complete
-      ? position.valueRaw + pendingRaw + sum("claim") - sum("deposit")
+      ? withoutDust(
+          position.valueRaw + pendingRaw + sum("claim") - sum("deposit")
+        )
       : null,
     operations,
     performance,
