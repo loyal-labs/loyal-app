@@ -214,8 +214,10 @@ export function isEarnMaxUntouched(view: EarnMaxViewModel): boolean {
 
 const EARNED_WINDOW_DAYS = 30;
 
+// UTC days: Voltr's daily share prices close at 00:00 UTC, so a local-day
+// split would show each day's yield on the next local day east of UTC.
 function dayKey(date: Date): string {
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  return date.toISOString().slice(0, 10);
 }
 
 function buildEarnMaxDailySeries(view: EarnMaxViewModel): {
@@ -277,7 +279,9 @@ function buildEarnMaxDailySeries(view: EarnMaxViewModel): {
   }[] = [];
   let carryEquity: number | null = null;
   for (let offset = EARNED_WINDOW_DAYS - 1; offset >= 0; offset -= 1) {
-    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+    const date = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - offset)
+    );
     const key = dayKey(date);
     const dayEquity = equityByDay.get(key);
     const equity: number | null = dayEquity?.last ?? carryEquity;
@@ -309,6 +313,7 @@ export function buildEarnMaxEarnedBars(view: EarnMaxViewModel): EarnedChartBar[]
     label: day.date.toLocaleDateString("en-US", {
       day: "numeric",
       month: "short",
+      timeZone: "UTC",
     }),
     startAt: day.date.toISOString(),
   }));

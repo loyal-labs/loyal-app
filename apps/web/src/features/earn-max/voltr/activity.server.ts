@@ -12,6 +12,7 @@ import bs58 from "bs58";
 import type { EarnMaxActivityItem, EarnMaxPerformancePoint } from "../types";
 import {
   VOLTR_IDLE_ATA,
+  VOLTR_LP_MINT,
   VOLTR_PROGRAM_ID,
   VOLTR_VAULT,
   type VoltrPosition,
@@ -30,6 +31,8 @@ type VoltrHistoryEntry = {
   action: string;
   /** Deposit: USDC in. Claim: USDC paid out. Request: filled below. */
   amountRaw: bigint | null;
+  /** Change of the authority's free LP in this transaction (0 on repeats). */
+  lpDeltaRaw: bigint;
   signature: string;
   timestamp: string;
 };
@@ -71,6 +74,25 @@ function idleDeltaRaw(transaction: ParsedTransactionWithMeta): bigint {
   );
 }
 
+// The authority's own LP account (not the withdrawal escrow, which the
+// position's value already excludes).
+function lpDeltaRaw(
+  transaction: ParsedTransactionWithMeta,
+  authority: PublicKey
+): bigint {
+  const owner = authority.toBase58();
+  const mint = VOLTR_LP_MINT.toBase58();
+  const amount = (balances: TokenBalance[] | null | undefined) =>
+    BigInt(
+      balances?.find((b) => b.owner === owner && b.mint === mint)?.uiTokenAmount
+        .amount ?? "0"
+    );
+  return (
+    amount(transaction.meta?.postTokenBalances) -
+    amount(transaction.meta?.preTokenBalances)
+  );
+}
+
 function decode(
   transaction: ParsedTransactionWithMeta,
   signature: string,
@@ -96,6 +118,8 @@ function decode(
           : match.action === "claim"
           ? -idleDeltaRaw(transaction)
           : null,
+      lpDeltaRaw:
+        entries.length === 0 ? lpDeltaRaw(transaction, authority) : BigInt(0),
       signature,
       timestamp,
     });
@@ -157,7 +181,8 @@ const withoutDust = (raw: bigint) =>
 /** Fills the pending request's amount and derives the feeds the pane charts. */
 export function voltrActivity(
   history: EarnMaxVoltrHistory,
-  position: Pick<VoltrPosition, "valueRaw" | "withdrawal">
+  position: Pick<VoltrPosition, "lpRaw" | "valueRaw" | "withdrawal">,
+  dayEnd: { at: string; price: number }[] = []
 ): {
   earnedRaw: bigint | null;
   operations: EarnMaxActivityItem[];
@@ -179,8 +204,9 @@ export function voltrActivity(
     timestamp: entry.timestamp,
   }));
   // Equity after each flow is the running principal (a deposit is worth what
-  // went in at that moment); the last point is today's value. ponytail: all
-  // yield lands on today's bar; daily share-price snapshots would spread it.
+  // went in at that moment); each finished UTC day adds its closing value
+  // (LP held then x day-end share price) so yield lands on the day it was
+  // earned; the last point is today's value.
   const performance: EarnMaxPerformancePoint[] = [];
   let principal = BigInt(0);
   for (const entry of [...entries].reverse()) {
@@ -194,10 +220,24 @@ export function voltrActivity(
     });
   }
   if (performance.length > 0) {
+    const opened = performance[0]!.timestamp;
+    // LP rebuilt backwards from today's free LP; needs the full history.
+    for (const day of history.complete ? dayEnd : []) {
+      if (day.at <= opened) continue;
+      const lpThen = entries
+        .filter((e) => e.timestamp > day.at)
+        .reduce((lp, e) => lp - e.lpDeltaRaw, position.lpRaw);
+      if (lpThen < BigInt(0)) continue;
+      performance.push({
+        equityUsd: (Number(lpThen) * day.price) / 1_000_000,
+        timestamp: day.at,
+      });
+    }
     performance.push({
       equityUsd: Number(position.valueRaw) / 1_000_000,
       timestamp: new Date().toISOString(),
     });
+    performance.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   }
   const sum = (action: string) =>
     entries

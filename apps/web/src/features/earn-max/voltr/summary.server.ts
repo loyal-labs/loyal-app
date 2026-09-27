@@ -38,11 +38,16 @@ function authorityFor(settings: string) {
 
 export async function readEarnMaxVoltrActivity(settings: string) {
   const authority = authorityFor(settings);
-  const [position, history] = await Promise.all([
+  const [position, history, apy] = await Promise.all([
     readVoltrPosition(getConnection(), authority),
     readVoltrHistory(getConnection(), authority),
+    readEarnMaxVoltrApy(),
   ]);
-  const { operations, performance } = voltrActivity(history, position);
+  const { operations, performance } = voltrActivity(
+    history,
+    position,
+    apy.dayEnd
+  );
   return { operations, performance };
 }
 

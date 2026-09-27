@@ -20,9 +20,16 @@ export type EarnMaxVoltrApy = {
   apyWindowDays: number | null;
   /** Daily share-price APY for the chart, oldest first. */
   daily: EarnMaxVoltrApyPoint[];
+  /** Share price (USDC raw per LP raw) at the end of each finished UTC day. */
+  dayEnd: { at: string; price: number }[];
 };
 
-const EMPTY: EarnMaxVoltrApy = { apyBps: null, apyWindowDays: null, daily: [] };
+const EMPTY: EarnMaxVoltrApy = {
+  apyBps: null,
+  apyWindowDays: null,
+  daily: [],
+  dayEnd: [],
+};
 
 let cached: { at: number; value: EarnMaxVoltrApy } | null = null;
 
@@ -59,9 +66,13 @@ export function shareApy(
       });
     }
   });
+  const today = new Date(now).toISOString().slice(0, 10);
+  // Today's row is still moving, so only finished days are day-end prices.
+  const dayEnd = points
+    .filter((p) => p.date < today)
+    .map((p) => ({ at: new Date(p.at).toISOString(), price: p.price }));
   if (live && live.tvl > 0 && live.lp > 0) {
     // Today's row is live on Voltr too; the vault read is fresher.
-    const today = new Date(now).toISOString().slice(0, 10);
     const last = points.at(-1);
     if (last?.date === today) points.pop();
     points.push({ at: now, date: today, price: live.tvl / live.lp });
@@ -100,6 +111,7 @@ export function shareApy(
         ? null
         : Math.min(WINDOW_DAYS, Math.round((latest.at - from.at) / DAY_MS)),
     daily,
+    dayEnd,
   };
 }
 
