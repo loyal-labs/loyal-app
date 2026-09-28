@@ -167,6 +167,7 @@ export function EarnedBarsChart({
   isStale,
   isUnavailable,
   lifetimeEarnedUsd,
+  note,
   onRetry,
 }: {
   bars: EarnedChartBar[];
@@ -176,6 +177,8 @@ export function EarnedBarsChart({
   isStale: boolean;
   isUnavailable: boolean;
   lifetimeEarnedUsd: number;
+  // Short muted line under the total, e.g. Earn MAX's "can dip" notice.
+  note?: string;
   onRetry?: () => void;
 }) {
   const { isBalanceHidden } = useBalanceVisibility();
@@ -299,6 +302,9 @@ export function EarnedBarsChart({
             </SkeletonReveal>
           )}
         </p>
+        {note ? (
+          <p className="text-[13px] leading-4 text-muted-foreground">{note}</p>
+        ) : null}
       </div>
 
       <div

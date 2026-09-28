@@ -1118,6 +1118,7 @@ export function EarnMaxWorkspace({
           isStale={false}
           isUnavailable={false}
           lifetimeEarnedUsd={view.earnedUsd ?? 0}
+          note="Can dip for short periods as asset prices and rates move."
         />
       ) : (
         <HistoricalApyChart
