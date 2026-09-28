@@ -4657,10 +4657,20 @@ function smoothChartLinePath(
     const current = points[index];
     const next = points[index + 1];
     const afterNext = points[index + 2] ?? next;
-    const control1X = current.x + (next.x - previous.x) / 6;
-    const control1Y = current.y + (next.y - previous.y) / 6;
-    const control2X = next.x - (afterNext.x - current.x) / 6;
-    const control2Y = next.y - (afterNext.y - current.y) / 6;
+    // Uneven x spacing (a long flat pad next to short daily steps) makes the
+    // raw tangents reach past the neighbouring point and loop backwards.
+    // Shorten each tangent so its control point stays inside this segment;
+    // the direction is kept, and evenly spaced data is unchanged.
+    const span = next.x - current.x;
+    const out1 = Math.min(1, span / Math.max((next.x - previous.x) / 6, 1e-9));
+    const out2 = Math.min(
+      1,
+      span / Math.max((afterNext.x - current.x) / 6, 1e-9)
+    );
+    const control1X = current.x + ((next.x - previous.x) / 6) * out1;
+    const control1Y = current.y + ((next.y - previous.y) / 6) * out1;
+    const control2X = next.x - ((afterNext.x - current.x) / 6) * out2;
+    const control2Y = next.y - ((afterNext.y - current.y) / 6) * out2;
     path.push(
       `C${control1X.toFixed(2)},${control1Y.toFixed(2)} ${control2X.toFixed(
         2
