@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   calculateEarnEarnings,
-  principalByMintAt,
+  principalAt,
   type ReserveApySample,
   type YieldPortfolioSnapshot,
   type YieldPositionEvent,
@@ -227,7 +227,7 @@ describe("calculateEarnEarnings money path", () => {
     expect(result.lifetimeEarnedUsd).toBeCloseTo(2, 12);
     expect(result.principalUsd).toBe(125);
     expect(result.currentApyBps).toBe(3650);
-    const principal = principalByMintAt(
+    const principal = principalAt(
       [
         {
           amountRaw: rawUsdc(100),
@@ -250,7 +250,6 @@ describe("calculateEarnEarnings money path", () => {
       ],
       NOW
     );
-    expect(principal.get("USDC")).toBe(rawUsdc(100));
-    expect(principal.get("PYUSD")).toBe(rawUsdc(25));
+    expect(principal).toBe(rawUsdc(125));
   });
 });

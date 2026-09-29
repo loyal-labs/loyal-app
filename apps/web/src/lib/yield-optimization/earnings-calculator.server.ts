@@ -496,8 +496,13 @@ function deriveApyBps(args: {
   );
 }
 
+// Principal is one running total across mints, clamped at zero, mirroring how
+// the position store records it: top-ups in any mint add to the same total,
+// and a withdrawal (which includes earned yield) subtracts from it. Clamping
+// per mint instead overstates principal once a withdrawal takes more of a
+// mint than was deposited in that mint.
 type PrincipalIndex = {
-  prefixes: Map<string, bigint>[];
+  totals: bigint[];
   times: number[];
 };
 
@@ -513,40 +518,29 @@ function getPrincipalIndex(
   if (cached) {
     return cached;
   }
-  const index: PrincipalIndex = { prefixes: [], times: [] };
-  const running = new Map<string, bigint>();
+  const index: PrincipalIndex = { times: [], totals: [] };
+  let running = BigInt(0);
   for (const event of events) {
-    const mint = event.liquidityMint ?? "";
-    const current = running.get(mint) ?? BigInt(0);
-    running.set(
-      mint,
-      event.type === "deposit"
-        ? current + event.amountRaw
-        : current > event.amountRaw
-        ? current - event.amountRaw
-        : BigInt(0)
-    );
-    index.prefixes.push(new Map(running));
+    if (event.type === "deposit") {
+      running += event.amountRaw;
+    } else {
+      running =
+        running > event.amountRaw ? running - event.amountRaw : BigInt(0);
+    }
+    index.totals.push(running);
     index.times.push(event.confirmedAt.getTime());
   }
   principalIndexCache.set(events, index);
   return index;
 }
 
-export function principalByMintAt(
+export function principalAt(
   events: readonly YieldPositionEvent[],
   at: Date
-): Map<string, bigint> {
+): bigint {
   const index = getPrincipalIndex(events);
   const found = lastIndexAtOrBefore(index.times, at.getTime());
-  return found === -1 ? new Map() : new Map(index.prefixes[found]);
-}
-
-function sumPrincipal(principal: ReadonlyMap<string, bigint>): bigint {
-  return [...principal.values()].reduce(
-    (sum, amount) => sum + amount,
-    BigInt(0)
-  );
+  return found === -1 ? BigInt(0) : index.totals[found];
 }
 
 const snapshotTimesCache = new WeakMap<
@@ -604,9 +598,7 @@ function calculatePortfolioWindow(args: {
   const startMs = args.startAt.getTime();
   const endMs = args.endAt.getTime();
   if (endMs <= startMs) {
-    const principalAmountRaw = sumPrincipal(
-      principalByMintAt(args.events, args.endAt)
-    );
+    const principalAmountRaw = principalAt(args.events, args.endAt);
     return { avgPrincipalUsd: 0, earnedUsd: 0, principalAmountRaw };
   }
   const changeTimes = new Set<number>([startMs, endMs]);
@@ -635,9 +627,7 @@ function calculatePortfolioWindow(args: {
   for (let index = 0; index < sortedTimes.length - 1; index += 1) {
     const segmentStart = new Date(sortedTimes[index]);
     const segmentSeconds = (sortedTimes[index + 1] - sortedTimes[index]) / 1000;
-    const principalRaw = sumPrincipal(
-      principalByMintAt(args.events, segmentStart)
-    );
+    const principalRaw = principalAt(args.events, segmentStart);
     principalSeconds += rawToUsd(principalRaw) * segmentSeconds;
     const snapshot = getPortfolioSnapshotAt(args.snapshots, segmentStart);
     for (const exposure of snapshot?.exposures ?? []) {
@@ -660,9 +650,7 @@ function calculatePortfolioWindow(args: {
   return {
     avgPrincipalUsd: bucketSeconds > 0 ? principalSeconds / bucketSeconds : 0,
     earnedUsd,
-    principalAmountRaw: sumPrincipal(
-      principalByMintAt(args.events, args.endAt)
-    ),
+    principalAmountRaw: principalAt(args.events, args.endAt),
   };
 }
 
@@ -759,7 +747,7 @@ export function calculateEarnEarnings(args: {
   const today = calculateRange(startOfLocalDay(args.now, args.timezone));
   const currentPathState = getPathStateAt(pathEvents, args.now);
   const principalAmountRaw = usePortfolio
-    ? sumPrincipal(principalByMintAt(events, args.now))
+    ? principalAt(events, args.now)
     : currentPathState?.principalAmountRaw ?? BigInt(0);
   const currentApy = usePortfolio
     ? portfolioApyAt({

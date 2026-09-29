@@ -43,6 +43,74 @@ function snapshot(): YieldPortfolioSnapshot {
   };
 }
 
+function ledgerEvent(
+  type: "deposit" | "withdrawal",
+  liquidityMint: string,
+  amountRaw: number,
+  confirmedAt: string
+) {
+  return {
+    amountRaw: BigInt(amountRaw),
+    confirmedAt: new Date(confirmedAt),
+    liquidityMint,
+    type,
+  };
+}
+
+function readMultiMintEarnings(args: {
+  ledgerEvents: ReturnType<typeof ledgerEvent>[];
+  storedPrincipalRaw: number;
+}) {
+  const position = {
+    initialLiquidityMint: "USDC",
+    principalAmountRaw: BigInt(args.storedPrincipalRaw),
+  } as UserYieldPositionRecord;
+  const portfolioSnapshot: YieldPortfolioSnapshot = {
+    exposures: [
+      {
+        amountRaw: BigInt(args.storedPrincipalRaw),
+        kind: "kamino",
+        liquidityMint: "USDC",
+        reserve: "reserve-a",
+        sourceId: "reserve:reserve-a",
+      },
+    ],
+    observedAt: args.ledgerEvents.at(-1)?.confirmedAt ?? NOW,
+    observedSlot: BigInt(3),
+  };
+
+  return readEarnEarningsRangeSet(
+    {
+      cluster: "mainnet",
+      settings: "settings",
+      timezone: "UTC",
+      vaultIndex: 1,
+      walletAddress: "wallet",
+    },
+    {
+      apyTimeoutMs: 1000,
+      loadApySamples: async () => [
+        {
+          observedAt: new Date("2026-07-31T00:00:00.000Z"),
+          reserve: "reserve-a",
+          supplyApy: 0.1,
+        },
+        {
+          observedAt: new Date("2026-08-11T11:00:00.000Z"),
+          reserve: "reserve-a",
+          supplyApy: 0.1,
+        },
+      ],
+      loadLedgerEvents: async () => args.ledgerEvents,
+      loadPortfolioSnapshots: async () => [portfolioSnapshot],
+      loadPositions: async () => [position],
+      loadSnapshot: async () => null,
+      now: () => NOW,
+      saveSnapshot: async () => undefined,
+    }
+  );
+}
+
 describe("portfolio earnings verification", () => {
   test("keeps earnings from before the first complete portfolio snapshot", () => {
     const depositAt = new Date("2026-08-01T12:00:00.000Z");
@@ -114,83 +182,78 @@ describe("portfolio earnings verification", () => {
     expect(coverage.staleReserves).toEqual(["reserve-b"]);
   });
 
-  test("accepts a single position whose principal spans several mints", async () => {
-    // The stored position is keyed by its initial mint (USDC) but top-ups in
-    // other mints add to the same principal. Here a USDT top-up was withdrawn
-    // one raw unit short, so the ledger splits principal as USDC + 1 USDT
-    // while the position carries the same total under USDC alone.
-    const ledgerEvents = [
-      {
-        amountRaw: BigInt(1_000_000),
-        confirmedAt: new Date("2026-08-10T10:00:00.000Z"),
-        liquidityMint: "USDC",
-        type: "deposit" as const,
-      },
-      {
-        amountRaw: BigInt(1_856_990_000),
-        confirmedAt: new Date("2026-08-10T10:30:00.000Z"),
-        liquidityMint: "USDT",
-        type: "deposit" as const,
-      },
-      {
-        amountRaw: BigInt(1_856_989_999),
-        confirmedAt: new Date("2026-08-10T10:31:00.000Z"),
-        liquidityMint: "USDT",
-        type: "withdrawal" as const,
-      },
-    ];
-    const position = {
-      initialLiquidityMint: "USDC",
-      principalAmountRaw: BigInt(1_000_001),
-    } as UserYieldPositionRecord;
-    const portfolioSnapshot: YieldPortfolioSnapshot = {
-      exposures: [
-        {
-          amountRaw: BigInt(1_000_001),
-          kind: "kamino",
-          liquidityMint: "USDC",
-          reserve: "reserve-a",
-          sourceId: "reserve:reserve-a",
-        },
+  test("accepts a position whose principal spans several mints", async () => {
+    // Positions are keyed by their initial mint (USDC), but top-ups in other
+    // mints add to the same principal. This USDT top-up was withdrawn one raw
+    // unit short, so the ledger holds USDC + 1 raw USDT while the position
+    // carries the same total under USDC alone.
+    const result = await readMultiMintEarnings({
+      ledgerEvents: [
+        ledgerEvent("deposit", "USDC", 1_000_000, "2026-08-10T10:00:00.000Z"),
+        ledgerEvent(
+          "deposit",
+          "USDT",
+          1_856_990_000,
+          "2026-08-10T10:30:00.000Z"
+        ),
+        ledgerEvent(
+          "withdrawal",
+          "USDT",
+          1_856_989_999,
+          "2026-08-10T10:31:00.000Z"
+        ),
       ],
-      observedAt: new Date("2026-08-10T10:31:00.000Z"),
-      observedSlot: BigInt(3),
-    };
-
-    const result = await readEarnEarningsRangeSet(
-      {
-        cluster: "mainnet",
-        settings: "settings",
-        timezone: "UTC",
-        vaultIndex: 1,
-        walletAddress: "wallet",
-      },
-      {
-        apyTimeoutMs: 1000,
-        loadApySamples: async () => [
-          {
-            observedAt: new Date("2026-08-10T09:00:00.000Z"),
-            reserve: "reserve-a",
-            supplyApy: 0.1,
-          },
-          {
-            observedAt: new Date("2026-08-11T11:00:00.000Z"),
-            reserve: "reserve-a",
-            supplyApy: 0.1,
-          },
-        ],
-        loadLedgerEvents: async () => ledgerEvents,
-        loadPortfolioSnapshots: async () => [portfolioSnapshot],
-        loadPositions: async () => [position],
-        loadSnapshot: async () => null,
-        now: () => NOW,
-        saveSnapshot: async () => undefined,
-      }
-    );
+      storedPrincipalRaw: 1_000_001,
+    });
 
     expect(result.freshness).toBe("fresh");
     expect(result.principalMatchesHistory).toBe(true);
-    expect(result.ranges["7D"].bars.at(-1)?.label).toBe("Aug 11");
+    expect(result.sourcePrincipalAmountRaw).toBe("1000001");
+  });
+
+  test("accepts a withdrawal that takes more of a mint than was deposited in it", async () => {
+    // Withdrawals include earned yield, so emptying the USDT sleeve takes out
+    // more USDT than was deposited. The stored principal subtracts that from
+    // its single running total; the ledger must do the same rather than
+    // clamping USDT at zero on its own.
+    const result = await readMultiMintEarnings({
+      ledgerEvents: [
+        ledgerEvent(
+          "deposit",
+          "USDC",
+          1_000_000_000,
+          "2026-08-01T10:00:00.000Z"
+        ),
+        ledgerEvent(
+          "deposit",
+          "USDT",
+          1_856_990_000,
+          "2026-08-01T11:00:00.000Z"
+        ),
+        ledgerEvent(
+          "withdrawal",
+          "USDT",
+          1_862_500_000,
+          "2026-08-10T10:00:00.000Z"
+        ),
+      ],
+      storedPrincipalRaw: 994_490_000,
+    });
+
+    expect(result.freshness).toBe("fresh");
+    expect(result.sourcePrincipalAmountRaw).toBe("994490000");
+    expect(result.ranges["30D"].principalAmountRaw).toBe("994490000");
+  });
+
+  test("rejects ledger history whose total differs from the stored principal", async () => {
+    await expect(
+      readMultiMintEarnings({
+        ledgerEvents: [
+          ledgerEvent("deposit", "USDC", 1_000_000, "2026-08-10T10:00:00.000Z"),
+        ],
+        storedPrincipalRaw: 2_000_000,
+      })
+    ).rejects.toMatchObject({ detailCode: "principal_history_mismatch" });
   });
 
   test("history revision changes when one source exposure changes", () => {

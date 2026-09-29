@@ -15,7 +15,7 @@ import {
   calculateEarnEarnings,
   EARNINGS_RANGE_IDS,
   normalizeEarningsTimezone,
-  principalByMintAt,
+  principalAt,
   type ReserveApySample,
   type YieldPortfolioSnapshot,
   type YieldPositionEvent,
@@ -844,11 +844,7 @@ export async function readEarnEarningsRangeSet(
       return createEmptyEarnEarningsRangeSet({ now, timezone });
     }
 
-    const principalByMint = principalByMintAt(effectiveLedgerEvents, now);
-    const projectedPrincipal = [...principalByMint.values()].reduce(
-      (sum, amount) => sum + amount,
-      BigInt(0)
-    );
+    const projectedPrincipal = principalAt(effectiveLedgerEvents, now);
     // Compare totals, not per-mint: a position is keyed by its initial mint,
     // but top-ups in other stablecoins add to that same principal, so its
     // per-mint split never matches the ledger's once a second mint is used.
