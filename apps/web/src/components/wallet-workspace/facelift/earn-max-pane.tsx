@@ -41,6 +41,7 @@ import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stat
 import {
   EarnMaxTransactionDetailPane,
   earnMaxActivityLabel,
+  earnMaxRequestedNote,
   formatEarnMaxUsdcAmount,
   isEarnMaxWithdrawishAction,
   OperationRow,
@@ -693,7 +694,7 @@ function EarnMaxActivityCard({
                                   item.action
                                 )}
                                 onSelect={() => onSelectTransaction(item)}
-                                subtitle={
+                                subtitle={[
                                   item.timestamp
                                     ? new Date(
                                         item.timestamp
@@ -701,8 +702,11 @@ function EarnMaxActivityCard({
                                         hour: "2-digit",
                                         minute: "2-digit",
                                       })
-                                    : "Confirming"
-                                }
+                                    : "Confirming",
+                                  earnMaxRequestedNote(item),
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
                                 title={earnMaxActivityLabel(item)}
                               />
                             </StaggerLine>

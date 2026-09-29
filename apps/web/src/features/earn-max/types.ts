@@ -5,6 +5,8 @@ export type EarnMaxActivityItem = {
   /** Largest positive token delta of the operation, raw USDC units. */
   amountRaw: string | null;
   id: string;
+  /** Withdraw only: USDC value when requested (amountRaw is what was paid). */
+  requestedRaw?: string | null;
   signature: string | null;
   status: string;
   timestamp: string;

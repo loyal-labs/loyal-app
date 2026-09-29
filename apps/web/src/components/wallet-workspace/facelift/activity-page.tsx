@@ -14,6 +14,7 @@ import {
 import {
   EarnMaxTransactionDetailPane,
   earnMaxActivityLabel,
+  earnMaxRequestedNote,
   formatEarnMaxUsdcAmount,
   isEarnMaxWithdrawishAction,
   OperationRow,
@@ -286,11 +287,14 @@ export function ActivityPage({
                                 )}
                                 key={entry.item.id}
                                 onSelect={() => setSelectedItem(entry)}
-                                subtitle={
+                                subtitle={[
                                   formatEarnTransactionTimestamp(
                                     entry.item.timestamp
-                                  ) ?? "Confirming"
-                                }
+                                  ) ?? "Confirming",
+                                  earnMaxRequestedNote(entry.item),
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
                                 title={earnMaxActivityLabel(entry.item)}
                               />
                             )

@@ -33,6 +33,8 @@ type VoltrHistoryEntry = {
   amountRaw: bigint | null;
   /** Change of the authority's free LP in this transaction (0 on repeats). */
   lpDeltaRaw: bigint;
+  /** Request only: USDC value of the escrowed LP when it was requested. */
+  requestedRaw?: bigint | null;
   signature: string;
   timestamp: string;
 };
@@ -93,6 +95,28 @@ function lpDeltaRaw(
   );
 }
 
+// RequestWithdrawVault event (Anchor "Program data:" log): escrowed LP at
+// byte 114, requested asset value as U80F48 at byte 122. Only trusted when
+// the LP matches this transaction's own LP move.
+const REQUEST_EVENT = Buffer.from([59, 94, 26, 38, 47, 131, 158, 162]);
+
+function requestedRawFromLogs(
+  transaction: ParsedTransactionWithMeta,
+  escrowedLp: bigint
+): bigint | null {
+  for (const line of transaction.meta?.logMessages ?? []) {
+    if (!line.startsWith("Program data: ")) continue;
+    const data = Buffer.from(line.slice(14), "base64");
+    if (data.length < 138 || !data.subarray(0, 8).equals(REQUEST_EVENT))
+      continue;
+    if (data.readBigUInt64LE(114) !== escrowedLp) continue;
+    const bits =
+      data.readBigUInt64LE(122) | (data.readBigUInt64LE(130) << BigInt(64));
+    return bits >> BigInt(48);
+  }
+  return null;
+}
+
 function decode(
   transaction: ParsedTransactionWithMeta,
   signature: string,
@@ -110,6 +134,8 @@ function decode(
     if (!("data" in instruction)) continue;
     const match = voltrAction(instruction, authority);
     if (!match) continue;
+    const lpDelta =
+      entries.length === 0 ? lpDeltaRaw(transaction, authority) : BigInt(0);
     entries.push({
       action: match.action,
       amountRaw:
@@ -118,8 +144,11 @@ function decode(
           : match.action === "claim"
           ? -idleDeltaRaw(transaction)
           : null,
-      lpDeltaRaw:
-        entries.length === 0 ? lpDeltaRaw(transaction, authority) : BigInt(0),
+      lpDeltaRaw: lpDelta,
+      requestedRaw:
+        match.action === "withdraw_request" && lpDelta < BigInt(0)
+          ? requestedRawFromLogs(transaction, -lpDelta)
+          : null,
       signature,
       timestamp,
     });
@@ -199,6 +228,8 @@ export function voltrActivity(
     action: entry.action,
     amountRaw: entry.amountRaw === null ? null : entry.amountRaw.toString(),
     id: `${entry.signature}:${entry.action}`,
+    requestedRaw:
+      entry.requestedRaw == null ? null : entry.requestedRaw.toString(),
     signature: entry.signature,
     status: "confirmed",
     timestamp: entry.timestamp,

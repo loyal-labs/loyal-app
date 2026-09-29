@@ -54,6 +54,17 @@ export function formatEarnMaxUsdcAmount(amountRaw: string): string {
   });
 }
 
+/** "requested 470.00" when a withdrawal paid out a different amount. */
+export function earnMaxRequestedNote(item: EarnMaxActivityItem): string | null {
+  if (item.action !== "withdraw_request" || !item.requestedRaw || !item.amountRaw) {
+    return null;
+  }
+  const requested = formatEarnMaxUsdcAmount(item.requestedRaw);
+  return requested === formatEarnMaxUsdcAmount(item.amountRaw)
+    ? null
+    : `requested ${requested}`;
+}
+
 function RouteRow({
   icon,
   label,
@@ -321,6 +332,18 @@ export function EarnMaxTransactionDetailPane({
           <div className="flex w-full flex-col rounded-2xl bg-accent">
             {item.signature ? (
               <SignatureCell signature={item.signature} />
+            ) : null}
+            {earnMaxRequestedNote(item) && item.requestedRaw ? (
+              <>
+                <DetailCell
+                  label="Requested"
+                  value={`${formatEarnMaxUsdcAmount(item.requestedRaw)} USDC`}
+                />
+                <DetailCell
+                  label="Paid"
+                  value={`${formatEarnMaxUsdcAmount(item.amountRaw ?? "0")} USDC · price moved while the vault unwound`}
+                />
+              </>
             ) : null}
             <DetailCell
               label="Status"
