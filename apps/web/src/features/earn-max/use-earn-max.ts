@@ -151,8 +151,20 @@ export function useEarnMax(input: {
     }
   }, [input.settingsPda, input.walletAddress]);
 
+  // An open tab must not keep yesterday's data: the Earned bars are rebuilt
+  // with the current date, so a stale fetch shows a $0 "today" bar. Refetch
+  // every minute and when the tab becomes visible again.
   useEffect(() => {
     void refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    const interval = window.setInterval(onVisible, 60_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh]);
 
   const send = useCallback(
