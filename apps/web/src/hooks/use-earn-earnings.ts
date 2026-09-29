@@ -7,15 +7,17 @@ import {
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
 import {
+  type EarnEarningsRangeSetResponse,
   isEarnEarningsCacheRevisionCurrent,
   isServerVerifiedEarnEarningsPayload,
-  type EarnEarningsRangeSetResponse,
 } from "@/lib/yield-optimization/earnings.shared";
 
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const STALE_RETRY_MS = 60 * 1000;
+const REQUEST_TIMEOUT_MS = 30 * 1000;
 const DEFAULT_CACHE_KEY = "default";
-const EARNINGS_EPSILON = 0.000000001;
-const EARN_EARNINGS_CACHE_VERSION = 5;
+const EARNINGS_EPSILON = 0.000_000_001;
+const EARN_EARNINGS_CACHE_VERSION = 6;
 const RETRY_DELAYS_MS = [250, 750] as const;
 
 type EarnEarningsCacheEntry = {
@@ -56,6 +58,7 @@ const earnEarningsInvalidationListeners = new Set<
 let cacheVersion = 0;
 
 function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
+  currentDailyBucketStart: string | null;
   earnedBarCount: number;
   lifetimeEarnedUsd: number;
   nonCurrentEarnedBarCount: number;
@@ -73,6 +76,8 @@ function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
   );
   const nonCurrentEarnedBars = earnedBars.filter((bar) => !bar.isCurrent);
   return {
+    currentDailyBucketStart:
+      payload.ranges["30D"].bars.find((bar) => bar.isCurrent)?.startAt ?? null,
     earnedBarCount: earnedBars.length,
     lifetimeEarnedUsd: Math.max(
       0,
@@ -134,39 +139,8 @@ function isRegressiveEarningsPayload(args: {
   return (
     fresh.lifetimeEarnedUsd + EARNINGS_EPSILON < stale.lifetimeEarnedUsd ||
     fresh.rangeEarnedUsd + EARNINGS_EPSILON < stale.rangeEarnedUsd ||
-    fresh.todayEarnedUsd + EARNINGS_EPSILON < stale.todayEarnedUsd
-  );
-}
-
-function isEqualRecordedEarningsWithNewerTimestamp(args: {
-  fresh: EarnEarningsRangeSetResponse;
-  stale: EarnEarningsRangeSetResponse | null;
-}): boolean {
-  if (!args.stale) {
-    return false;
-  }
-
-  const stale = summarizeEarningsPayload(args.stale);
-  const fresh = summarizeEarningsPayload(args.fresh);
-  const staleGeneratedAt = Date.parse(args.stale.generatedAt);
-  const freshGeneratedAt = Date.parse(args.fresh.generatedAt);
-
-  if (
-    !Number.isFinite(staleGeneratedAt) ||
-    !Number.isFinite(freshGeneratedAt) ||
-    freshGeneratedAt <= staleGeneratedAt
-  ) {
-    return false;
-  }
-
-  if (hasRicherHistoricalEarningsBars({ fresh, stale })) {
-    return false;
-  }
-
-  return (
-    fresh.lifetimeEarnedUsd <= stale.lifetimeEarnedUsd + EARNINGS_EPSILON &&
-    fresh.rangeEarnedUsd <= stale.rangeEarnedUsd + EARNINGS_EPSILON &&
-    fresh.todayEarnedUsd <= stale.todayEarnedUsd + EARNINGS_EPSILON
+    (fresh.currentDailyBucketStart === stale.currentDailyBucketStart &&
+      fresh.todayEarnedUsd + EARNINGS_EPSILON < stale.todayEarnedUsd)
   );
 }
 
@@ -205,7 +179,7 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function requestEarnEarnings(timezone: string) {
+async function requestEarnEarnings(timezone: string, signal: AbortSignal) {
   const url = new URL(
     "/api/smart-accounts/yield-optimization/earnings",
     window.location.origin
@@ -214,6 +188,7 @@ async function requestEarnEarnings(timezone: string) {
   const response = await fetch(url.toString(), {
     cache: "no-store",
     credentials: "include",
+    signal,
   });
   if (!response.ok) {
     throw new EarnEarningsRequestError(
@@ -234,23 +209,29 @@ async function requestEarnEarnings(timezone: string) {
 }
 
 async function requestEarnEarningsWithRetry(timezone: string) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let lastError: unknown = null;
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
-    try {
-      return await requestEarnEarnings(timezone);
-    } catch (error) {
-      lastError = error;
-      if (
-        !(error instanceof EarnEarningsRequestError) ||
-        !error.retryable ||
-        attempt === RETRY_DELAYS_MS.length
-      ) {
-        throw error;
+  try {
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        return await requestEarnEarnings(timezone, controller.signal);
+      } catch (error) {
+        lastError = error;
+        if (
+          controller.signal.aborted ||
+          !(error instanceof EarnEarningsRequestError && error.retryable) ||
+          attempt === RETRY_DELAYS_MS.length
+        ) {
+          throw error;
+        }
+        await wait(RETRY_DELAYS_MS[attempt]);
       }
-      await wait(RETRY_DELAYS_MS[attempt]);
     }
+    throw lastError;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  throw lastError;
 }
 
 function readPersistentEarnEarningsCache(
@@ -354,7 +335,9 @@ export async function fetchEarnEarningsRangeSet(
   const inflightKey = `${cacheKey}:request`;
   const fallbackBeforeFetch =
     cached?.value ?? readPersistentEarnEarningsCache(cacheKey, scope);
-  const withCallerFallback = (request: Promise<EarnEarningsRangeSetResponse>) =>
+  const withCallerFallback = (
+    request: Promise<EarnEarningsRangeSetResponse>
+  ) =>
     scope.strict
       ? request
       : request.catch((error) => {
@@ -398,12 +381,12 @@ export async function fetchEarnEarningsRangeSet(
             )
               ? latestCached.value
               : comparableBeforeFetch &&
-                isEarnEarningsCacheRevisionCurrent(
-                  comparableBeforeFetch.revalidationKey,
-                  scope.revalidationKey
-                )
-              ? comparableBeforeFetch.value
-              : null;
+                  isEarnEarningsCacheRevisionCurrent(
+                    comparableBeforeFetch.revalidationKey,
+                    scope.revalidationKey
+                  )
+                ? comparableBeforeFetch.value
+                : null;
           if (
             comparableStale &&
             isRegressiveEarningsPayload({
@@ -415,23 +398,12 @@ export async function fetchEarnEarningsRangeSet(
               comparableStale,
               "regressive_revalidation"
             );
-          } else if (
-            comparableStale &&
-            isEqualRecordedEarningsWithNewerTimestamp({
-              fresh: payload,
-              stale: comparableStale,
-            })
-          ) {
-            result = markPayloadStale(
-              comparableStale,
-              "unchanged_revalidation"
-            );
           } else {
             const summary = summarizeEarningsPayload(payload);
             const responseRevision =
               summary.principalAmountRaws.length === 1
                 ? summary.principalAmountRaws[0]
-                : scope.revalidationKey ?? null;
+                : (scope.revalidationKey ?? null);
             cachedEarnings.set(cacheKey, {
               expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
               revalidationKey: responseRevision,
@@ -534,6 +506,32 @@ export function useEarnEarnings({
       earnEarningsInvalidationListeners.delete(handleInvalidation);
     };
   }, [scopedCacheKey]);
+
+  useEffect(() => {
+    if (!enabled || isLoading) {
+      return;
+    }
+    const revalidateVisible = () => {
+      if (
+        document.visibilityState === "visible" &&
+        !inflightEarnings.has(`${scopedCacheKey}:request`)
+      ) {
+        refresh();
+      }
+    };
+    const delay =
+      error || !data || data.freshness === "stale"
+        ? STALE_RETRY_MS
+        : CLIENT_CACHE_TTL_MS;
+    const timer = window.setTimeout(revalidateVisible, delay);
+    window.addEventListener("focus", revalidateVisible);
+    document.addEventListener("visibilitychange", revalidateVisible);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", revalidateVisible);
+      document.removeEventListener("visibilitychange", revalidateVisible);
+    };
+  }, [data, enabled, error, isLoading, refresh, scopedCacheKey]);
 
   useEffect(() => {
     if (!enabled) {

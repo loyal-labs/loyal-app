@@ -24,8 +24,8 @@ import {
 import {
   findActiveYieldPositionsForVault,
   findCompleteYieldVaultExposureSnapshots,
-  findYieldPositionHistoryEventsForVault,
   findYieldPositionEvents,
+  findYieldPositionHistoryEventsForVault,
   type UserYieldPositionHistoryEventRecord,
   type UserYieldPositionRecord,
 } from "./yield-deposit-repository.server";
@@ -102,6 +102,7 @@ class EarnEarningsApyTimeoutError extends Error {
 }
 
 export class EarnEarningsUnavailableError extends Error {
+  readonly coverage: EarnEarningsCoverage | null;
   readonly code: "earnings_unavailable" | "history_incomplete";
   readonly detailCode:
     | "apy_coverage_incomplete"
@@ -113,13 +114,44 @@ export class EarnEarningsUnavailableError extends Error {
   constructor(
     code: "earnings_unavailable" | "history_incomplete",
     message: string,
-    detailCode: EarnEarningsUnavailableError["detailCode"] = "earnings_unavailable"
+    detailCode: EarnEarningsUnavailableError["detailCode"] = "earnings_unavailable",
+    coverage: EarnEarningsCoverage | null = null
   ) {
     super(message);
     this.code = code;
     this.detailCode = detailCode;
+    this.coverage = coverage;
     this.name = "EarnEarningsUnavailableError";
   }
+}
+
+// Portfolio observations can precede the persisted deposit confirmation. Carry
+// the last known state into the earning interval, without earning before it or
+// requiring APY coverage for observations outside that interval.
+export function normalizeEarningsPortfolioSnapshots(args: {
+  snapshots: readonly YieldPortfolioSnapshot[];
+  start: Date;
+  end: Date;
+}): YieldPortfolioSnapshot[] {
+  const snapshots = [...args.snapshots].sort(
+    (left, right) => left.observedAt.getTime() - right.observedAt.getTime()
+  );
+  const normalized: YieldPortfolioSnapshot[] = [];
+  let seed: YieldPortfolioSnapshot | null = null;
+  for (const snapshot of snapshots) {
+    if (snapshot.observedAt > args.end) {
+      break;
+    }
+    if (snapshot.observedAt <= args.start) {
+      seed = snapshot;
+    } else {
+      normalized.push(snapshot);
+    }
+  }
+  if (seed && args.start <= args.end) {
+    normalized.unshift({ ...seed, observedAt: args.start });
+  }
+  return normalized;
 }
 
 function comparePathEvents(
@@ -242,11 +274,11 @@ export function buildCanonicalEarningsPath(args: {
           recordedPrincipalDeltaRaw === BigInt(0)
             ? BigInt(0)
             : matchingHolding?.eventType === "withdrawal_full"
-            ? principalAmountRaw
-            : recordedPrincipalDeltaRaw !== null &&
-              recordedPrincipalDeltaRaw < BigInt(0)
-            ? -recordedPrincipalDeltaRaw
-            : event.amountRaw;
+              ? principalAmountRaw
+              : recordedPrincipalDeltaRaw !== null &&
+                  recordedPrincipalDeltaRaw < BigInt(0)
+                ? -recordedPrincipalDeltaRaw
+                : event.amountRaw;
         principalAmountRaw =
           principalAmountRaw > principalReductionRaw
             ? principalAmountRaw - principalReductionRaw
@@ -557,9 +589,9 @@ export function getEarningsCoverage(args: {
     .reverse()
     .find((event) => event.principalAmountRaw > BigInt(0))?.reserve;
   const currentReserveLatestSample = currentReserve
-    ? [...args.apySamples]
+    ? ([...args.apySamples]
         .reverse()
-        .find((sample) => sample.reserve === currentReserve) ?? null
+        .find((sample) => sample.reserve === currentReserve) ?? null)
     : null;
   const currentReserveSampleAgeMs = currentReserveLatestSample
     ? Math.max(
@@ -702,15 +734,17 @@ function normalizedError(error: unknown) {
       error instanceof EarnEarningsUnavailableError
         ? error.code
         : error instanceof EarnEarningsApyTimeoutError
-        ? "timescale_timeout"
-        : rawMessage.includes("earn_earnings_snapshots")
-        ? "snapshot_store_unavailable"
-        : rawMessage.includes("timescale")
-        ? "timescale_unavailable"
-        : "dependency_unavailable",
+          ? "timescale_timeout"
+          : rawMessage.includes("earn_earnings_snapshots")
+            ? "snapshot_store_unavailable"
+            : rawMessage.includes("timescale")
+              ? "timescale_unavailable"
+              : "dependency_unavailable",
     errorName: error instanceof Error ? error.name : typeof error,
     errorDetailCode:
       error instanceof EarnEarningsUnavailableError ? error.detailCode : null,
+    coverage:
+      error instanceof EarnEarningsUnavailableError ? error.coverage : null,
   };
 }
 
@@ -781,25 +815,32 @@ function walletScope(walletAddress: string) {
     : `${walletAddress.slice(0, 4)}…${walletAddress.slice(-4)}`;
 }
 
-export async function readEarnEarningsRangeSet(
-  input: EarnEarningsReadInput,
-  dependencies: EarnEarningsReadDependencies = {
+export function createEarnEarningsReadDependencies(
+  readOnly = false
+): EarnEarningsReadDependencies {
+  return {
     apyTimeoutMs: 8000,
     loadApySamples,
     loadLedgerEvents: findYieldPositionEvents,
     loadHoldingEvents: findYieldPositionHistoryEventsForVault,
     loadPortfolioSnapshots: findCompleteYieldVaultExposureSnapshots,
     loadPositions: findActiveYieldPositionsForVault,
-    loadSnapshot,
+    loadSnapshot: readOnly ? async () => null : loadSnapshot,
     now: () => new Date(),
-    saveSnapshot,
-  }
+    saveSnapshot: readOnly ? async () => undefined : saveSnapshot,
+  };
+}
+
+export async function readEarnEarningsRangeSet(
+  input: EarnEarningsReadInput,
+  dependencies: EarnEarningsReadDependencies = createEarnEarningsReadDependencies()
 ): Promise<EarnEarningsRangeSetResponse> {
   const startedAt = Date.now();
   let apyMs: number | null = null;
   let historyMs: number | null = null;
   const now = dependencies.now();
   const timezone = normalizeEarningsTimezone(input.timezone);
+  let coverageStartAt: string | null = null;
   let snapshot: EarnEarningsSnapshotRecord | null = null;
   try {
     snapshot = await dependencies.loadSnapshot(input, timezone);
@@ -817,10 +858,10 @@ export async function readEarnEarningsRangeSet(
         dependencies.loadPositions
           ? dependencies.loadPositions(input)
           : dependencies.loadPosition
-          ? dependencies
-              .loadPosition(input)
-              .then((position) => (position ? [position] : []))
-          : [],
+            ? dependencies
+                .loadPosition(input)
+                .then((position) => (position ? [position] : []))
+            : [],
         dependencies.loadLedgerEvents(input),
         dependencies.loadPortfolioSnapshots
           ? dependencies.loadPortfolioSnapshots(input)
@@ -829,7 +870,7 @@ export async function readEarnEarningsRangeSet(
           ? dependencies.loadHoldingEvents(input)
           : [],
       ]);
-    const portfolioSnapshots = buildHoldingBackedPortfolioSnapshots({
+    const rawPortfolioSnapshots = buildHoldingBackedPortfolioSnapshots({
       completeSnapshots: loadedPortfolioSnapshots,
       holdingEvents,
     });
@@ -838,6 +879,17 @@ export async function readEarnEarningsRangeSet(
       liquidityMint:
         event.liquidityMint ?? positions[0]?.initialLiquidityMint ?? "",
     }));
+    const firstDepositAt = effectiveLedgerEvents.find(
+      (event) => event.type === "deposit"
+    )?.confirmedAt;
+    const portfolioSnapshots = firstDepositAt
+      ? normalizeEarningsPortfolioSnapshots({
+          snapshots: rawPortfolioSnapshots,
+          start: firstDepositAt,
+          end: now,
+        })
+      : [];
+    coverageStartAt = firstDepositAt?.toISOString() ?? null;
     historyMs = Date.now() - historyStartedAt;
 
     if (positions.length === 0) {
@@ -884,9 +936,6 @@ export async function readEarnEarningsRangeSet(
       );
     }
 
-    const firstDepositAt = effectiveLedgerEvents.find(
-      (event) => event.type === "deposit"
-    )?.confirmedAt;
     if (!firstDepositAt) {
       throw new EarnEarningsUnavailableError(
         "history_incomplete",
@@ -924,7 +973,8 @@ export async function readEarnEarningsRangeSet(
       throw new EarnEarningsUnavailableError(
         "history_incomplete",
         "Earn APY history coverage is incomplete.",
-        "apy_coverage_incomplete"
+        "apy_coverage_incomplete",
+        coverage
       );
     }
 
@@ -990,6 +1040,8 @@ export async function readEarnEarningsRangeSet(
     if (snapshot) {
       const stale = staleSnapshot(snapshot, now, reason);
       console.warn("[earnings-read] stale", {
+        coverageStartAt,
+        coverageEndAt: now.toISOString(),
         alertKey:
           error instanceof EarnEarningsUnavailableError &&
           error.detailCode === "principal_history_mismatch"
@@ -1008,13 +1060,15 @@ export async function readEarnEarningsRangeSet(
       return stale;
     }
     console.error("[earnings-read] unavailable", {
+      coverageStartAt,
+      coverageEndAt: now.toISOString(),
       alertKey:
         error instanceof EarnEarningsUnavailableError &&
         error.detailCode === "principal_history_mismatch"
           ? "earnings_principal_mismatch"
           : reason === "history_incomplete"
-          ? "earnings_history_incomplete"
-          : "earnings_unavailable",
+            ? "earnings_history_incomplete"
+            : "earnings_unavailable",
       apyMs,
       ...normalizedError(error),
       historyMs,
