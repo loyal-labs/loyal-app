@@ -11,7 +11,8 @@ and only the fields used by the earnings calculation are loaded.
 
 The visible web chart revalidates every five minutes, retries unavailable/stale
 earnings every minute, and revalidates when the tab regains focus. A request and
-its retries have a shared 30-second deadline so the first-load spinner settles. Server-verified
+its retries have a shared 60-second deadline so the first-load spinner settles while
+allowing long-lived vault history reads to finish. Server-verified
 unchanged amounts are valid fresh data, and today's earnings may reset at local
 midnight. Cache version 6 discards older persisted chart payloads after this fix.
 

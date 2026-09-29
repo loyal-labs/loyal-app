@@ -70,15 +70,17 @@ let deadlineScheduled = false;
 globalThis.window = {
   location: { origin: "https://fixture.invalid" },
   setTimeout: (callback: () => void, delay: number) => {
-    if (delay === 30_000) {
+    if (delay === 60_000) {
       deadlineScheduled = true;
     }
-    return setTimeout(callback, delay === 30_000 ? 50 : delay);
+    return setTimeout(callback, delay === 60_000 ? 100 : delay);
   },
   clearTimeout,
 } as unknown as Window & typeof globalThis;
 let next = payload(new Date(deposit.getTime() + day - 1000));
-globalThis.fetch = Object.assign(async () => Response.json(next), { preconnect: nativeFetch.preconnect });
+globalThis.fetch = Object.assign(async () => Response.json(next), {
+  preconnect: nativeFetch.preconnect,
+});
 try {
   const key = "freshness-fixture";
   const scope = { revalidationKey: "100000000", timezone: "UTC", strict: true };
@@ -103,6 +105,22 @@ try {
     "verified unchanged amounts remain fresh",
     unchanged.freshness === "fresh" &&
       unchanged.generatedAt === next.generatedAt
+  );
+  invalidateEarnEarningsCache(key);
+  globalThis.fetch = Object.assign(
+    async (_url: RequestInfo | URL, options?: RequestInit) => {
+      await new Promise((resolve) => setTimeout(resolve, 75));
+      if (options?.signal?.aborted) {
+        throw new Error("fixture timed out before history completed");
+      }
+      return Response.json(next);
+    },
+    { preconnect: nativeFetch.preconnect }
+  );
+  const slow = await fetchEarnEarningsRangeSet(key, scope);
+  verify(
+    "a slow valid history response arrives before the bounded deadline",
+    slow.freshness === "fresh" && slow.generatedAt === next.generatedAt
   );
   invalidateEarnEarningsCache(key);
   globalThis.fetch = (async (_url, options) =>
