@@ -845,25 +845,18 @@ export async function readEarnEarningsRangeSet(
     }
 
     const principalByMint = principalByMintAt(effectiveLedgerEvents, now);
-    const storedPrincipalByMint = new Map<string, bigint>();
-    for (const position of positions) {
-      storedPrincipalByMint.set(
-        position.initialLiquidityMint,
-        (storedPrincipalByMint.get(position.initialLiquidityMint) ??
-          BigInt(0)) + position.principalAmountRaw
-      );
-    }
-    const principalMatchesHistory = [
-      ...new Set([...principalByMint.keys(), ...storedPrincipalByMint.keys()]),
-    ].every(
-      (mint) =>
-        (principalByMint.get(mint) ?? BigInt(0)) ===
-        (storedPrincipalByMint.get(mint) ?? BigInt(0))
-    );
     const projectedPrincipal = [...principalByMint.values()].reduce(
       (sum, amount) => sum + amount,
       BigInt(0)
     );
+    // Compare totals, not per-mint: a position is keyed by its initial mint,
+    // but top-ups in other stablecoins add to that same principal, so its
+    // per-mint split never matches the ledger's once a second mint is used.
+    const storedPrincipal = positions.reduce(
+      (sum, position) => sum + position.principalAmountRaw,
+      BigInt(0)
+    );
+    const principalMatchesHistory = projectedPrincipal === storedPrincipal;
     const pathEvents: YieldPositionPathEvent[] = [];
     const historyRevision = getPortfolioEarningsHistoryRevision({
       events: effectiveLedgerEvents,

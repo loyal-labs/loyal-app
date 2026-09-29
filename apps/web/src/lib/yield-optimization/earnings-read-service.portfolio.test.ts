@@ -4,7 +4,10 @@ import {
   calculateEarnEarnings,
   type YieldPortfolioSnapshot,
 } from "./earnings-calculator.server";
-import type { UserYieldPositionHistoryEventRecord } from "./yield-deposit-repository.server";
+import type {
+  UserYieldPositionHistoryEventRecord,
+  UserYieldPositionRecord,
+} from "./yield-deposit-repository.server";
 
 mock.module("server-only", () => ({}));
 
@@ -12,6 +15,7 @@ const {
   buildHoldingBackedPortfolioSnapshots,
   getPortfolioEarningsCoverage,
   getPortfolioEarningsHistoryRevision,
+  readEarnEarningsRangeSet,
 } = await import("./earnings-read-service.server");
 
 const NOW = new Date("2026-08-11T12:00:00.000Z");
@@ -108,6 +112,85 @@ describe("portfolio earnings verification", () => {
 
     expect(coverage.missingReserves).toEqual(["reserve-b"]);
     expect(coverage.staleReserves).toEqual(["reserve-b"]);
+  });
+
+  test("accepts a single position whose principal spans several mints", async () => {
+    // The stored position is keyed by its initial mint (USDC) but top-ups in
+    // other mints add to the same principal. Here a USDT top-up was withdrawn
+    // one raw unit short, so the ledger splits principal as USDC + 1 USDT
+    // while the position carries the same total under USDC alone.
+    const ledgerEvents = [
+      {
+        amountRaw: BigInt(1_000_000),
+        confirmedAt: new Date("2026-08-10T10:00:00.000Z"),
+        liquidityMint: "USDC",
+        type: "deposit" as const,
+      },
+      {
+        amountRaw: BigInt(1_856_990_000),
+        confirmedAt: new Date("2026-08-10T10:30:00.000Z"),
+        liquidityMint: "USDT",
+        type: "deposit" as const,
+      },
+      {
+        amountRaw: BigInt(1_856_989_999),
+        confirmedAt: new Date("2026-08-10T10:31:00.000Z"),
+        liquidityMint: "USDT",
+        type: "withdrawal" as const,
+      },
+    ];
+    const position = {
+      initialLiquidityMint: "USDC",
+      principalAmountRaw: BigInt(1_000_001),
+    } as UserYieldPositionRecord;
+    const portfolioSnapshot: YieldPortfolioSnapshot = {
+      exposures: [
+        {
+          amountRaw: BigInt(1_000_001),
+          kind: "kamino",
+          liquidityMint: "USDC",
+          reserve: "reserve-a",
+          sourceId: "reserve:reserve-a",
+        },
+      ],
+      observedAt: new Date("2026-08-10T10:31:00.000Z"),
+      observedSlot: BigInt(3),
+    };
+
+    const result = await readEarnEarningsRangeSet(
+      {
+        cluster: "mainnet",
+        settings: "settings",
+        timezone: "UTC",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+      },
+      {
+        apyTimeoutMs: 1000,
+        loadApySamples: async () => [
+          {
+            observedAt: new Date("2026-08-10T09:00:00.000Z"),
+            reserve: "reserve-a",
+            supplyApy: 0.1,
+          },
+          {
+            observedAt: new Date("2026-08-11T11:00:00.000Z"),
+            reserve: "reserve-a",
+            supplyApy: 0.1,
+          },
+        ],
+        loadLedgerEvents: async () => ledgerEvents,
+        loadPortfolioSnapshots: async () => [portfolioSnapshot],
+        loadPositions: async () => [position],
+        loadSnapshot: async () => null,
+        now: () => NOW,
+        saveSnapshot: async () => undefined,
+      }
+    );
+
+    expect(result.freshness).toBe("fresh");
+    expect(result.principalMatchesHistory).toBe(true);
+    expect(result.ranges["7D"].bars.at(-1)?.label).toBe("Aug 11");
   });
 
   test("history revision changes when one source exposure changes", () => {
