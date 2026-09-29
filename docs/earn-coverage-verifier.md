@@ -35,8 +35,11 @@ op run --env-file=.env.1password -- sh -c 'cd apps/web && bun --conditions=react
 ```
 
 `--wallet <address>` or `--position-id <id>` restricts the audit to one user's
-active scopes. Fleet discovery is paginated in groups of 100 and deduplicates
-wallet/settings/vault scopes. At most two scopes run concurrently. Results mask
+active scopes. Fleet discovery captures all distinct wallet/settings/vault scopes
+in one query, then checks membership again after each pass and includes newly active
+scopes before finishing. Each read has its own observation timestamp. The final
+report counts every scope still active and includes a hash of that membership set;
+previously active scopes remain in the detailed log. At most two scopes run concurrently. Results mask
 wallet addresses and distinguish fresh coverage, actual APY coverage gaps,
 principal/deposit-history mismatches, and dependency failures. A scope without
 fresh verified coverage makes the verifier exit nonzero; never treat a partial

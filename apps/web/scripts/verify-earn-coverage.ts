@@ -1,5 +1,7 @@
 #!/usr/bin/env -S bun --conditions=react-server
 
+import { createHash } from "node:crypto";
+
 import { and, asc, eq } from "drizzle-orm";
 
 import {
@@ -181,10 +183,13 @@ async function auditScope(
   input: Parameters<typeof readEarnEarningsRangeSet>[0],
   dependencies: ReturnType<typeof createEarnEarningsReadDependencies>
 ) {
+  const observedAt = dependencies.now();
+  const scopedDependencies = { ...dependencies, now: () => observedAt };
   try {
-    const payload = await readEarnEarningsRangeSet(input, dependencies);
+    const payload = await readEarnEarningsRangeSet(input, scopedDependencies);
     return {
       status: payload.freshness === "fresh" ? "fresh" : "stale",
+      observedAt: observedAt.toISOString(),
       evidence: {
         coverage: payload.coverage,
         outcome: payload.outcome,
@@ -194,6 +199,7 @@ async function auditScope(
   } catch (error) {
     if (error instanceof EarnEarningsUnavailableError) {
       return {
+        observedAt: observedAt.toISOString(),
         status:
           error.detailCode === "earnings_unavailable"
             ? "dependency_failure"
@@ -201,7 +207,11 @@ async function auditScope(
         evidence: error.coverage,
       };
     }
-    return { status: "dependency_failure", evidence: null };
+    return {
+      status: "dependency_failure",
+      observedAt: observedAt.toISOString(),
+      evidence: null,
+    };
   }
 }
 
@@ -227,13 +237,21 @@ async function verifyFleet() {
     }
     wallet = position.walletAddress;
   }
-  const seen = new Set<string>();
-  const counts: Record<string, number> = {};
-  const now = new Date();
+  const results = new Map<string, Awaited<ReturnType<typeof auditScope>>>();
+  const startedAt = new Date();
   const dependencies = createEarnEarningsReadDependencies(true);
-  dependencies.now = () => now;
-  for (let offset = 0; ; offset += 100) {
-    const scopes = await client.db
+  const scopeId = (scope: {
+    walletAddress: string;
+    settings: string;
+    vaultIndex: number;
+  }) =>
+    createHash("sha256")
+      .update(
+        `${cluster}:${scope.walletAddress}:${scope.settings}:${scope.vaultIndex}`
+      )
+      .digest("hex");
+  const discoverScopes = () =>
+    client.db
       .selectDistinct({
         walletAddress: userYieldPositions.walletAddress,
         settings: userYieldPositions.settings,
@@ -251,49 +269,67 @@ async function verifyFleet() {
         asc(userYieldPositions.walletAddress),
         asc(userYieldPositions.settings),
         asc(userYieldPositions.vaultIndex)
-      )
-      .limit(100)
-      .offset(offset);
-    if (scopes.length === 0) {
+      );
+  let scopes = await discoverScopes();
+  if (scopes.length === 0) {
+    throw new Error("No active Earn scopes matched the audit.");
+  }
+  const initialActiveScopeCount = scopes.length;
+  while (true) {
+    const pending = scopes.filter((scope) => !results.has(scopeId(scope)));
+    if (pending.length === 0) {
       break;
     }
-    for (let index = 0; index < scopes.length; index += 2) {
+    for (let index = 0; index < pending.length; index += 2) {
       await Promise.all(
-        scopes.slice(index, index + 2).map(async (scope) => {
-          const key = `${scope.walletAddress}:${scope.settings}:${scope.vaultIndex}`;
-          if (seen.has(key)) {
-            return;
-          }
-          seen.add(key);
+        pending.slice(index, index + 2).map(async (scope) => {
+          const key = scopeId(scope);
           const input = { ...scope, cluster, timezone: "UTC" };
-          const { status, evidence } = await auditScope(input, dependencies);
-          counts[status] = (counts[status] ?? 0) + 1;
+          const result = await auditScope(input, dependencies);
+          results.set(key, result);
           console.log(
             JSON.stringify({
+              scopeId: key,
               walletScope: `${scope.walletAddress.slice(0, 4)}…${scope.walletAddress.slice(-4)}`,
-              status,
-              evidence,
-              completed: seen.size,
+              ...result,
+              completed: results.size,
             })
           );
         })
       );
     }
+    // Refresh membership after each complete pass so an offset shift or a
+    // newly activated scope cannot silently disappear from the final audit.
+    scopes = await discoverScopes();
   }
-  if (seen.size === 0) {
-    throw new Error("No active Earn scopes matched the audit.");
+  const counts: Record<string, number> = {};
+  for (const scope of scopes) {
+    const result = results.get(scopeId(scope));
+    if (!result) {
+      throw new Error("Active scope is missing a verification result.");
+    }
+    counts[result.status] = (counts[result.status] ?? 0) + 1;
   }
+  const passed = (counts.fresh ?? 0) === scopes.length;
   console.log(
     JSON.stringify({
-      overall: counts.fresh === seen.size ? "PASS" : "FAIL",
+      overall: passed ? "PASS" : "FAIL",
       readOnly: true,
       cluster,
-      observedAt: now.toISOString(),
-      checked: seen.size,
+      startedAt: startedAt.toISOString(),
+      completedAt: new Date().toISOString(),
+      initialActiveScopeCount,
+      activeScopeCount: scopes.length,
+      checked: results.size,
+      activeScopesChecked: scopes.length,
+      uncoveredActiveScopes: 0,
+      activeScopeSetHash: createHash("sha256")
+        .update(scopes.map(scopeId).sort().join("\n"))
+        .digest("hex"),
       counts,
     })
   );
-  if (counts.fresh !== seen.size) {
+  if (!passed) {
     process.exitCode = 1;
   }
 }
