@@ -2981,19 +2981,23 @@ export async function findCompleteYieldVaultExposureSnapshots(
   if (!vault) {
     return [];
   }
-  const snapshots = (
-    await dependencies.client.db
-      .select()
-      .from(vaultPositionSnapshots)
-      .where(eq(vaultPositionSnapshots.vaultId, vault.id))
-      .orderBy(
-        asc(vaultPositionSnapshots.observedSlot),
-        asc(vaultPositionSnapshots.id)
+  const snapshots = await dependencies.client.db
+    .select({
+      id: vaultPositionSnapshots.id,
+      observedAt: vaultPositionSnapshots.observedAt,
+      observedSlot: vaultPositionSnapshots.observedSlot,
+    })
+    .from(vaultPositionSnapshots)
+    .where(
+      and(
+        eq(vaultPositionSnapshots.vaultId, vault.id),
+        sql`${vaultPositionSnapshots.context}->>'publication_scope' = 'complete_product_vault'`
       )
-  ).filter(
-    (snapshot) =>
-      snapshot.context?.publication_scope === "complete_product_vault"
-  );
+    )
+    .orderBy(
+      asc(vaultPositionSnapshots.observedSlot),
+      asc(vaultPositionSnapshots.id)
+    );
   if (snapshots.length === 0) {
     return [];
   }
@@ -3018,6 +3022,7 @@ export async function findCompleteYieldVaultExposureSnapshots(
     .where(
       and(
         eq(vaultPositionSnapshots.vaultId, vault.id),
+        sql`${vaultPositionSnapshots.context}->>'publication_scope' = 'complete_product_vault'`,
         eq(vaultPositionSnapshotPositions.hasValue, true)
       )
     );
