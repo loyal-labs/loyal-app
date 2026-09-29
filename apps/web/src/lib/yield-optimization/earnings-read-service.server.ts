@@ -15,6 +15,7 @@ import {
   calculateEarnEarnings,
   EARNINGS_RANGE_IDS,
   normalizeEarningsTimezone,
+  PRINCIPAL_CLAMPS,
   principalAt,
   type ReserveApySample,
   type YieldPortfolioSnapshot,
@@ -844,15 +845,25 @@ export async function readEarnEarningsRangeSet(
       return createEmptyEarnEarningsRangeSet({ now, timezone });
     }
 
-    const projectedPrincipal = principalAt(effectiveLedgerEvents, now);
     // Compare totals, not per-mint: a position is keyed by its initial mint,
-    // but top-ups in other stablecoins add to that same principal, so its
-    // per-mint split never matches the ledger's once a second mint is used.
+    // but top-ups in other stablecoins may add to that same principal. Accept
+    // whichever clamp model reproduces the stored total, and use it for the
+    // chart too so display and verification agree.
     const storedPrincipal = positions.reduce(
       (sum, position) => sum + position.principalAmountRaw,
       BigInt(0)
     );
-    const principalMatchesHistory = projectedPrincipal === storedPrincipal;
+    const matchedPrincipalClamp = PRINCIPAL_CLAMPS.find(
+      (clamp) =>
+        principalAt(effectiveLedgerEvents, now, clamp) === storedPrincipal
+    );
+    const principalMatchesHistory = matchedPrincipalClamp !== undefined;
+    const principalClamp = matchedPrincipalClamp ?? "total";
+    const projectedPrincipal = principalAt(
+      effectiveLedgerEvents,
+      now,
+      principalClamp
+    );
     const pathEvents: YieldPositionPathEvent[] = [];
     const historyRevision = getPortfolioEarningsHistoryRevision({
       events: effectiveLedgerEvents,
@@ -926,6 +937,7 @@ export async function readEarnEarningsRangeSet(
           now,
           pathEvents,
           portfolioSnapshots,
+          principalClamp,
           range,
           timezone,
         }),

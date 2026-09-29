@@ -496,49 +496,73 @@ function deriveApyBps(args: {
   );
 }
 
-// Principal is one running total across mints, clamped at zero, mirroring how
-// the position store records it: top-ups in any mint add to the same total,
-// and a withdrawal (which includes earned yield) subtracts from it. Clamping
-// per mint instead overstates principal once a withdrawal takes more of a
-// mint than was deposited in that mint.
+// Withdrawals include earned yield, so they can take out more of a mint than
+// was deposited in it; how that is clamped at zero depends on how the store
+// recorded the principal:
+// - "total": top-ups in any mint added to one aggregate position, so the
+//   store keeps one running total clamped at zero.
+// - "per-mint": a top-up in a new mint opened its own position, so each mint
+//   is clamped at zero separately.
+// The ledger does not record which position an event hit, so the read service
+// picks whichever clamp reproduces the stored principal.
+export const PRINCIPAL_CLAMPS = ["total", "per-mint"] as const;
+export type PrincipalClamp = (typeof PRINCIPAL_CLAMPS)[number];
+
 type PrincipalIndex = {
   totals: bigint[];
   times: number[];
 };
 
-const principalIndexCache = new WeakMap<
-  readonly YieldPositionEvent[],
-  PrincipalIndex
->();
+const principalIndexCaches: Record<
+  PrincipalClamp,
+  WeakMap<readonly YieldPositionEvent[], PrincipalIndex>
+> = { "per-mint": new WeakMap(), total: new WeakMap() };
+
+function clampedSubtract(current: bigint, amount: bigint): bigint {
+  return current > amount ? current - amount : BigInt(0);
+}
 
 function getPrincipalIndex(
-  events: readonly YieldPositionEvent[]
+  events: readonly YieldPositionEvent[],
+  clamp: PrincipalClamp
 ): PrincipalIndex {
-  const cached = principalIndexCache.get(events);
+  const cache = principalIndexCaches[clamp];
+  const cached = cache.get(events);
   if (cached) {
     return cached;
   }
   const index: PrincipalIndex = { times: [], totals: [] };
-  let running = BigInt(0);
+  const byMint = new Map<string, bigint>();
+  let total = BigInt(0);
   for (const event of events) {
-    if (event.type === "deposit") {
-      running += event.amountRaw;
+    if (clamp === "total") {
+      total =
+        event.type === "deposit"
+          ? total + event.amountRaw
+          : clampedSubtract(total, event.amountRaw);
     } else {
-      running =
-        running > event.amountRaw ? running - event.amountRaw : BigInt(0);
+      const mint = event.liquidityMint ?? "";
+      const current = byMint.get(mint) ?? BigInt(0);
+      const next =
+        event.type === "deposit"
+          ? current + event.amountRaw
+          : clampedSubtract(current, event.amountRaw);
+      byMint.set(mint, next);
+      total += next - current;
     }
-    index.totals.push(running);
+    index.totals.push(total);
     index.times.push(event.confirmedAt.getTime());
   }
-  principalIndexCache.set(events, index);
+  cache.set(events, index);
   return index;
 }
 
 export function principalAt(
   events: readonly YieldPositionEvent[],
-  at: Date
+  at: Date,
+  clamp: PrincipalClamp = "total"
 ): bigint {
-  const index = getPrincipalIndex(events);
+  const index = getPrincipalIndex(events, clamp);
   const found = lastIndexAtOrBefore(index.times, at.getTime());
   return found === -1 ? BigInt(0) : index.totals[found];
 }
@@ -592,13 +616,18 @@ function calculatePortfolioWindow(args: {
   apySamples: readonly ReserveApySample[];
   endAt: Date;
   events: readonly YieldPositionEvent[];
+  principalClamp: PrincipalClamp;
   snapshots: readonly YieldPortfolioSnapshot[];
   startAt: Date;
 }) {
   const startMs = args.startAt.getTime();
   const endMs = args.endAt.getTime();
   if (endMs <= startMs) {
-    const principalAmountRaw = principalAt(args.events, args.endAt);
+    const principalAmountRaw = principalAt(
+      args.events,
+      args.endAt,
+      args.principalClamp
+    );
     return { avgPrincipalUsd: 0, earnedUsd: 0, principalAmountRaw };
   }
   const changeTimes = new Set<number>([startMs, endMs]);
@@ -627,7 +656,11 @@ function calculatePortfolioWindow(args: {
   for (let index = 0; index < sortedTimes.length - 1; index += 1) {
     const segmentStart = new Date(sortedTimes[index]);
     const segmentSeconds = (sortedTimes[index + 1] - sortedTimes[index]) / 1000;
-    const principalRaw = principalAt(args.events, segmentStart);
+    const principalRaw = principalAt(
+      args.events,
+      segmentStart,
+      args.principalClamp
+    );
     principalSeconds += rawToUsd(principalRaw) * segmentSeconds;
     const snapshot = getPortfolioSnapshotAt(args.snapshots, segmentStart);
     for (const exposure of snapshot?.exposures ?? []) {
@@ -650,7 +683,11 @@ function calculatePortfolioWindow(args: {
   return {
     avgPrincipalUsd: bucketSeconds > 0 ? principalSeconds / bucketSeconds : 0,
     earnedUsd,
-    principalAmountRaw: principalAt(args.events, args.endAt),
+    principalAmountRaw: principalAt(
+      args.events,
+      args.endAt,
+      args.principalClamp
+    ),
   };
 }
 
@@ -660,9 +697,11 @@ export function calculateEarnEarnings(args: {
   now: Date;
   pathEvents?: readonly YieldPositionPathEvent[];
   portfolioSnapshots?: readonly YieldPortfolioSnapshot[];
+  principalClamp?: PrincipalClamp;
   range: EarningsRangeId;
   timezone: string;
 }): EarnEarningsResponse {
+  const principalClamp = args.principalClamp ?? "total";
   const events = [...args.events].sort(
     (a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime()
   );
@@ -695,6 +734,7 @@ export function calculateEarnEarnings(args: {
   const bars = buckets.map((bucket) => {
     const result = usePortfolio
       ? calculatePortfolioWindow({
+          principalClamp,
           apySamples,
           endAt: bucket.endAt,
           events,
@@ -730,6 +770,7 @@ export function calculateEarnEarnings(args: {
   const calculateRange = (startAt: Date) =>
     usePortfolio
       ? calculatePortfolioWindow({
+          principalClamp,
           apySamples,
           endAt: args.now,
           events,
@@ -747,7 +788,7 @@ export function calculateEarnEarnings(args: {
   const today = calculateRange(startOfLocalDay(args.now, args.timezone));
   const currentPathState = getPathStateAt(pathEvents, args.now);
   const principalAmountRaw = usePortfolio
-    ? principalAt(events, args.now)
+    ? principalAt(events, args.now, principalClamp)
     : currentPathState?.principalAmountRaw ?? BigInt(0);
   const currentApy = usePortfolio
     ? portfolioApyAt({

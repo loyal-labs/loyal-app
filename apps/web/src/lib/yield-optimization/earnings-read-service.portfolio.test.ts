@@ -59,16 +59,23 @@ function ledgerEvent(
 
 function readMultiMintEarnings(args: {
   ledgerEvents: ReturnType<typeof ledgerEvent>[];
-  storedPrincipalRaw: number;
+  storedPositions: { initialLiquidityMint: string; principalRaw: number }[];
 }) {
-  const position = {
-    initialLiquidityMint: "USDC",
-    principalAmountRaw: BigInt(args.storedPrincipalRaw),
-  } as UserYieldPositionRecord;
+  const positions = args.storedPositions.map(
+    (stored) =>
+      ({
+        initialLiquidityMint: stored.initialLiquidityMint,
+        principalAmountRaw: BigInt(stored.principalRaw),
+      } as UserYieldPositionRecord)
+  );
+  const storedTotalRaw = positions.reduce(
+    (sum, position) => sum + position.principalAmountRaw,
+    BigInt(0)
+  );
   const portfolioSnapshot: YieldPortfolioSnapshot = {
     exposures: [
       {
-        amountRaw: BigInt(args.storedPrincipalRaw),
+        amountRaw: storedTotalRaw,
         kind: "kamino",
         liquidityMint: "USDC",
         reserve: "reserve-a",
@@ -103,7 +110,7 @@ function readMultiMintEarnings(args: {
       ],
       loadLedgerEvents: async () => args.ledgerEvents,
       loadPortfolioSnapshots: async () => [portfolioSnapshot],
-      loadPositions: async () => [position],
+      loadPositions: async () => positions,
       loadSnapshot: async () => null,
       now: () => NOW,
       saveSnapshot: async () => undefined,
@@ -203,7 +210,9 @@ describe("portfolio earnings verification", () => {
           "2026-08-10T10:31:00.000Z"
         ),
       ],
-      storedPrincipalRaw: 1_000_001,
+      storedPositions: [
+        { initialLiquidityMint: "USDC", principalRaw: 1_000_001 },
+      ],
     });
 
     expect(result.freshness).toBe("fresh");
@@ -237,12 +246,40 @@ describe("portfolio earnings verification", () => {
           "2026-08-10T10:00:00.000Z"
         ),
       ],
-      storedPrincipalRaw: 994_490_000,
+      storedPositions: [
+        { initialLiquidityMint: "USDC", principalRaw: 994_490_000 },
+      ],
     });
 
     expect(result.freshness).toBe("fresh");
     expect(result.sourcePrincipalAmountRaw).toBe("994490000");
     expect(result.ranges["30D"].principalAmountRaw).toBe("994490000");
+  });
+
+  test("accepts separate positions per mint that each clamp their own withdrawals", async () => {
+    // A top-up in a mint with no active position of its own opens a second
+    // position. Each position clamps its withdrawals at zero, so withdrawing
+    // USDT yield past the USDT principal leaves USDC untouched.
+    const result = await readMultiMintEarnings({
+      ledgerEvents: [
+        ledgerEvent("deposit", "USDC", 100_000_000, "2026-08-01T10:00:00.000Z"),
+        ledgerEvent("deposit", "USDT", 100_000_000, "2026-08-01T11:00:00.000Z"),
+        ledgerEvent(
+          "withdrawal",
+          "USDT",
+          105_000_000,
+          "2026-08-10T10:00:00.000Z"
+        ),
+      ],
+      storedPositions: [
+        { initialLiquidityMint: "USDC", principalRaw: 100_000_000 },
+        { initialLiquidityMint: "USDT", principalRaw: 0 },
+      ],
+    });
+
+    expect(result.freshness).toBe("fresh");
+    expect(result.sourcePrincipalAmountRaw).toBe("100000000");
+    expect(result.ranges["30D"].principalAmountRaw).toBe("100000000");
   });
 
   test("rejects ledger history whose total differs from the stored principal", async () => {
@@ -251,7 +288,9 @@ describe("portfolio earnings verification", () => {
         ledgerEvents: [
           ledgerEvent("deposit", "USDC", 1_000_000, "2026-08-10T10:00:00.000Z"),
         ],
-        storedPrincipalRaw: 2_000_000,
+        storedPositions: [
+          { initialLiquidityMint: "USDC", principalRaw: 2_000_000 },
+        ],
       })
     ).rejects.toMatchObject({ detailCode: "principal_history_mismatch" });
   });
