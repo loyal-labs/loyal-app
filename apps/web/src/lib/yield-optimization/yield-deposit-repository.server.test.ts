@@ -1040,17 +1040,16 @@ describe("earnings ledger lifecycle projection", () => {
     ).toBe(BigInt(1_856_990_000));
     // An ambiguous duplicate source link must not assert a reset.
     holdings.push({ ...holdings[2], id: BigInt(13) });
-    const incomplete = await findYieldPositionEvents(
-      {
-        cluster: "mainnet-beta",
-        settings: "settings",
-        vaultIndex: 1,
-        walletAddress: "wallet",
-      },
-      { client } as never
-    );
-    expect(() => principalAt(incomplete, at, "position")).toThrow(
-      "principal_history_position_incomplete"
-    );
+    await expect(
+      findYieldPositionEvents(
+        {
+          cluster: "mainnet-beta",
+          settings: "settings",
+          vaultIndex: 1,
+          walletAddress: "wallet",
+        },
+        { client } as never
+      )
+    ).rejects.toThrow("principal_history_position_ambiguous");
   });
 });

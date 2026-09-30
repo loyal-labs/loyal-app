@@ -12,6 +12,7 @@ import { PublicKey } from "@solana/web3.js";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 
 import {
+  EarningsPrincipalHistoryError,
   sortEarningsEvents,
   type YieldPositionEvent,
 } from "./earnings-calculator.server";
@@ -3865,8 +3866,13 @@ export async function findYieldPositionEvents(
     matches: typeof holdings | undefined,
     type: "deposit" | "withdrawal"
   ) => {
-    // Duplicate/missing links cannot establish a lifecycle or an accounting order.
-    if (matches?.length !== 1) return {};
+    // Missing links may be legacy data; duplicate links are contradictory evidence.
+    if (!matches) return {};
+    if (matches.length !== 1) {
+      throw new EarningsPrincipalHistoryError(
+        "principal_history_position_ambiguous"
+      );
+    }
     const holding = matches[0];
     const isDeposit =
       holding.eventType === "deposit_initialized" ||
@@ -3874,7 +3880,14 @@ export async function findYieldPositionEvents(
     const isWithdrawal =
       holding.eventType === "withdrawal_full" ||
       holding.eventType === "withdrawal_partial";
-    if (type === "deposit" ? !isDeposit : !isWithdrawal) return {};
+    if (
+      (type === "deposit" ? !isDeposit : !isWithdrawal) ||
+      (holding.sourceDepositId !== null && holding.sourceWithdrawalId !== null)
+    ) {
+      throw new EarningsPrincipalHistoryError(
+        "principal_history_position_ambiguous"
+      );
+    }
     return {
       holdingEventId: holding.id,
       positionId: holding.positionId,
