@@ -5,7 +5,12 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { serverEnv } from "@/lib/core/config/server";
 import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.server";
 
-import { earnedSinceEmpty, type LpFlow, realizedApy } from "./earn-max-math";
+import {
+  apyHistory,
+  earnedSinceEmpty,
+  type LpFlow,
+  realizedApy,
+} from "./earn-max-math";
 
 const DEFAULT_MAINNET_RPC_URL = "https://api.mainnet-beta.solana.com";
 const SQUADS_VAULT = "ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh";
@@ -426,7 +431,11 @@ async function loadRealizedApy() {
     return typeof day === "string" && t && l ? [{ day, price: t / l }] : [];
   });
 
-  return realizedApy(daily, price / 1000, Date.now());
+  const now = Date.now();
+  const realized = realizedApy(daily, price / 1000, now);
+  return (
+    realized && { ...realized, history: apyHistory(daily, price / 1000, now) }
+  );
 }
 
 // Confirmed transactions never change; the earned figure is reused for 10
