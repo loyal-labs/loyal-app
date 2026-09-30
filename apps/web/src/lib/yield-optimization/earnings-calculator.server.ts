@@ -11,9 +11,54 @@ export { EARNINGS_RANGE_IDS };
 export type YieldPositionEvent = {
   amountRaw: bigint;
   confirmedAt: Date;
+  confirmedSlot?: bigint;
+  holdingEventId?: bigint;
+  positionId?: bigint;
+  initializesPosition?: boolean;
   liquidityMint?: string;
   type: "deposit" | "withdrawal";
 };
+
+export class EarningsPrincipalHistoryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EarningsPrincipalHistoryError";
+  }
+}
+
+// Timestamps define chart boundaries; slots and the shared holding ledger order
+// accounting transitions inside a boundary. Separate deposit/withdrawal IDs are
+// not comparable. Missing ordering evidence must not choose a money path.
+export function sortEarningsEvents(events: readonly YieldPositionEvent[]) {
+  return [...events].sort((left, right) => {
+    const timeDelta = left.confirmedAt.getTime() - right.confirmedAt.getTime();
+    if (timeDelta !== 0) return timeDelta;
+    if (
+      left.confirmedSlot !== undefined &&
+      right.confirmedSlot !== undefined &&
+      left.confirmedSlot !== right.confirmedSlot
+    ) {
+      return left.confirmedSlot < right.confirmedSlot ? -1 : 1;
+    }
+    if (
+      left.holdingEventId !== undefined &&
+      right.holdingEventId !== undefined &&
+      left.holdingEventId !== right.holdingEventId
+    ) {
+      return left.holdingEventId < right.holdingEventId ? -1 : 1;
+    }
+    // Plain deposits commute, as do withdrawals with no lifecycle reset.
+    if (
+      left.type === right.type &&
+      !left.initializesPosition &&
+      !right.initializesPosition
+    )
+      return 0;
+    throw new EarningsPrincipalHistoryError(
+      "principal_history_order_ambiguous"
+    );
+  });
+}
 
 export type YieldPortfolioExposure = {
   amountRaw: bigint;
@@ -496,57 +541,102 @@ function deriveApyBps(args: {
   );
 }
 
+// Withdrawals include earned yield, so they can take out more of a mint than
+// was deposited in it; how that is clamped at zero depends on how the store
+// recorded the principal:
+// - "total": top-ups in any mint added to one aggregate position, so the
+//   store keeps one running total clamped at zero.
+// - "per-mint": a top-up in a new mint opened its own position, so each mint
+//   is clamped at zero separately.
+// The ledger does not record which position an event hit, so the read service
+// picks whichever clamp reproduces the stored principal.
+export const PRINCIPAL_CLAMPS = ["total", "per-mint"] as const;
+export type PrincipalClamp = (typeof PRINCIPAL_CLAMPS)[number] | "position";
+
 type PrincipalIndex = {
-  prefixes: Map<string, bigint>[];
+  totals: bigint[];
   times: number[];
 };
 
-const principalIndexCache = new WeakMap<
-  readonly YieldPositionEvent[],
-  PrincipalIndex
->();
+const principalIndexCaches: Record<
+  PrincipalClamp,
+  WeakMap<readonly YieldPositionEvent[], PrincipalIndex>
+> = {
+  "per-mint": new WeakMap(),
+  total: new WeakMap(),
+  position: new WeakMap(),
+};
+
+function clampedSubtract(current: bigint, amount: bigint): bigint {
+  return current > amount ? current - amount : BigInt(0);
+}
 
 function getPrincipalIndex(
-  events: readonly YieldPositionEvent[]
+  events: readonly YieldPositionEvent[],
+  clamp: PrincipalClamp
 ): PrincipalIndex {
-  const cached = principalIndexCache.get(events);
+  const cache = principalIndexCaches[clamp];
+  const cached = cache.get(events);
   if (cached) {
     return cached;
   }
-  const index: PrincipalIndex = { prefixes: [], times: [] };
-  const running = new Map<string, bigint>();
-  for (const event of events) {
-    const mint = event.liquidityMint ?? "";
-    const current = running.get(mint) ?? BigInt(0);
-    running.set(
-      mint,
-      event.type === "deposit"
-        ? current + event.amountRaw
-        : current > event.amountRaw
-        ? current - event.amountRaw
-        : BigInt(0)
-    );
-    index.prefixes.push(new Map(running));
+  const index: PrincipalIndex = { times: [], totals: [] };
+  const byMint = new Map<string, bigint>();
+  let total = BigInt(0);
+  for (const event of sortEarningsEvents(events)) {
+    if (clamp === "total") {
+      total =
+        event.type === "deposit"
+          ? total + event.amountRaw
+          : clampedSubtract(total, event.amountRaw);
+    } else {
+      const mint =
+        clamp === "position"
+          ? String(event.positionId)
+          : event.liquidityMint ?? "";
+      if (
+        clamp === "position" &&
+        (event.positionId === undefined ||
+          event.initializesPosition === undefined)
+      ) {
+        throw new EarningsPrincipalHistoryError(
+          "principal_history_position_incomplete"
+        );
+      }
+      if (
+        clamp === "position" &&
+        !byMint.has(mint) &&
+        (event.type !== "deposit" || !event.initializesPosition)
+      ) {
+        throw new EarningsPrincipalHistoryError(
+          "principal_history_position_incomplete"
+        );
+      }
+      const current = byMint.get(mint) ?? BigInt(0);
+      const next =
+        event.type === "deposit"
+          ? (clamp === "position" && event.initializesPosition
+              ? BigInt(0)
+              : current) + event.amountRaw
+          : clampedSubtract(current, event.amountRaw);
+      byMint.set(mint, next);
+      total += next - current;
+    }
+    index.totals.push(total);
     index.times.push(event.confirmedAt.getTime());
   }
-  principalIndexCache.set(events, index);
+  cache.set(events, index);
   return index;
 }
 
-export function principalByMintAt(
+export function principalAt(
   events: readonly YieldPositionEvent[],
-  at: Date
-): Map<string, bigint> {
-  const index = getPrincipalIndex(events);
+  at: Date,
+  clamp: PrincipalClamp = "total"
+): bigint {
+  const index = getPrincipalIndex(events, clamp);
   const found = lastIndexAtOrBefore(index.times, at.getTime());
-  return found === -1 ? new Map() : new Map(index.prefixes[found]);
-}
-
-function sumPrincipal(principal: ReadonlyMap<string, bigint>): bigint {
-  return [...principal.values()].reduce(
-    (sum, amount) => sum + amount,
-    BigInt(0)
-  );
+  return found === -1 ? BigInt(0) : index.totals[found];
 }
 
 const snapshotTimesCache = new WeakMap<
@@ -598,14 +688,17 @@ function calculatePortfolioWindow(args: {
   apySamples: readonly ReserveApySample[];
   endAt: Date;
   events: readonly YieldPositionEvent[];
+  principalClamp: PrincipalClamp;
   snapshots: readonly YieldPortfolioSnapshot[];
   startAt: Date;
 }) {
   const startMs = args.startAt.getTime();
   const endMs = args.endAt.getTime();
   if (endMs <= startMs) {
-    const principalAmountRaw = sumPrincipal(
-      principalByMintAt(args.events, args.endAt)
+    const principalAmountRaw = principalAt(
+      args.events,
+      args.endAt,
+      args.principalClamp
     );
     return { avgPrincipalUsd: 0, earnedUsd: 0, principalAmountRaw };
   }
@@ -635,8 +728,10 @@ function calculatePortfolioWindow(args: {
   for (let index = 0; index < sortedTimes.length - 1; index += 1) {
     const segmentStart = new Date(sortedTimes[index]);
     const segmentSeconds = (sortedTimes[index + 1] - sortedTimes[index]) / 1000;
-    const principalRaw = sumPrincipal(
-      principalByMintAt(args.events, segmentStart)
+    const principalRaw = principalAt(
+      args.events,
+      segmentStart,
+      args.principalClamp
     );
     principalSeconds += rawToUsd(principalRaw) * segmentSeconds;
     const snapshot = getPortfolioSnapshotAt(args.snapshots, segmentStart);
@@ -660,8 +755,10 @@ function calculatePortfolioWindow(args: {
   return {
     avgPrincipalUsd: bucketSeconds > 0 ? principalSeconds / bucketSeconds : 0,
     earnedUsd,
-    principalAmountRaw: sumPrincipal(
-      principalByMintAt(args.events, args.endAt)
+    principalAmountRaw: principalAt(
+      args.events,
+      args.endAt,
+      args.principalClamp
     ),
   };
 }
@@ -672,12 +769,12 @@ export function calculateEarnEarnings(args: {
   now: Date;
   pathEvents?: readonly YieldPositionPathEvent[];
   portfolioSnapshots?: readonly YieldPortfolioSnapshot[];
+  principalClamp?: PrincipalClamp;
   range: EarningsRangeId;
   timezone: string;
 }): EarnEarningsResponse {
-  const events = [...args.events].sort(
-    (a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime()
-  );
+  const principalClamp = args.principalClamp ?? "total";
+  const events = sortEarningsEvents(args.events);
   const pathEvents = [
     ...(args.pathEvents ?? legacyEventsToPathEvents(events)),
   ].sort((a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime());
@@ -707,6 +804,7 @@ export function calculateEarnEarnings(args: {
   const bars = buckets.map((bucket) => {
     const result = usePortfolio
       ? calculatePortfolioWindow({
+          principalClamp,
           apySamples,
           endAt: bucket.endAt,
           events,
@@ -742,6 +840,7 @@ export function calculateEarnEarnings(args: {
   const calculateRange = (startAt: Date) =>
     usePortfolio
       ? calculatePortfolioWindow({
+          principalClamp,
           apySamples,
           endAt: args.now,
           events,
@@ -759,7 +858,7 @@ export function calculateEarnEarnings(args: {
   const today = calculateRange(startOfLocalDay(args.now, args.timezone));
   const currentPathState = getPathStateAt(pathEvents, args.now);
   const principalAmountRaw = usePortfolio
-    ? sumPrincipal(principalByMintAt(events, args.now))
+    ? principalAt(events, args.now, principalClamp)
     : currentPathState?.principalAmountRaw ?? BigInt(0);
   const currentApy = usePortfolio
     ? portfolioApyAt({
