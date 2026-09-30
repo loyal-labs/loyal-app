@@ -1,0 +1,95 @@
+name: hetzner-observability-images
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/hetzner-clickstack-20260929
+    paths:
+      - .github/workflows/hetzner-observability-images.yml
+      - observability/**
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: hetzner-observability-images-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: clickstack
+            context: observability
+          - image: telegram-relay
+            context: observability/telegram-relay
+    steps:
+      - name: Check out exact publication source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare image name and bounded ClickStack context
+        id: source
+        env:
+          REPOSITORY: ${{ github.repository }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          echo "image=ghcr.io/${REPOSITORY,,}/${IMAGE}" >> "$GITHUB_OUTPUT"
+          if [ "$IMAGE" = clickstack ]; then
+            # Dockerfile-specific ignore overrides the older context allowlist.
+            # Only tracked COPY inputs enter the build; rehearsal evidence stays out.
+            printf '%s\n' '*' '!Dockerfile' '!nginx.conf' '!scripts/' \
+              '!scripts/entrypoint.sh' '!scripts/smoke-live.sh' \
+              '!scripts/ingestion-check.cjs' '!scripts/database-processes.cjs' \
+              > observability/Dockerfile.dockerignore
+          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish commit image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.source.outputs.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          provenance: mode=max
+      - name: Export publication digest
+        env:
+          IMAGE: ${{ steps.source.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_NAME: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p publication
+          jq -n --arg image "$IMAGE" --arg digest "$DIGEST" \
+            --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            '{image: $image, digest: $digest, reference: ($image + "@" + $digest),
+              tag: ("sha-" + $commit), revision: $commit, platform: "linux/amd64",
+              run_id: $run}' > "publication/${IMAGE_NAME}.json"
+      - name: Retain immutable reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: hetzner-observability-${{ matrix.image }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: publication/*.json
+          if-no-files-found: error
+          retention-days: 30
