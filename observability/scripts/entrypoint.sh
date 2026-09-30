@@ -3,19 +3,19 @@ set -eu
 
 PORT="${PORT:-8080}"
 if [ "$PORT" != "8080" ]; then
-  echo "ClickStack expects Render PORT=8080; received PORT=$PORT" >&2
+  echo "ClickStack expects PORT=8080; received PORT=$PORT" >&2
   exit 64
 fi
 
 : "${EXPRESS_SESSION_SECRET:?EXPRESS_SESSION_SECRET is required}"
 : "${INGESTION_API_KEY:?INGESTION_API_KEY is required}"
 
-configure_render_frontend_url() {
-  [ "${RENDER:-}" = "true" ] || return 0
+configure_frontend_url() {
+  [ "${CLICKSTACK_HOSTED:-false}" = "true" ] || [ "${RENDER:-}" = "true" ] || [ -n "${FRONTEND_URL:-}" ] || return 0
 
   candidate="${FRONTEND_URL:-${RENDER_EXTERNAL_URL:-}}"
   if [ -z "$candidate" ]; then
-    echo "Render must provide FRONTEND_URL or RENDER_EXTERNAL_URL" >&2
+    echo "Hosted ClickStack requires FRONTEND_URL (Render may supply RENDER_EXTERNAL_URL)" >&2
     exit 66
   fi
 
@@ -54,10 +54,10 @@ configure_render_frontend_url() {
   }
 
   export FRONTEND_URL="$canonical_url"
-  echo "Configured ClickStack external frontend origin from Render"
+  echo "Configured ClickStack external frontend origin"
 }
 
-configure_render_frontend_url
+configure_frontend_url
 
 # HyperDX derives its fallback origin from the internal application port. The
 # public local origin is nginx on PORT, so make that boundary explicit too.
@@ -125,6 +125,16 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+# tini forwards TERM to all children, but the upstream shell exits as soon as
+# one child exits. Keep PID 1 alive until both durable stores finish flushing.
+shutdown() {
+  trap '' TERM INT
+  node /usr/local/lib/loyal-clickstack-database-processes.cjs --wait
+  status=$?
+  exit "$status"
+}
+trap shutdown TERM INT
 
 # tini -g forwards SIGTERM to this shell's entire process group, including all
 # services started by the upstream script and nginx, so databases can flush.

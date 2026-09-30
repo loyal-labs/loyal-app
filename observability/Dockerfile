@@ -3,7 +3,7 @@ FROM docker.io/clickhouse/clickstack-all-in-one:2.31.0@sha256:b01cc48cb5aaf30d63
 # The upstream authenticated image hardcodes a public session secret. Replace
 # that assignment with a runtime requirement and use tini to forward Render's
 # shutdown signal to every process in the all-in-one container.
-RUN apk add --no-cache nginx=1.30.4-r0 tini=0.19.0-r3 \
+RUN apk add --no-cache nginx=1.30.4-r1 tini=0.19.0-r3 \
   && sed -i 's|^export EXPRESS_SESSION_SECRET=.*$|: "${EXPRESS_SESSION_SECRET:?EXPRESS_SESSION_SECRET is required}"\nexport EXPRESS_SESSION_SECRET|' /etc/local/entry.base.sh \
   && sed -i 's|^export CLICKHOUSE_LOG_LEVEL="error"$|export CLICKHOUSE_LOG_LEVEL="fatal"|' /etc/local/entry.base.sh \
   && sed -i 's|<level from_env="CLICKHOUSE_LOG_LEVEL" />|<level>fatal</level>|' /etc/clickhouse-server/config.xml \
@@ -14,8 +14,11 @@ RUN apk add --no-cache nginx=1.30.4-r0 tini=0.19.0-r3 \
   && grep -q '<level>fatal</level>' /etc/clickhouse-server/config.xml \
   && ! grep -Eq '^export EXPRESS_SESSION_SECRET=.|ch-server|mongodb://db:' /etc/local/entry.base.sh
 
-COPY --chmod=755 scripts/entrypoint.sh /usr/local/bin/loyal-clickstack-entrypoint
-COPY --chmod=755 scripts/smoke-live.sh /usr/local/bin/loyal-clickstack-smoke-live
+COPY scripts/entrypoint.sh /usr/local/bin/loyal-clickstack-entrypoint
+COPY scripts/smoke-live.sh /usr/local/bin/loyal-clickstack-smoke-live
+RUN chmod 755 /usr/local/bin/loyal-clickstack-entrypoint /usr/local/bin/loyal-clickstack-smoke-live
+COPY scripts/ingestion-check.cjs /usr/local/lib/loyal-clickstack-ingestion-check.cjs
+COPY scripts/database-processes.cjs /usr/local/lib/loyal-clickstack-database-processes.cjs
 COPY nginx.conf /etc/nginx/nginx.conf
 
 ENV PORT=8080 \

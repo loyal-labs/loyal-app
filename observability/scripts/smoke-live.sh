@@ -34,15 +34,9 @@ report_http_response() {
     "$response_signal" "$response_status" "$response_excerpt" >&2
 }
 
-# otel_logs has a 30-day TTL. A marker older than that is deleted by design, so
-# looking it up would fail every restart. Renew it well before the TTL.
-if [ -s "$marker_file" ] && [ -z "$(find "$marker_file" -mtime +25)" ]; then
-  marker="$(cat "$marker_file")"
-  stage="persisted"
-else
-  marker="loyal-clickstack-render-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-  stage="initial"
-fi
+# Every boot must demonstrate fresh ingestion; restore history is a separate gate.
+marker="loyal-clickstack-smoke-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+stage="initial"
 
 case "$marker" in
   *[!A-Za-z0-9._:-]*) fail "invalid persisted marker" ;;
@@ -224,6 +218,8 @@ if [ "$stage" = "initial" ]; then
   printf '%s\n' "$marker" > "$marker_tmp"
   mv "$marker_tmp" "$marker_file"
 fi
+
+node /usr/local/lib/loyal-clickstack-ingestion-check.cjs
 
 printf 'CLICKSTACK_SMOKE_RESULT {"status":"pass","stage":"%s","marker":"%s","health_status":%s,"auth":{"missing":%s,"wrong":%s,"correct":%s},"accepted":{"logs":%s,"metrics":%s,"traces":%s},"rejections":{"method":%s,"path":%s,"query":%s,"oversized":%s},"cors":false,"count":%s}\n' \
   "$stage" "$marker" "$health_status" "$missing_status" "$wrong_status" "$correct_status" \
