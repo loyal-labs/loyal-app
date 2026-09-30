@@ -173,6 +173,7 @@ export default async function EarnMaxPage() {
         />
       </section>
 
+      <ApyHistory data={data} />
       <LeverageLevels data={data} leverageNow={leverageNow} now={now} />
       <BorrowingRoom data={data} />
       <PositionHistory data={data} />
@@ -782,6 +783,54 @@ function BorrowingRoom({ data }: { data: EarnMaxData }) {
         <p className="text-xs text-muted-foreground">
           From Kamino public reserve metrics. Pool used = borrowed / supplied.
           Above 90% used, Kamino stops new borrows.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ApyHistory({ data }: { data: EarnMaxData }) {
+  const history = data.apy.ok ? data.apy.value?.history ?? [] : [];
+  const chart = (title: string, key: "dayApy" | "sevenDayApy") => (
+    <div className="min-w-0 space-y-1">
+      <Label>{title}</Label>
+      <TimeChart
+        data={history.map((p) => ({
+          at: p.at,
+          value: p[key] === null ? null : p[key] * 100,
+        }))}
+        label={title}
+        unit="pct"
+      />
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription>APY paid to users</CardDescription>
+        <CardTitle className="text-base">
+          Share-price growth after all costs, per day
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!data.apy.ok ? (
+          <Unavailable part={data.apy} what="APY history" />
+        ) : history.length < 2 ? (
+          <p className="text-sm text-muted-foreground">
+            Not enough days of history yet.
+          </p>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2">
+            {chart("7-day APY (the app badge)", "sevenDayApy")}
+            {chart("Daily APY", "dayApy")}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          From the Voltr share price at the end of each UTC day. The 7-day line
+          ends at now; the daily line shows finished days only. This is what
+          depositors actually earned, unlike the APY now figure, which is the
+          forecast for the live position.
         </p>
       </CardContent>
     </Card>

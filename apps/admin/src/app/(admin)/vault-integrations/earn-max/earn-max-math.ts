@@ -87,3 +87,42 @@ export function realizedApy(
     since: new Date(start.time).toISOString().slice(0, 10),
   };
 }
+
+/**
+ * APY users were paid, per UTC day, from the same share prices as the badge:
+ * that day's growth annualized, and the badge's own 7-day figure as of that
+ * day's end. The last point is now (live share price).
+ */
+export function apyHistory(
+  daily: Array<{ day: string; price: number }>,
+  priceNow: number,
+  nowMs: number
+) {
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+  const points = [
+    ...daily
+      .filter((point) => point.day < today && point.price > 0)
+      .map((point) => ({
+        day: point.day,
+        price: point.price,
+        time: Date.parse(`${point.day}T23:59:59Z`),
+      })),
+    { day: today, price: priceNow, time: nowMs },
+  ];
+
+  return points.slice(1).map((point, index) => {
+    const previous = points[index];
+    const years = (point.time - previous.time) / (365 * DAY_MS);
+    return {
+      at: new Date(point.time).toISOString(),
+      // Today is unfinished: a few hours annualized is noise, so no point.
+      dayApy:
+        point.day === today
+          ? null
+          : (point.price / previous.price) ** (1 / years) - 1,
+      sevenDayApy:
+        realizedApy(points.slice(0, index + 1), point.price, point.time)?.apy ??
+        null,
+    };
+  });
+}

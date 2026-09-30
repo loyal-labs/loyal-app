@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { earnedSinceEmpty, loanToValue, realizedApy } from "./earn-max-math";
+import {
+  apyHistory,
+  earnedSinceEmpty,
+  loanToValue,
+  realizedApy,
+} from "./earn-max-math";
 
 describe("earnedSinceEmpty", () => {
   test("counts only flows since the vault was last empty", () => {
@@ -58,5 +63,28 @@ describe("realizedApy", () => {
     expect(
       realizedApy([{ day: "2026-09-29", price: 1 }], 1.01, now)
     ).toBeNull();
+  });
+});
+
+describe("apyHistory", () => {
+  test("each point's 7-day figure equals the badge rule as of that day", () => {
+    const now = Date.parse("2026-09-30T12:00:00Z");
+    const daily = [
+      { day: "2026-09-22", price: 1 },
+      { day: "2026-09-23", price: 1.001 },
+      { day: "2026-09-29", price: 1.002 },
+    ];
+    const history = apyHistory(daily, 1.0025, now);
+
+    expect(history).toHaveLength(3);
+    // The last point is the live badge value.
+    expect(history[2].sevenDayApy).toBeCloseTo(
+      realizedApy(daily, 1.0025, now)!.apy,
+      12
+    );
+    // One day of growth, annualized.
+    expect(history[0].dayApy).toBeCloseTo(1.001 ** 365 - 1, 9);
+    // Today is not a finished day.
+    expect(history[2].dayApy).toBeNull();
   });
 });
