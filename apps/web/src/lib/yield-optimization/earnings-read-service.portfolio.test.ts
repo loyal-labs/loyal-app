@@ -2,8 +2,12 @@ import { describe, expect, mock, test } from "bun:test";
 
 import {
   calculateEarnEarnings,
+  principalAt,
+  sortEarningsEvents,
+  type YieldPositionEvent,
   type YieldPortfolioSnapshot,
 } from "./earnings-calculator.server";
+import type { EarnEarningsRangeSetResponse } from "./earnings.shared";
 import type {
   UserYieldPositionHistoryEventRecord,
   UserYieldPositionRecord,
@@ -47,19 +51,23 @@ function ledgerEvent(
   type: "deposit" | "withdrawal",
   liquidityMint: string,
   amountRaw: number,
-  confirmedAt: string
-) {
+  confirmedAt: string,
+  metadata: Partial<YieldPositionEvent> = {}
+): YieldPositionEvent {
   return {
     amountRaw: BigInt(amountRaw),
     confirmedAt: new Date(confirmedAt),
     liquidityMint,
     type,
+    ...metadata,
   };
 }
 
 function readMultiMintEarnings(args: {
   ledgerEvents: ReturnType<typeof ledgerEvent>[];
   storedPositions: { initialLiquidityMint: string; principalRaw: number }[];
+  onSave?: () => void;
+  savedPayload?: EarnEarningsRangeSetResponse;
 }) {
   const positions = args.storedPositions.map(
     (stored) =>
@@ -82,7 +90,9 @@ function readMultiMintEarnings(args: {
         sourceId: "reserve:reserve-a",
       },
     ],
-    observedAt: args.ledgerEvents.at(-1)?.confirmedAt ?? NOW,
+    observedAt:
+      args.ledgerEvents.find((event) => event.type === "deposit")
+        ?.confirmedAt ?? NOW,
     observedSlot: BigInt(3),
   };
 
@@ -102,6 +112,11 @@ function readMultiMintEarnings(args: {
           reserve: "reserve-a",
           supplyApy: 0.1,
         },
+        ...Array.from({ length: 11 }, (_, index) => ({
+          observedAt: new Date(Date.UTC(2026, 7, index + 1)),
+          reserve: "reserve-a",
+          supplyApy: 0.1,
+        })),
         {
           observedAt: new Date("2026-08-11T11:00:00.000Z"),
           reserve: "reserve-a",
@@ -111,9 +126,17 @@ function readMultiMintEarnings(args: {
       loadLedgerEvents: async () => args.ledgerEvents,
       loadPortfolioSnapshots: async () => [portfolioSnapshot],
       loadPositions: async () => positions,
-      loadSnapshot: async () => null,
+      loadSnapshot: async () =>
+        args.savedPayload
+          ? {
+              generatedAt: new Date(args.savedPayload.generatedAt),
+              payload: args.savedPayload,
+            }
+          : null,
       now: () => NOW,
-      saveSnapshot: async () => undefined,
+      saveSnapshot: async () => {
+        args.onSave?.();
+      },
     }
   );
 }
@@ -293,6 +316,271 @@ describe("portfolio earnings verification", () => {
         ],
       })
     ).rejects.toMatchObject({ detailCode: "principal_history_mismatch" });
+  });
+
+  test("reinitialization discards full-exit rounding dust without erasing prior principal history", async () => {
+    const events = [
+      ledgerEvent(
+        "deposit",
+        "USDC",
+        1_856_990_000,
+        "2026-08-10T10:00:00.000Z",
+        { positionId: BigInt(7), initializesPosition: true }
+      ),
+      ledgerEvent(
+        "withdrawal",
+        "USDC",
+        1_856_989_999,
+        "2026-08-10T11:00:00.000Z",
+        { positionId: BigInt(7), initializesPosition: false }
+      ),
+      ledgerEvent("deposit", "USDC", 50_000_000, "2026-08-11T10:00:00.000Z", {
+        positionId: BigInt(7),
+        initializesPosition: true,
+      }),
+    ];
+    expect(
+      principalAt(events, new Date("2026-08-10T10:30:00Z"), "position")
+    ).toBe(BigInt(1_856_990_000));
+    // Withdrawal amount alone does not prove a lifecycle reset.
+    expect(
+      principalAt(events, new Date("2026-08-10T12:00:00Z"), "position")
+    ).toBe(BigInt(1));
+    const result = await readMultiMintEarnings({
+      ledgerEvents: events,
+      storedPositions: [
+        { initialLiquidityMint: "USDC", principalRaw: 50_000_000 },
+      ],
+    });
+    expect(result.freshness).toBe("fresh");
+    expect(result.ranges["30D"].principalAmountRaw).toBe("50000000");
+  });
+
+  test("same-millisecond exit and reentry follow confirmed slots rather than deposit-first input", async () => {
+    const at = "2026-08-11T10:00:00.000Z";
+    const events = [
+      ledgerEvent("deposit", "USDC", 100_000_000, "2026-08-10T10:00:00.000Z"),
+      ledgerEvent("deposit", "USDC", 50_000_000, at, {
+        confirmedSlot: BigInt(3),
+      }),
+      ledgerEvent("withdrawal", "USDC", 105_000_000, at, {
+        confirmedSlot: BigInt(2),
+      }),
+    ];
+    const result = await readMultiMintEarnings({
+      ledgerEvents: events,
+      storedPositions: [
+        { initialLiquidityMint: "USDC", principalRaw: 50_000_000 },
+      ],
+    });
+    expect(result.freshness).toBe("fresh");
+    expect(result.sourcePrincipalAmountRaw).toBe("50000000");
+    expect(sortEarningsEvents(events)[1].type).toBe("withdrawal");
+  });
+
+  test("same-slot lifecycle transitions use the shared holding event order", () => {
+    const at = "2026-08-11T10:00:00.000Z";
+    const events = sortEarningsEvents([
+      ledgerEvent("deposit", "USDC", 100, "2026-08-10T10:00:00.000Z", {
+        positionId: BigInt(7),
+        initializesPosition: true,
+      }),
+      ledgerEvent("deposit", "USDC", 50, at, {
+        confirmedSlot: BigInt(2),
+        holdingEventId: BigInt(12),
+        positionId: BigInt(7),
+        initializesPosition: true,
+      }),
+      ledgerEvent("withdrawal", "USDC", 105, at, {
+        confirmedSlot: BigInt(2),
+        holdingEventId: BigInt(11),
+        positionId: BigInt(7),
+        initializesPosition: false,
+      }),
+    ]);
+    expect(principalAt(events, NOW, "position")).toBe(BigInt(50));
+  });
+
+  test("unordered same-time opposing events cannot become fresh or save a snapshot", async () => {
+    let saves = 0;
+    await expect(
+      readMultiMintEarnings({
+        ledgerEvents: [
+          ledgerEvent("deposit", "USDC", 50, "2026-08-11T10:00:00Z"),
+          ledgerEvent("withdrawal", "USDC", 105, "2026-08-11T10:00:00Z"),
+        ],
+        storedPositions: [{ initialLiquidityMint: "USDC", principalRaw: 0 }],
+        onSave: () => {
+          saves += 1;
+        },
+      })
+    ).rejects.toThrow("principal_history_order_ambiguous");
+    expect(saves).toBe(0);
+  });
+
+  test("converged legacy totals cannot certify different historical denominators", async () => {
+    let saves = 0;
+    const events = [
+      ledgerEvent("deposit", "USDC", 100_000_000, "2026-08-10T09:00:00Z"),
+      ledgerEvent("deposit", "USDT", 100_000_000, "2026-08-10T10:00:00Z"),
+      ledgerEvent("withdrawal", "USDT", 105_000_000, "2026-08-10T11:00:00Z"),
+      ledgerEvent("withdrawal", "USDC", 100_000_000, "2026-08-10T12:00:00Z"),
+      ledgerEvent("deposit", "USDC", 50_000_000, "2026-08-11T10:00:00Z"),
+    ];
+    expect(principalAt(events, NOW, "total")).toBe(
+      principalAt(events, NOW, "per-mint")
+    );
+    await expect(
+      readMultiMintEarnings({
+        ledgerEvents: events,
+        storedPositions: [
+          { initialLiquidityMint: "USDC", principalRaw: 50_000_000 },
+        ],
+        onSave: () => {
+          saves += 1;
+        },
+      })
+    ).rejects.toMatchObject({ detailCode: "principal_history_ambiguous" });
+    expect(saves).toBe(0);
+    // Actual position links resolve the same history without selecting a model by its endpoint.
+    const linked = events.map((event, index) => ({
+      ...event,
+      positionId: event.liquidityMint === "USDT" ? BigInt(8) : BigInt(7),
+      initializesPosition: index === 0 || index === 1 || index === 4,
+    }));
+    expect(
+      principalAt(linked, new Date("2026-08-10T11:30:00Z"), "position")
+    ).toBe(BigInt(100_000_000));
+    const result = await readMultiMintEarnings({
+      ledgerEvents: linked,
+      storedPositions: [
+        { initialLiquidityMint: "USDC", principalRaw: 50_000_000 },
+      ],
+    });
+    expect(result.freshness).toBe("fresh");
+    const august10 = result.ranges["30D"].bars.find(
+      (bar) => bar.startAt === "2026-08-10T00:00:00.000Z"
+    );
+    // 100 USD for 09-10, 200 for 10-11, 100 for 11-12, then zero.
+    expect(august10?.avgPrincipalUsd).toBeCloseTo(400 / 24, 12);
+  });
+
+  test("position-backed principal mismatches remain rejected", async () => {
+    await expect(
+      readMultiMintEarnings({
+        ledgerEvents: [
+          ledgerEvent("deposit", "USDC", 100, "2026-08-10T10:00:00Z", {
+            positionId: BigInt(7),
+            initializesPosition: true,
+          }),
+        ],
+        storedPositions: [{ initialLiquidityMint: "USDC", principalRaw: 200 }],
+      })
+    ).rejects.toMatchObject({ detailCode: "principal_history_mismatch" });
+  });
+
+  test("future deposits cannot verify current principal", async () => {
+    const result = await readMultiMintEarnings({
+      ledgerEvents: [
+        ledgerEvent("deposit", "USDC", 100, "2026-08-10T10:00:00Z"),
+        ledgerEvent("deposit", "USDC", 50, "2026-08-12T10:00:00Z"),
+      ],
+      storedPositions: [{ initialLiquidityMint: "USDC", principalRaw: 100 }],
+    });
+    expect(result.sourcePrincipalAmountRaw).toBe("100");
+    expect(result.ranges["30D"].principalAmountRaw).toBe("100");
+  });
+
+  test("ambiguous ordering keeps a saved snapshot stale and never overwrites it", async () => {
+    const savedPayload = await readMultiMintEarnings({
+      ledgerEvents: [
+        ledgerEvent("deposit", "USDC", 100, "2026-08-10T10:00:00Z"),
+      ],
+      storedPositions: [{ initialLiquidityMint: "USDC", principalRaw: 100 }],
+    });
+    let saves = 0;
+    const result = await readMultiMintEarnings({
+      savedPayload,
+      ledgerEvents: [
+        ledgerEvent("deposit", "USDC", 50, "2026-08-11T10:00:00Z"),
+        ledgerEvent("withdrawal", "USDC", 105, "2026-08-11T10:00:00Z"),
+      ],
+      storedPositions: [{ initialLiquidityMint: "USDC", principalRaw: 0 }],
+      onSave: () => {
+        saves += 1;
+      },
+    });
+    expect(result.freshness).toBe("stale");
+    expect(result.staleReason).toBe("history_incomplete");
+    expect(result.ranges).toEqual(savedPayload.ranges);
+    expect(saves).toBe(0);
+  });
+
+  test("partially linked histories and missing lifecycle starts remain unavailable", async () => {
+    for (const events of [
+      [
+        ledgerEvent("deposit", "USDC", 100, "2026-08-10T10:00:00Z", {
+          positionId: BigInt(7),
+          initializesPosition: true,
+        }),
+        ledgerEvent("deposit", "USDC", 50, "2026-08-11T10:00:00Z"),
+      ],
+      [
+        ledgerEvent("deposit", "USDC", 150, "2026-08-10T10:00:00Z", {
+          positionId: BigInt(7),
+          initializesPosition: false,
+        }),
+      ],
+    ]) {
+      await expect(
+        readMultiMintEarnings({
+          ledgerEvents: events,
+          storedPositions: [
+            { initialLiquidityMint: "USDC", principalRaw: 150 },
+          ],
+        })
+      ).rejects.toMatchObject({ detailCode: "principal_history_ambiguous" });
+    }
+  });
+
+  test("position links and lifecycle evidence invalidate prior history revisions", () => {
+    const event = ledgerEvent("deposit", "USDC", 100, "2026-08-10T10:00:00Z");
+    const before = getPortfolioEarningsHistoryRevision({
+      events: [event],
+      snapshots: [],
+    });
+    expect(
+      getPortfolioEarningsHistoryRevision({
+        events: [
+          { ...event, positionId: BigInt(7), initializesPosition: true },
+        ],
+        snapshots: [],
+      })
+    ).not.toBe(before);
+  });
+
+  test("same-time holding snapshots retain the refilled exposure after the exit", () => {
+    const at = new Date("2026-08-11T10:00:00Z");
+    const holding = (
+      type: "deposit" | "withdrawal",
+      slot: number,
+      amount: number
+    ) =>
+      ({
+        amountRaw: BigInt(amount),
+        confirmedAt: at,
+        confirmedSlot: BigInt(slot),
+        id: BigInt(slot),
+        positionId: BigInt(7),
+        liquidityMint: "USDC",
+        reserve: "reserve-a",
+        type,
+      } as UserYieldPositionHistoryEventRecord);
+    const snapshots = buildHoldingBackedPortfolioSnapshots({
+      completeSnapshots: [],
+      holdingEvents: [holding("deposit", 3, 50), holding("withdrawal", 2, 0)],
+    });
+    expect(snapshots.at(-1)?.exposures[0]?.amountRaw).toBe(BigInt(50));
   });
 
   test("history revision changes when one source exposure changes", () => {

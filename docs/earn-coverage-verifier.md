@@ -49,3 +49,18 @@ For genuine gaps, prepare a dry run of
 `scripts/backfill-reserve-apy-from-kamino-api.ts` for the reported reserve's exact
 market and required interval (including its seed). Do not invent rates, relax
 coverage thresholds, or write operational backfill rows as part of this audit.
+
+Principal replay uses confirmed ledger amounts linked to holding events by their
+source deposit/withdrawal IDs. With complete links it clamps each actual position
+and resets that position only at a recorded `deposit_initialized` transition,
+matching store reinitialization after a rounded full exit. A full withdrawal of
+one sleeve alone never resets the entire vault. Equal timestamps use confirmed
+slots, then the shared holding event ID; opposing events without order evidence
+are unavailable rather than guessed.
+
+Legacy events without position links retain aggregate/per-mint replay only when
+the matching models agree at every historical timestamp. Converged current totals
+with different earlier principal, partial position links, or missing lifecycle
+starts return incomplete history (stale saved snapshot when available), and never
+save a new verified snapshot. Position metadata is included in history revisions.
+These safeguards do not repair ledger data or relax APY coverage requirements.

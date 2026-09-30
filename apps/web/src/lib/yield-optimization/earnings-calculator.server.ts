@@ -11,9 +11,54 @@ export { EARNINGS_RANGE_IDS };
 export type YieldPositionEvent = {
   amountRaw: bigint;
   confirmedAt: Date;
+  confirmedSlot?: bigint;
+  holdingEventId?: bigint;
+  positionId?: bigint;
+  initializesPosition?: boolean;
   liquidityMint?: string;
   type: "deposit" | "withdrawal";
 };
+
+export class EarningsPrincipalHistoryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EarningsPrincipalHistoryError";
+  }
+}
+
+// Timestamps define chart boundaries; slots and the shared holding ledger order
+// accounting transitions inside a boundary. Separate deposit/withdrawal IDs are
+// not comparable. Missing ordering evidence must not choose a money path.
+export function sortEarningsEvents(events: readonly YieldPositionEvent[]) {
+  return [...events].sort((left, right) => {
+    const timeDelta = left.confirmedAt.getTime() - right.confirmedAt.getTime();
+    if (timeDelta !== 0) return timeDelta;
+    if (
+      left.confirmedSlot !== undefined &&
+      right.confirmedSlot !== undefined &&
+      left.confirmedSlot !== right.confirmedSlot
+    ) {
+      return left.confirmedSlot < right.confirmedSlot ? -1 : 1;
+    }
+    if (
+      left.holdingEventId !== undefined &&
+      right.holdingEventId !== undefined &&
+      left.holdingEventId !== right.holdingEventId
+    ) {
+      return left.holdingEventId < right.holdingEventId ? -1 : 1;
+    }
+    // Plain deposits commute, as do withdrawals with no lifecycle reset.
+    if (
+      left.type === right.type &&
+      !left.initializesPosition &&
+      !right.initializesPosition
+    )
+      return 0;
+    throw new EarningsPrincipalHistoryError(
+      "principal_history_order_ambiguous"
+    );
+  });
+}
 
 export type YieldPortfolioExposure = {
   amountRaw: bigint;
@@ -506,7 +551,7 @@ function deriveApyBps(args: {
 // The ledger does not record which position an event hit, so the read service
 // picks whichever clamp reproduces the stored principal.
 export const PRINCIPAL_CLAMPS = ["total", "per-mint"] as const;
-export type PrincipalClamp = (typeof PRINCIPAL_CLAMPS)[number];
+export type PrincipalClamp = (typeof PRINCIPAL_CLAMPS)[number] | "position";
 
 type PrincipalIndex = {
   totals: bigint[];
@@ -516,7 +561,11 @@ type PrincipalIndex = {
 const principalIndexCaches: Record<
   PrincipalClamp,
   WeakMap<readonly YieldPositionEvent[], PrincipalIndex>
-> = { "per-mint": new WeakMap(), total: new WeakMap() };
+> = {
+  "per-mint": new WeakMap(),
+  total: new WeakMap(),
+  position: new WeakMap(),
+};
 
 function clampedSubtract(current: bigint, amount: bigint): bigint {
   return current > amount ? current - amount : BigInt(0);
@@ -534,18 +583,41 @@ function getPrincipalIndex(
   const index: PrincipalIndex = { times: [], totals: [] };
   const byMint = new Map<string, bigint>();
   let total = BigInt(0);
-  for (const event of events) {
+  for (const event of sortEarningsEvents(events)) {
     if (clamp === "total") {
       total =
         event.type === "deposit"
           ? total + event.amountRaw
           : clampedSubtract(total, event.amountRaw);
     } else {
-      const mint = event.liquidityMint ?? "";
+      const mint =
+        clamp === "position"
+          ? String(event.positionId)
+          : event.liquidityMint ?? "";
+      if (
+        clamp === "position" &&
+        (event.positionId === undefined ||
+          event.initializesPosition === undefined)
+      ) {
+        throw new EarningsPrincipalHistoryError(
+          "principal_history_position_incomplete"
+        );
+      }
+      if (
+        clamp === "position" &&
+        !byMint.has(mint) &&
+        (event.type !== "deposit" || !event.initializesPosition)
+      ) {
+        throw new EarningsPrincipalHistoryError(
+          "principal_history_position_incomplete"
+        );
+      }
       const current = byMint.get(mint) ?? BigInt(0);
       const next =
         event.type === "deposit"
-          ? current + event.amountRaw
+          ? (clamp === "position" && event.initializesPosition
+              ? BigInt(0)
+              : current) + event.amountRaw
           : clampedSubtract(current, event.amountRaw);
       byMint.set(mint, next);
       total += next - current;
@@ -702,9 +774,7 @@ export function calculateEarnEarnings(args: {
   timezone: string;
 }): EarnEarningsResponse {
   const principalClamp = args.principalClamp ?? "total";
-  const events = [...args.events].sort(
-    (a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime()
-  );
+  const events = sortEarningsEvents(args.events);
   const pathEvents = [
     ...(args.pathEvents ?? legacyEventsToPathEvents(events)),
   ].sort((a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime());

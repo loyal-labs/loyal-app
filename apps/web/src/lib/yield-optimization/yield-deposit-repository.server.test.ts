@@ -957,3 +957,100 @@ describe("yield position verification", () => {
     ).resolves.toEqual([]);
   });
 });
+
+describe("earnings ledger lifecycle projection", () => {
+  test("loads exact source links so rounded exit/reentry follows the persisted lifecycle", async () => {
+    const { findYieldPositionEvents } = await import(
+      "./yield-deposit-repository.server"
+    );
+    const { principalAt } = await import("./earnings-calculator.server");
+    const at = new Date("2026-08-11T10:00:00Z");
+    const deposits = [
+      {
+        id: BigInt(1),
+        confirmedAt: new Date("2026-08-10T10:00:00Z"),
+        confirmedSlot: BigInt(1),
+        amountRaw: BigInt(1_856_990_000),
+        liquidityMint: "USDC",
+      },
+      {
+        id: BigInt(2),
+        confirmedAt: at,
+        confirmedSlot: BigInt(3),
+        amountRaw: BigInt(50_000_000),
+        liquidityMint: "USDC",
+      },
+    ];
+    const withdrawals = [
+      {
+        id: BigInt(1),
+        confirmedAt: at,
+        confirmedSlot: BigInt(2),
+        amountRaw: BigInt(1_856_989_999),
+        liquidityMint: "USDC",
+      },
+    ];
+    const holdings = [
+      {
+        id: BigInt(10),
+        positionId: BigInt(7),
+        sourceDepositId: BigInt(1),
+        sourceWithdrawalId: null,
+        eventType: "deposit_initialized",
+      },
+      {
+        id: BigInt(11),
+        positionId: BigInt(7),
+        sourceDepositId: null,
+        sourceWithdrawalId: BigInt(1),
+        eventType: "withdrawal_full",
+      },
+      {
+        id: BigInt(12),
+        positionId: BigInt(7),
+        sourceDepositId: BigInt(2),
+        sourceWithdrawalId: null,
+        eventType: "deposit_initialized",
+      },
+    ];
+    const client = {
+      db: {
+        batch: async () => [deposits, withdrawals],
+        select: () => ({
+          from: () => ({
+            where: () =>
+              Object.assign(Promise.resolve(holdings), { orderBy: () => [] }),
+          }),
+        }),
+      },
+    };
+    const events = await findYieldPositionEvents(
+      {
+        cluster: "mainnet-beta",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+      },
+      { client } as never
+    );
+    expect(principalAt(events, at, "position")).toBe(BigInt(50_000_000));
+    expect(events[1].type).toBe("withdrawal");
+    expect(
+      principalAt(events, new Date("2026-08-10T12:00:00Z"), "position")
+    ).toBe(BigInt(1_856_990_000));
+    // An ambiguous duplicate source link must not assert a reset.
+    holdings.push({ ...holdings[2], id: BigInt(13) });
+    const incomplete = await findYieldPositionEvents(
+      {
+        cluster: "mainnet-beta",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+      },
+      { client } as never
+    );
+    expect(() => principalAt(incomplete, at, "position")).toThrow(
+      "principal_history_position_incomplete"
+    );
+  });
+});

@@ -12,6 +12,11 @@ import { PublicKey } from "@solana/web3.js";
 import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 
 import {
+  sortEarningsEvents,
+  type YieldPositionEvent,
+} from "./earnings-calculator.server";
+
+import {
   earnDepositOnboardingAttempts,
   getYieldOptimizationClient,
   managedVaults,
@@ -87,11 +92,8 @@ export type UserYieldPositionHoldingEventRecord =
 export type UserYieldPositionWithdrawalRecord =
   typeof userYieldPositionWithdrawals.$inferSelect;
 export type RoutePolicyRecord = typeof routePolicies.$inferSelect;
-export type UserYieldPositionEventRecord = {
-  amountRaw: bigint;
-  confirmedAt: Date;
+export type UserYieldPositionEventRecord = YieldPositionEvent & {
   liquidityMint: string;
-  type: "deposit" | "withdrawal";
 };
 export type UserYieldPositionHistoryEventRecord = {
   amountRaw: bigint;
@@ -3356,7 +3358,10 @@ export async function hasInactiveYieldRoutePolicyForVault(
   const rows = await dependencies.client.db
     .select({ id: managedVaults.id })
     .from(managedVaults)
-    .innerJoin(routePolicies, eq(routePolicies.id, managedVaults.activePolicyId))
+    .innerJoin(
+      routePolicies,
+      eq(routePolicies.id, managedVaults.activePolicyId)
+    )
     .where(
       and(
         eq(managedVaults.settings, input.settings),
@@ -3795,6 +3800,8 @@ export async function findYieldPositionEvents(
   const [deposits, withdrawals] = await dependencies.client.db.batch([
     dependencies.client.db
       .select({
+        id: userYieldPositionDeposits.id,
+        confirmedSlot: userYieldPositionDeposits.confirmedSlot,
         amountRaw: userYieldPositionDeposits.principalAmountRaw,
         confirmedAt: userYieldPositionDeposits.confirmedAt,
         liquidityMint: userYieldPositionDeposits.liquidityMint,
@@ -3804,6 +3811,8 @@ export async function findYieldPositionEvents(
       .orderBy(asc(userYieldPositionDeposits.confirmedAt)),
     dependencies.client.db
       .select({
+        id: userYieldPositionWithdrawals.id,
+        confirmedSlot: userYieldPositionWithdrawals.confirmedSlot,
         amountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
         confirmedAt: userYieldPositionWithdrawals.confirmedAt,
         liquidityMint: userYieldPositionWithdrawals.liquidityMint,
@@ -3813,20 +3822,83 @@ export async function findYieldPositionEvents(
       .orderBy(asc(userYieldPositionWithdrawals.confirmedAt)),
   ]);
 
-  return [
+  const sourceFilters = [];
+  if (deposits.length > 0)
+    sourceFilters.push(
+      inArray(
+        userYieldPositionHoldingEvents.sourceDepositId,
+        deposits.map((event) => event.id)
+      )
+    );
+  if (withdrawals.length > 0)
+    sourceFilters.push(
+      inArray(
+        userYieldPositionHoldingEvents.sourceWithdrawalId,
+        withdrawals.map((event) => event.id)
+      )
+    );
+  const holdings =
+    sourceFilters.length > 0
+      ? await dependencies.client.db
+          .select({
+            id: userYieldPositionHoldingEvents.id,
+            positionId: userYieldPositionHoldingEvents.positionId,
+            eventType: userYieldPositionHoldingEvents.eventType,
+            sourceDepositId: userYieldPositionHoldingEvents.sourceDepositId,
+            sourceWithdrawalId:
+              userYieldPositionHoldingEvents.sourceWithdrawalId,
+          })
+          .from(userYieldPositionHoldingEvents)
+          .where(or(...sourceFilters))
+      : [];
+  const depositsById = new Map<bigint, typeof holdings>();
+  const withdrawalsById = new Map<bigint, typeof holdings>();
+  for (const holding of holdings) {
+    for (const [id, index] of [
+      [holding.sourceDepositId, depositsById],
+      [holding.sourceWithdrawalId, withdrawalsById],
+    ] as const) {
+      if (id !== null) index.set(id, [...(index.get(id) ?? []), holding]);
+    }
+  }
+  const metadata = (
+    matches: typeof holdings | undefined,
+    type: "deposit" | "withdrawal"
+  ) => {
+    // Duplicate/missing links cannot establish a lifecycle or an accounting order.
+    if (matches?.length !== 1) return {};
+    const holding = matches[0];
+    const isDeposit =
+      holding.eventType === "deposit_initialized" ||
+      holding.eventType === "deposit_top_up";
+    const isWithdrawal =
+      holding.eventType === "withdrawal_full" ||
+      holding.eventType === "withdrawal_partial";
+    if (type === "deposit" ? !isDeposit : !isWithdrawal) return {};
+    return {
+      holdingEventId: holding.id,
+      positionId: holding.positionId,
+      initializesPosition: holding.eventType === "deposit_initialized",
+    };
+  };
+  return sortEarningsEvents([
     ...deposits.map((deposit) => ({
       amountRaw: deposit.amountRaw,
       confirmedAt: deposit.confirmedAt,
+      confirmedSlot: deposit.confirmedSlot,
       liquidityMint: deposit.liquidityMint,
+      ...metadata(depositsById.get(deposit.id), "deposit"),
       type: "deposit" as const,
     })),
     ...withdrawals.map((withdrawal) => ({
       amountRaw: withdrawal.amountRaw,
       confirmedAt: withdrawal.confirmedAt,
+      confirmedSlot: withdrawal.confirmedSlot,
       liquidityMint: withdrawal.liquidityMint,
+      ...metadata(withdrawalsById.get(withdrawal.id), "withdrawal"),
       type: "withdrawal" as const,
     })),
-  ].sort((a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime());
+  ]) as UserYieldPositionEventRecord[];
 }
 
 export async function findYieldPositionHistoryEvents(
