@@ -63,6 +63,15 @@ const ACTION_WORDS: Record<string, string> = {
   VOLTR_RESTORE_IDLE: "Returned cash to the vault",
 };
 
+// Selector reasons in plain words; anything else shows with spaces.
+const SELECTOR_REASONS: Record<string, string> = {
+  advantage_not_yet_persistent:
+    "a better market has not lasted long enough yet",
+  complete_current_tranche_first: "finishing the current step first",
+  no_worthwhile_executable_move: "no better market right now",
+  persistent_net_benefit: "a better market has lasted long enough",
+};
+
 const words = (value: string | null | undefined) =>
   value ? value.replaceAll("_", " ").toLowerCase() : "";
 
@@ -115,8 +124,8 @@ export default async function EarnMaxPage() {
   const now = Date.parse(data.loadedAt);
   const route = data.route.ok ? data.route.value : null;
   const openLatches = data.latches.ok ? data.latches.value.open : null;
-  const custodyUsd = data.custody.ok
-    ? data.custody.value.debt + data.custody.value.collateral
+  const custodyUsd = data.balances.ok
+    ? data.balances.value.debt + data.balances.value.collateral
     : null;
   const ltv =
     route?.navUsd != null && route.debtUsd != null && custodyUsd !== null
@@ -182,11 +191,20 @@ export default async function EarnMaxPage() {
   );
 }
 
+/** First sentence or HTTP status of an error, never raw JSON. */
+function shortError(message: string) {
+  const text = message
+    .split(/[{\n]|\. /)[0]
+    .trim()
+    .replace(/:$/, "");
+  return text.length > 80 ? `${text.slice(0, 79)}…` : text || "unknown error";
+}
+
 function Unavailable({ part, what }: { part: Part<unknown>; what: string }) {
   if (part.ok) return null;
   return (
     <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-      {what} unavailable: {part.error}
+      {what} unavailable: {shortError(part.error)}
     </p>
   );
 }
@@ -274,7 +292,7 @@ function verdict(
   if (ltv !== null && ltv >= ALERT_LTV)
     return {
       bad: true,
-      text: `The loan is above the ${ALERT_LTV * 100}% alert.`,
+      text: `The loan is above the ${Math.round(ALERT_LTV * 100)}% alert.`,
     };
   if ((route.reportAgeS ?? Infinity) > STALE_REPORT_S)
     return { bad: true, text: "NAV reports have stalled." };
@@ -296,23 +314,41 @@ function RightNow({
   const latches = data.latches.ok ? data.latches.value.open : null;
   const health = data.health.ok ? data.health.value : null;
   const vault = data.vault.ok ? data.vault.value : null;
-  const idle = data.idle.ok ? data.idle.value : null;
+  const idle = data.balances.ok ? data.balances.value.idle : null;
+  const earnedError = data.vault.ok ? data.vault.value.error : data.vault.error;
+  const earnedReason = earnedError
+    ? earnedError.includes("429")
+      ? "RPC rate limit"
+      : shortError(earnedError)
+    : null;
+  // Without a fresh scan the headline is the last good figure or the loop NAV.
+  const earnedNote = !earnedReason
+    ? null
+    : vault
+    ? `Earned figure from ${ago(
+        secondsSince(vault.computedAt, now)
+      )} ago; refresh failed: ${earnedReason}`
+    : `Showing value in the loop. Earned figure unavailable: ${earnedReason}`;
   const state = verdict(route, latches, ltv);
   const why = latches?.length
     ? `Open latch: ${latches
         .map((l) => words(l.reason))
         .join(", ")}. Nothing moves until it is cleared.`
     : [
-        `LTV ${ltv === null ? "—" : pct(ltv * 100, 1)} (alert at ${
+        `LTV ${ltv === null ? "—" : pct(ltv * 100, 1)} (alert at ${Math.round(
           ALERT_LTV * 100
-        }%, hard rule ${HARD_RULE_LTV * 100}%).`,
+        )}%, hard rule ${Math.round(HARD_RULE_LTV * 100)}%).`,
         health
           ? `${health.navReconciled} of ${health.navAll} NAV reports landed in the last 24 hours.`
           : "",
-        route?.selectorAction
-          ? `Optimizer: ${words(route.selectorAction)} (${words(
-              route.selectorReason
-            )}).`
+        // accounting_first only means this tick was a NAV report; it says
+        // nothing about markets, so it is not shown.
+        route?.selectorAction && route.selectorReason !== "accounting_first"
+          ? `Optimizer: ${words(route.selectorAction)} (${
+              (route.selectorReason &&
+                SELECTOR_REASONS[route.selectorReason]) ??
+              words(route.selectorReason)
+            }).`
           : "",
       ].join(" ");
   const apyNow = route?.currentApy;
@@ -337,7 +373,7 @@ function RightNow({
         <div>
           <div className="flex flex-wrap items-baseline gap-3">
             <p className="text-4xl font-semibold tabular-nums tracking-tight">
-              {usd(vault?.valueUsd)}
+              {usd(vault?.valueUsd ?? route?.navUsd)}
             </p>
             {vault ? (
               <p
@@ -366,7 +402,9 @@ function RightNow({
                 }`
               : null}
           </p>
-          <Unavailable part={data.vault} what="Holders' value and earnings" />
+          {earnedNote ? (
+            <p className="text-xs text-muted-foreground">{earnedNote}</p>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -456,8 +494,8 @@ function LoanSafety({
           Borrowed against collateral on Kamino
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          The worker must stay left of the {HARD_RULE_LTV * 100}% rule.
-          Liquidation starts near {LIQUIDATION_LTV * 100}%.
+          The worker must stay left of the {Math.round(HARD_RULE_LTV * 100)}%
+          rule. Liquidation starts near {Math.round(LIQUIDATION_LTV * 100)}%.
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -494,19 +532,21 @@ function LoanSafety({
               />
             ) : null}
           </div>
-          <div className="relative h-9 text-[11px] text-muted-foreground">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
             {marks.map((mark) => (
-              <span
-                className="absolute -translate-x-1/2 text-center leading-tight"
-                key={mark.label}
-                style={{ left: x(mark.value) }}
-              >
-                <b className="block font-mono text-foreground">
-                  {mark.value * 100}%
-                </b>
-                {mark.label === "withdrawal step cap" ? "step cap" : mark.label}
+              <span key={mark.label}>
+                <b className="font-mono text-foreground">
+                  {Math.round(mark.value * 100)}%
+                </b>{" "}
+                {mark.label}
               </span>
             ))}
+            <span>
+              <b className="font-mono text-foreground">
+                {Math.round(LIQUIDATION_LTV * 100)}%
+              </b>{" "}
+              liquidation (right edge)
+            </span>
           </div>
         </div>
 
@@ -542,7 +582,7 @@ function LoanSafety({
               </>
             }
             label="Idle in the vault"
-            value={data.idle.ok ? usd(data.idle.value) : "—"}
+            value={data.balances.ok ? usd(data.balances.value.idle) : "—"}
           />
           <Fact
             hint="Collateral / equity"
@@ -555,7 +595,7 @@ function LoanSafety({
             value={target === null ? "—" : levelLabel(target)}
           />
         </div>
-        <Unavailable part={data.custody} what="Custody balances" />
+        <Unavailable part={data.balances} what="Custody balances" />
         <Unavailable part={data.route} what="Worker state" />
       </CardContent>
     </Card>
@@ -625,7 +665,7 @@ function LeverageLevels({
                       {level === nowLevel ? " (now)" : ""}
                     </TableHead>
                   ))}
-                  <TableHead>Watch options 1 · 2 · 3</TableHead>
+                  <TableHead>Level picks</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -678,7 +718,8 @@ function LeverageLevels({
             <p className="text-xs text-muted-foreground">
               Spread is token yield minus borrow cost, in percentage points.
               Bold is the best level for each market. An older reading means the
-              market was missing from the latest hourly reading.
+              market was missing from the latest hourly reading. Level picks:
+              the level the worker would choose under its three safety settings.
             </p>
           </>
         )}
@@ -751,7 +792,7 @@ function PositionHistory({ data }: { data: EarnMaxData }) {
   const points = data.history.ok ? data.history.value : [];
   const chart = (
     title: string,
-    key: "apyPct" | "equityUsd" | "ltvPct",
+    key: "equityUsd" | "ltvPct",
     unit: "pct" | "usd"
   ) => (
     <div className="min-w-0 space-y-1">
@@ -778,15 +819,23 @@ function PositionHistory({ data }: { data: EarnMaxData }) {
             Not enough snapshots in the last 7 days.
           </p>
         ) : (
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-2">
             {chart("Equity", "equityUsd", "usd")}
             {chart("LTV", "ltvPct", "pct")}
-            {chart("Forecast APY", "apyPct", "pct")}
           </div>
         )}
       </CardContent>
     </Card>
   );
+}
+
+function moveLabel(move: { action: string; reason: string | null }) {
+  if (move.action === "OPEN_ROUTE_STEP") {
+    if (move.reason === "leverage_up") return "Borrowed on Kamino";
+    if (move.reason?.includes("redeposit"))
+      return "Deposited collateral on Kamino";
+  }
+  return ACTION_WORDS[move.action] ?? words(move.action);
 }
 
 function statusVariant(status: string) {
@@ -802,7 +851,7 @@ function MoneyMoves({ data }: { data: EarnMaxData }) {
       <CardHeader>
         <CardDescription>Money moves</CardDescription>
         <CardTitle className="text-base">
-          Last 30 worker steps that move money, newest first
+          Last 30 worker steps that reached the chain, newest first
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -827,7 +876,7 @@ function MoneyMoves({ data }: { data: EarnMaxData }) {
                       {dateTime(move.at)}
                     </TableCell>
                     <TableCell>
-                      <p>{ACTION_WORDS[move.action] ?? words(move.action)}</p>
+                      <p>{moveLabel(move)}</p>
                       <p className="max-w-[28rem] truncate text-xs text-muted-foreground">
                         {[move.strategyKey, words(move.reason)]
                           .filter(Boolean)
@@ -877,6 +926,12 @@ function MoneyMoves({ data }: { data: EarnMaxData }) {
           Amounts are in the step&apos;s input token (6 decimals). Hold
           decisions and NAV reports are left out.
         </p>
+        {data.health.ok ? (
+          <p className="text-xs text-muted-foreground">
+            {data.health.value.refusedBeforeSending} refused before sending in
+            the last 24 h.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1034,7 +1089,12 @@ function Latches({ data, now }: { data: EarnMaxData; now: number }) {
                         </TableCell>
                         <TableCell>{words(latch.reason)}</TableCell>
                         <TableCell className="max-w-[14rem] whitespace-normal text-muted-foreground">
-                          {latch.clearedReason ?? "—"}
+                          <span
+                            className="line-clamp-2"
+                            title={latch.clearedReason ?? undefined}
+                          >
+                            {latch.clearedReason ?? "—"}
+                          </span>
                         </TableCell>
                         <TableCell className="text-right font-mono">
                           {duration(latch.latchedAt, latch.clearedAt)}

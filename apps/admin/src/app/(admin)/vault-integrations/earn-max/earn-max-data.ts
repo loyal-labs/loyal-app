@@ -74,8 +74,20 @@ async function rows<T>(text: string, params: unknown[] = [ROUTE_KEY]) {
 function connection() {
   return new Connection(
     serverEnv.solanaMainnetRpcUrl ?? DEFAULT_MAINNET_RPC_URL,
-    { commitment: "confirmed" }
+    // One explicit retry (withRetry) instead of web3.js's long 429 backoff.
+    { commitment: "confirmed", disableRetryOnRateLimit: true }
   );
+}
+
+/** Retries once after 1 s when the RPC rate-limits (HTTP 429). */
+async function withRetry<T>(call: () => Promise<T>) {
+  try {
+    return await call();
+  } catch (error) {
+    if (!String(error).includes("429")) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return call();
+  }
 }
 
 async function fetchJson(url: string) {
@@ -83,7 +95,9 @@ async function fetchJson(url: string) {
     cache: "no-store",
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`${new URL(url).hostname} returned ${response.status}`);
+  }
   return (await response.json()) as unknown;
 }
 
@@ -218,7 +232,7 @@ async function loadNavSeries() {
 }
 
 async function loadHealth() {
-  const [nav, failedSteps] = await Promise.all([
+  const [nav, failedSteps, refused] = await Promise.all([
     rows<{ count: number; reason: string | null; status: string }>(
       `SELECT status, recovery_reason AS reason, count(*)::int AS count
        FROM loyal_yield.multiply_operations
@@ -231,6 +245,14 @@ async function loadHealth() {
        WHERE route_key = $1 AND status = 'failed' AND created_at > now() - interval '24 hours'
          AND action NOT IN ('HOLD', 'REPORT_NAV')
        GROUP BY 1 ORDER BY 2 DESC`
+    ),
+    // Refused by the worker's own pre-send checks: never reached the chain.
+    rows<{ count: number }>(
+      `SELECT count(*)::int AS count
+       FROM loyal_yield.multiply_operations
+       WHERE route_key = $1 AND status = 'failed' AND transaction_signature IS NULL
+         AND created_at > now() - interval '24 hours'
+         AND action NOT IN ('HOLD', 'REPORT_NAV')`
     ),
   ]);
   const count = (status: string) =>
@@ -245,6 +267,7 @@ async function loadHealth() {
       .slice(0, 5)
       .map((row) => ({ count: row.count, reason: row.reason ?? "no reason" })),
     navReconciled: count("reconciled"),
+    refusedBeforeSending: refused[0]?.count ?? 0,
   };
 }
 
@@ -272,7 +295,7 @@ async function loadMoves() {
        expected_effects #>> '{decision,amountRaw}' AS amount_raw,
        COALESCE(recovery_reason, expected_effects #>> '{decision,reason}') AS reason
      FROM loyal_yield.multiply_operations
-     WHERE route_key = $1
+     WHERE route_key = $1 AND transaction_signature IS NOT NULL
        AND action NOT IN ('HOLD', 'REPORT_NAV', 'HOLD_MANUAL_RECOVERY', 'HOLD_CLEARED')
      ORDER BY created_at DESC LIMIT 30`
   );
@@ -325,42 +348,46 @@ async function loadLatches() {
 async function loadHistory() {
   // ~187k snapshot rows: always bound by route + time and aggregate in SQL.
   const points = await rows<{
-    apy: number | null;
     equity: number | null;
     hour: string;
     ltv: number | null;
   }>(
     `SELECT date_trunc('hour', observed_at) AS hour,
        (avg(equity_usd_micros) / 1e6)::float8 AS equity,
-       (avg(ltv_bps) / 100)::float8 AS ltv,
-       (avg(forecast_apy_bps) / 100)::float8 AS apy
+       (avg(ltv_bps) / 100)::float8 AS ltv
      FROM loyal_yield.multiply_position_snapshots
      WHERE route_key = $1 AND observed_at > now() - interval '7 days'
      GROUP BY 1 ORDER BY 1`
   );
 
   return points.map((point) => ({
-    apyPct: point.apy,
     at: new Date(point.hour).toISOString(),
     equityUsd: point.equity,
     ltvPct: point.ltv,
   }));
 }
 
-async function tokenBalance(address: string) {
-  const balance = await connection().getTokenAccountBalance(
-    new PublicKey(address),
-    "confirmed"
+/** Custody and vault idle balances in one RPC call. */
+async function loadBalances() {
+  const addresses = [CUSTODY.debt, CUSTODY.collateral, IDLE_ATA];
+  const { value } = await withRetry(() =>
+    connection().getMultipleParsedAccounts(
+      addresses.map((address) => new PublicKey(address)),
+      { commitment: "confirmed" }
+    )
   );
-  return Number(balance.value.amount) / 1e6;
-}
-
-async function loadCustody() {
-  const [debt, collateral] = await Promise.all([
-    tokenBalance(CUSTODY.debt),
-    tokenBalance(CUSTODY.collateral),
-  ]);
-  return { collateral, debt };
+  const [debt, collateral, idle] = value.map((account, index) => {
+    const data = account?.data;
+    const amount =
+      data && "parsed" in data
+        ? num(rec(rec(rec(data.parsed).info).tokenAmount).amount)
+        : null;
+    if (amount === null) {
+      throw new Error(`Token account ${addresses[index]} is unreadable.`);
+    }
+    return amount / 1e6;
+  });
+  return { collateral, debt, idle };
 }
 
 async function sharePrice() {
@@ -395,16 +422,35 @@ async function loadRealizedApy() {
 // Confirmed transactions never change; the earned figure is reused for 10
 // minutes while the LP supply is unchanged.
 const flowCache = new Map<string, LpFlow>();
-let earnedCache: {
-  at: number;
-  lpSupply: string;
-  value: ReturnType<typeof earnedSinceEmpty> & { valueUsd: number };
-} | null = null;
+type VaultEarned = ReturnType<typeof earnedSinceEmpty> & {
+  computedAt: string;
+  valueUsd: number;
+};
+let earnedCache: { at: number; lpSupply: string; value: VaultEarned } | null =
+  null;
 
+/**
+ * On failure (usually a public-RPC rate limit) the last good figure is served
+ * with its computedAt, so the page can show its age instead of an error.
+ */
 async function loadVaultEarned() {
+  try {
+    return { error: null, ...(await scanVaultEarned()) };
+  } catch (error) {
+    if (!earnedCache) throw error;
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      ...earnedCache.value,
+    };
+  }
+}
+
+async function scanVaultEarned(): Promise<VaultEarned> {
   const rpc = connection();
   const lpMint = new PublicKey(LP_MINT);
-  const supply = (await rpc.getTokenSupply(lpMint, "confirmed")).value.amount;
+  const supply = (
+    await withRetry(() => rpc.getTokenSupply(lpMint, "confirmed"))
+  ).value.amount;
   if (
     earnedCache &&
     earnedCache.lpSupply === supply &&
@@ -412,8 +458,9 @@ async function loadVaultEarned() {
   ) {
     return earnedCache.value;
   }
-  const holders = (await rpc.getTokenLargestAccounts(lpMint, "confirmed"))
-    .value;
+  const holders = (
+    await withRetry(() => rpc.getTokenLargestAccounts(lpMint, "confirmed"))
+  ).value;
   const scanned = holders.reduce((sum, h) => sum + BigInt(h.amount), BigInt(0));
   // ponytail: getTokenLargestAccounts caps at 20 accounts; page by holders when the vault grows.
   if (scanned !== BigInt(supply) || holders.length >= 20) {
@@ -421,18 +468,20 @@ async function loadVaultEarned() {
   }
   const signatures = new Set<string>();
   for (const holder of holders) {
-    const found = await rpc.getSignaturesForAddress(holder.address, {
-      limit: 1000,
-    });
+    const found = await withRetry(() =>
+      rpc.getSignaturesForAddress(holder.address, { limit: 1000 })
+    );
     found.filter((s) => !s.err).forEach((s) => signatures.add(s.signature));
   }
   const missing = [...signatures].filter((sig) => !flowCache.has(sig));
-  for (let i = 0; i < missing.length; i += 50) {
-    const batch = missing.slice(i, i + 50);
-    const txs = await rpc.getParsedTransactions(batch, {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    });
+  for (let i = 0; i < missing.length; i += 10) {
+    const batch = missing.slice(i, i + 10);
+    const txs = await withRetry(() =>
+      rpc.getParsedTransactions(batch, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      })
+    );
     txs.forEach((tx, index) => {
       if (!tx?.meta || !tx.blockTime) {
         throw new Error(`Transaction ${batch[index]} is unavailable.`);
@@ -464,6 +513,7 @@ async function loadVaultEarned() {
   // prices 1,000 LP no account holds, which is not any holder's money.
   const valueUsd = (Number(supply) * (await sharePrice())) / 1000 / 1e6;
   const value = {
+    computedAt: new Date().toISOString(),
     ...earnedSinceEmpty(
       [...signatures].map((sig) => flowCache.get(sig)!),
       valueUsd
@@ -512,8 +562,7 @@ export async function getEarnMaxData() {
     moves,
     latches,
     history,
-    custody,
-    idle,
+    balances,
     vault,
     apy,
     borrowing,
@@ -524,8 +573,7 @@ export async function getEarnMaxData() {
     part(loadMoves),
     part(loadLatches),
     part(loadHistory),
-    part(loadCustody),
-    part(() => tokenBalance(IDLE_ATA)),
+    part(loadBalances),
     part(loadVaultEarned),
     part(loadRealizedApy),
     part(loadBorrowing),
@@ -533,11 +581,10 @@ export async function getEarnMaxData() {
 
   return {
     apy,
+    balances,
     borrowing,
-    custody,
     health,
     history,
-    idle,
     latches,
     loadedAt: new Date().toISOString(),
     moves,
