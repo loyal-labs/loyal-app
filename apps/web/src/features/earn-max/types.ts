@@ -46,6 +46,8 @@ export type EarnMaxSummary = {
   balanceUsd: number;
   claimAmountRaw: string;
   coverage: EarnMaxCoverage;
+  /** Net APY of the live position now (worker); null = unknown. */
+  currentApyBps?: number | null;
   currentOperationId: string | null;
   earnedUsd: number | null;
   forecastApyBps: number | null;
@@ -76,6 +78,7 @@ export type EarnMaxViewModel = {
   apyWindowDays: number | null;
   balanceUsd: number;
   coverage: EarnMaxCoverage;
+  currentApyBps: number | null;
   earnedUsd: number | null;
   error: string | null;
   forecastApyBps: number | null;

@@ -9,6 +9,7 @@ import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import type { EarnMaxSummary } from "../types";
 import { readVoltrHistory, voltrActivity } from "./activity.server";
 import { readEarnMaxVoltrApy } from "./apy.server";
+import { readEarnMaxCurrentApyBps } from "./current-apy.server";
 import {
   deriveEarnMaxVoltrAuthority,
   readVoltrPosition,
@@ -55,10 +56,11 @@ export async function readEarnMaxVoltrSummary(
   settings: string
 ): Promise<EarnMaxSummary> {
   const authority = authorityFor(settings);
-  const [position, apy, history] = await Promise.all([
+  const [position, apy, history, currentApyBps] = await Promise.all([
     readVoltrPosition(getConnection(), authority),
     readEarnMaxVoltrApy(),
     readVoltrHistory(getConnection(), authority),
+    readEarnMaxCurrentApyBps(),
   ]);
   const { earnedRaw } = voltrActivity(history, position);
   const pending = position.withdrawal;
@@ -73,6 +75,7 @@ export async function readEarnMaxVoltrSummary(
     // Share-price APY over 7 days (or since launch, apyWindowDays); null = dash.
     apyHistory: apy.daily,
     apyWindowDays: apy.apyWindowDays,
+    currentApyBps,
     forecastApyBps: apy.apyBps,
     // Pooled vault: nothing to install, so the deposit pane skips install().
     goal: "active",

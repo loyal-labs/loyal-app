@@ -91,10 +91,24 @@ function GrayInfinityIcon() {
   );
 }
 
-function ApyBadge({ label }: { label: string }) {
+function ApyBadge({
+  label,
+  muted = false,
+}: {
+  label: string;
+  muted?: boolean;
+}) {
   return (
-    <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
-      <span className="whitespace-nowrap pt-px font-medium text-[11px] text-positive leading-[13px] tracking-[0.06px]">
+    <span
+      className={`inline-flex items-center rounded-md px-1 py-px ${
+        muted ? "bg-accent" : "bg-positive/[0.14]"
+      }`}
+    >
+      <span
+        className={`whitespace-nowrap pt-px font-medium text-[11px] leading-[13px] tracking-[0.06px] ${
+          muted ? "text-muted-foreground" : "text-positive"
+        }`}
+      >
         {label}
       </span>
     </span>
@@ -904,10 +918,26 @@ function EarnMaxMainPane({
               <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
                 {EARN_MAX_STRATEGY_NAME}
               </span>
-              <ApyBadge label={formatEarnMaxApyLabel(view.forecastApyBps)} />
+              {view.currentApyBps !== null ? (
+                <>
+                  <ApyBadge label={formatEarnMaxApyLabel(view.currentApyBps)} />
+                  {view.forecastApyBps !== null ? (
+                    <ApyBadge
+                      label={`${(view.forecastApyBps / 100).toFixed(2)}% 7d`}
+                      muted
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <ApyBadge label={formatEarnMaxApyLabel(view.forecastApyBps)} />
+              )}
               <InfoTooltip
                 placement="bottom"
-                text="Earn steady, real-world yield by looping between tokenized real-world assets (RWAs) and stablecoins. Designed for consistent returns with reduced volatility."
+                text={`Earn steady, real-world yield by looping between tokenized real-world assets (RWAs) and stablecoins. Designed for consistent returns with reduced volatility.${
+                  view.currentApyBps !== null
+                    ? " Green: net APY of the position right now. Gray: what the vault actually earned over the last 7 days, annualized, after all costs."
+                    : ""
+                }`}
               />
             </span>
             <div className="relative flex shrink-0 items-center justify-end pl-3">
