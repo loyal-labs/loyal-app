@@ -8,7 +8,8 @@ import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.serv
 import { earnedSinceEmpty, type LpFlow, realizedApy } from "./earn-max-math";
 
 const DEFAULT_MAINNET_RPC_URL = "https://api.mainnet-beta.solana.com";
-const ROUTE_KEY = "rwa-multiply:ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh";
+const SQUADS_VAULT = "ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh";
+const ROUTE_KEY = `rwa-multiply:${SQUADS_VAULT}`;
 const VOLTR_VAULT = "HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA";
 const LP_MINT = "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb";
 export const IDLE_ATA = "6LATwaB4yRwGURCBDyFeJGqofaXxb6xXws9wBGbr3RBh";
@@ -292,12 +293,21 @@ async function loadMoves() {
     transaction_signature: string | null;
   }>(
     `SELECT action, status, strategy_key, transaction_signature, created_at,
-       expected_effects #>> '{decision,amountRaw}' AS amount_raw,
+       -- A borrow's decision amount is 0 (its size comes from the leverage
+       -- target); the amount is what landed in the vault's own accounts.
+       CASE WHEN expected_effects #>> '{expectedEffects,kind}' = 'kamino-borrow'
+         THEN (SELECT sum((a->>'afterRaw')::numeric - (a->>'beforeRaw')::numeric)::text
+               FROM jsonb_array_elements(expected_effects #> '{expectedEffects,accounts}') a
+               WHERE a->>'authority' = $2
+                 AND (a->>'afterRaw')::numeric > (a->>'beforeRaw')::numeric)
+         ELSE expected_effects #>> '{decision,amountRaw}'
+       END AS amount_raw,
        COALESCE(recovery_reason, expected_effects #>> '{decision,reason}') AS reason
      FROM loyal_yield.multiply_operations
      WHERE route_key = $1 AND transaction_signature IS NOT NULL
        AND action NOT IN ('HOLD', 'REPORT_NAV', 'HOLD_MANUAL_RECOVERY', 'HOLD_CLEARED')
-     ORDER BY created_at DESC LIMIT 30`
+     ORDER BY created_at DESC LIMIT 30`,
+    [ROUTE_KEY, SQUADS_VAULT]
   );
 
   return moves.map<MoneyMove>((move) => ({
