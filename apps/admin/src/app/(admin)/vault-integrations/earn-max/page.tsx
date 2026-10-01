@@ -38,7 +38,8 @@ const ALERT_LTV = 0.45;
 const WITHDRAWAL_STEP_LTV = 0.55;
 const HARD_RULE_LTV = 0.6;
 const LIQUIDATION_LTV = 0.8;
-const STALE_REPORT_S = 900;
+// Routine NAV reports are hourly; allow 15 minutes for reporting/reconciliation.
+const STALE_REPORT_S = 75 * 60;
 
 // Worker journal actions in plain words.
 const ACTION_WORDS: Record<string, string> = {
@@ -274,7 +275,7 @@ function Pulse({
       ) : null}
       {route?.reportObservedAt ? (
         <span className="text-xs text-muted-foreground">
-          Report {dateTime(route.reportObservedAt)} · state written{" "}
+          Routine NAV reports hourly · last report {dateTime(route.reportObservedAt)} · state written{" "}
           {ago(route.updatedAgeS)} ago
         </span>
       ) : null}
