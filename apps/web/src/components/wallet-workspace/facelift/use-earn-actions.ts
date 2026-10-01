@@ -155,6 +155,8 @@ export type EarnActions = {
   authenticatedWalletAddress: string | null;
   closeReconnectPrompt: () => void;
   confirmAutodepositClose: () => Promise<boolean>;
+  /** Opens sign-in or the reconnect prompt; false means do not sign yet. */
+  ensureCanSignAccountAction: () => boolean;
   depositError: string | null;
   depositSource: EarnDepositSourceOption;
   dismissAutodepositClose: () => void;
@@ -2732,6 +2734,7 @@ export function useEarnActions(deps: {
     autodepositProgressBySlot,
     closeReconnectPrompt,
     confirmAutodepositClose,
+    ensureCanSignAccountAction,
     depositError,
     depositSource,
     dismissAutodepositClose,

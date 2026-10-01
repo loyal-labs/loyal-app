@@ -195,10 +195,16 @@ export async function readEarnMaxActivity(
         operation.action,
         operation.status,
         operation.transaction_signature,
-        operation.created_at
+        operation.created_at,
+        positive_delta.amount_raw
       FROM loyal_yield.multiply_operations operation
       INNER JOIN loyal_yield.multiply_route_states route
         ON route.route_key = operation.route_key
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(MAX((delta ->> 'rawDelta')::NUMERIC), 0) AS amount_raw
+        FROM jsonb_array_elements(operation.expected_effects -> 'tokenDeltas') delta
+        WHERE (delta ->> 'rawDelta')::NUMERIC > 0
+      ) positive_delta ON TRUE
       WHERE route.settings = ${settings}
         AND route.vault_index = ${EARN_MAX_VAULT_INDEX}
         AND route.state ->> 'engineVersion' = 'earn_max_v2'
@@ -222,6 +228,10 @@ export async function readEarnMaxActivity(
   ]);
   const operations = rows(operationsResult as QueryResult).map((operation) => ({
     action: String(operation.action ?? "activity"),
+    amountRaw:
+      operation.amount_raw == null || rawString(operation.amount_raw) === "0"
+        ? null
+        : rawString(operation.amount_raw),
     id: String(operation.operation_id ?? ""),
     signature:
       typeof operation.transaction_signature === "string"
