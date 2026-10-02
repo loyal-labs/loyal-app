@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
+
+import type { YieldOptimizationClient } from "@/lib/yield-optimization/yield-neon-client.server";
 
 mock.module("server-only", () => ({}));
 
@@ -137,6 +141,80 @@ describe("realized Earn forecast", () => {
     });
     expect(forecast.summary.apyBps).toBe(600);
     expect(forecast.summary.strategy).toBe("safe_no_fees");
+  });
+
+  test("skips the vault history query when the share-price table has no observations", async () => {
+    const { getMediumFeeAwareEarnForecast } = await import(
+      "./earn-forecast.server"
+    );
+    let allocationReads = 0;
+    const forecast = await getMediumFeeAwareEarnForecast(NOW, {
+      ...realizedDeps,
+      hasRecentPrices: async () => false,
+      loadAllocations: async () => {
+        allocationReads += 1;
+        return realizedDeps.loadAllocations();
+      },
+    });
+    expect(allocationReads).toBe(0);
+    expect(forecast.summary.availability).toBe("unavailable");
+  });
+
+  test("runs allocation aggregation with a database-enforced limit in one Neon batch", async () => {
+    const { loadEarnAllocationHistory } = await import(
+      "./earn-reserve-share-price-repository.server"
+    );
+    const dialect = new PgDialect();
+    const statements: string[] = [];
+    const db = {
+      execute(statement: SQL) {
+        const rendered = dialect.sqlToQuery(statement).sql;
+        statements.push(rendered);
+        return { rendered };
+      },
+      async batch(items: unknown[]) {
+        expect(items).toHaveLength(3);
+        return [null, null, { rows: [] }];
+      },
+    };
+
+    await loadEarnAllocationHistory(
+      NOW.getTime() - DAY,
+      NOW.getTime(),
+      { db } as unknown as YieldOptimizationClient
+    );
+    expect(statements).toHaveLength(3);
+    expect(statements[0]).toContain("SET TRANSACTION READ ONLY");
+    expect(statements[1]).toContain("SET LOCAL statement_timeout = '10s'");
+    expect(statements[2]).toContain("WITH hours AS");
+  });
+
+  test("uses a bounded interactive transaction for the local database adapter", async () => {
+    const { loadEarnAllocationHistory } = await import(
+      "./earn-reserve-share-price-repository.server"
+    );
+    const dialect = new PgDialect();
+    const statements: string[] = [];
+    const tx = {
+      async execute(statement: SQL) {
+        statements.push(dialect.sqlToQuery(statement).sql);
+        return { rows: [] };
+      },
+    };
+    const db = {
+      transaction: async (run: (transaction: typeof tx) => Promise<unknown>) =>
+        run(tx),
+    };
+
+    await loadEarnAllocationHistory(
+      NOW.getTime() - DAY,
+      NOW.getTime(),
+      { db } as unknown as YieldOptimizationClient
+    );
+    expect(statements).toHaveLength(3);
+    expect(statements[0]).toContain("SET TRANSACTION READ ONLY");
+    expect(statements[1]).toContain("SET LOCAL statement_timeout = '10s'");
+    expect(statements[2]).toContain("WITH hours AS");
   });
 
   test("the daily simulation cron no longer overwrites the served value", async () => {

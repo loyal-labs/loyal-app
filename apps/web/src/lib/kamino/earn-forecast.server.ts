@@ -12,6 +12,7 @@ import {
   type SharePricePoint,
 } from "./earn-realized-apy.shared";
 import {
+  hasEarnSharePriceHistory,
   loadEarnAllocationHistory,
   loadReserveSharePriceHistories,
 } from "./earn-reserve-share-price-repository.server";
@@ -597,6 +598,7 @@ export function resetEarnForecastCacheForTests() {
 
 export type RealizedEarnForecastDependencies = {
   cluster: string;
+  hasRecentPrices?: (sinceMs: number) => Promise<boolean>;
   loadAllocations: (
     sinceMs: number,
     nowMs: number
@@ -611,6 +613,7 @@ function createRealizedDependencies(): RealizedEarnForecastDependencies {
   const cluster = resolveEarnForecastCluster();
   return {
     cluster,
+    hasRecentPrices: (sinceMs) => hasEarnSharePriceHistory(cluster, sinceMs),
     loadAllocations: (sinceMs, nowMs) =>
       loadEarnAllocationHistory(sinceMs, nowMs),
     loadHistories: (reserves, sinceMs) =>
@@ -677,6 +680,9 @@ export async function getRealizedEarnForecastFromDependencies(
     SERIES_WINDOW_MS -
     REALIZED_WINDOW_MS -
     HISTORY_LOOKBACK_SLACK_MS;
+  if (deps.hasRecentPrices && !(await deps.hasRecentPrices(sinceMs))) {
+    return null;
+  }
   const allocations = await deps.loadAllocations(sinceMs, now.getTime());
   const reserves = [
     ...new Set([

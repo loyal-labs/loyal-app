@@ -25,5 +25,11 @@ This serving path depends on the recorder in PR #794 and the share-price table
 migration in loyal-yield-routing PR #261. It also requires existing complete
 fleet snapshot data with the idle and redeemable-liquidity metadata above.
 Enablement requires those dependencies, their migrations, representative data,
-and a read-only production query plan for the allocation aggregation. The local
-environment does not establish database execution cost or historical coverage.
+and a read-only production query plan for the allocation aggregation. The
+snapshot reader needs a partial index ordered by vault ID, observation time,
+slot, and ID for `complete_product_vault` snapshots. The existing index orders
+by slot before observation time and cannot serve the historical as-of lookup
+efficiently on the large production snapshot table. The local environment does
+not establish database execution cost or historical coverage. Until the index
+and a production query plan are verified, the reader has a database-enforced
+10-second limit; a timed-out read follows the unavailable/stale behavior above.
