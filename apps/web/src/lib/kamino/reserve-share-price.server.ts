@@ -164,8 +164,11 @@ export async function recordEarnReserveSharePrices(
   return { missing, recorded: rows.length };
 }
 
+// extraReserves widens the probe to reserves the caller knows hold Earn
+// capital, so every recorded allocation has prices to weight.
 export async function recordEarnReserveSharePricesNow(
-  now = new Date()
+  now = new Date(),
+  extraReserves: readonly string[] = []
 ): Promise<{ recorded: number; missing: string[] }> {
   const { rpcEndpoint } = getServerSolanaEndpoints(
     resolveEarnForecastSolanaEnv()
@@ -179,7 +182,10 @@ export async function recordEarnReserveSharePricesNow(
   return recordEarnReserveSharePrices({
     cluster: resolveEarnForecastCluster(),
     connection,
-    loadCandidateReserves: () => loadCandidateSupportedStableReserves(),
+    loadCandidateReserves: async () => [
+      ...(await loadCandidateSupportedStableReserves()),
+      ...extraReserves,
+    ],
     loadWeights: () => loadEarnAumWeightsByReserve(),
     now,
     upsert: (cluster, rows) => upsertReserveSharePrices(cluster, rows),
