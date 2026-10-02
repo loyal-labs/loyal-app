@@ -4,38 +4,56 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+import {
+  type CommonDict,
+  enCommon,
+} from "@/features/marketing/i18n/en/common";
+import { type Locale, localizedHref } from "@/features/marketing/i18n/locale";
 
-const footerColumns = [
-  {
-    links: [
-      {
-        href: "https://docs.askloyal.com/smart-accounts/overview",
-        label: "Smart Accounts",
-      },
-    ],
-    title: "Documentation",
-  },
-  {
-    links: [
-      { href: "/privacy-policy", label: "Privacy Policy" },
-      { href: "/trust", label: "Trust & Security" },
-      { href: "/risks", label: "Risks" },
-      {
-        href: "https://docs.askloyal.com/transparency/q1-2026",
-        label: "Transparency",
-      },
-    ],
-    title: "Legal",
-  },
-  {
-    links: [
-      { href: "mailto:hello@askloyal.com", label: "hello@askloyal.com" },
-      { href: "https://discord.askloyal.com", label: "Discord" },
-      { href: "https://t.me/loyal_tgchat", label: "Telegram" },
-    ],
-    title: "Contact",
-  },
-];
+type FooterCopy = CommonDict["footer"];
+
+function buildFooterColumns(locale: Locale, copy: FooterCopy) {
+  return [
+    {
+      links: [
+        {
+          href: "https://docs.askloyal.com/smart-accounts/overview",
+          label: copy.columns.documentation.smartAccounts,
+        },
+      ],
+      key: "documentation",
+      title: copy.columns.documentation.title,
+    },
+    {
+      links: [
+        { href: "/privacy-policy", label: copy.columns.legal.privacyPolicy },
+        {
+          href: localizedHref(locale, "/trust"),
+          label: copy.columns.legal.trust,
+        },
+        {
+          href: localizedHref(locale, "/risks"),
+          label: copy.columns.legal.risks,
+        },
+        {
+          href: "https://docs.askloyal.com/transparency/q1-2026",
+          label: copy.columns.legal.transparency,
+        },
+      ],
+      key: "legal",
+      title: copy.columns.legal.title,
+    },
+    {
+      links: [
+        { href: "mailto:hello@askloyal.com", label: "hello@askloyal.com" },
+        { href: "https://discord.askloyal.com", label: "Discord" },
+        { href: "https://t.me/loyal_tgchat", label: "Telegram" },
+      ],
+      key: "contact",
+      title: copy.columns.contact.title,
+    },
+  ];
+}
 
 const socialLinks = [
   {
@@ -106,7 +124,15 @@ function FooterTextLink({
   );
 }
 
-export function LandingFooter() {
+export function LandingFooter({
+  locale = "en",
+  copy = enCommon.footer,
+}: {
+  locale?: Locale;
+  copy?: FooterCopy;
+} = {}) {
+  const footerColumns = buildFooterColumns(locale, copy);
+
   return (
     <footer
       className="flex w-full justify-center bg-white px-6 pt-12"
@@ -116,9 +142,9 @@ export function LandingFooter() {
         <div className="grid w-full grid-cols-1 gap-12 pb-20 lg:grid-cols-12 lg:gap-6 lg:pb-32">
           <div className="lg:col-span-2" data-reveal="scale">
             <Link
-              aria-label="Loyal home"
+              aria-label={copy.homeAriaLabel}
               className="block h-16 w-20 transition duration-150 ease-out hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black"
-              href="/"
+              href={localizedHref(locale, "/")}
             >
               <Image
                 alt=""
@@ -137,7 +163,7 @@ export function LandingFooter() {
                 className="flex flex-col items-start"
                 data-reveal="lift"
                 data-reveal-delay={index + 1}
-                key={column.title}
+                key={column.key}
               >
                 <h3 className="text-[20px] font-medium leading-[1.1] tracking-[-0.02em] text-black">
                   {column.title}
@@ -146,9 +172,9 @@ export function LandingFooter() {
                   {column.links.map((link) => (
                     <FooterTextLink
                       href={link.href}
-                      key={`${column.title}-${link.label}`}
+                      key={`${column.key}-${link.label}`}
                       label={link.label}
-                      source={`landing_footer_${column.title.toLowerCase()}`}
+                      source={`landing_footer_${column.key}`}
                     />
                   ))}
                 </div>
@@ -161,9 +187,8 @@ export function LandingFooter() {
           className="text-[16px] leading-5 tracking-[-0.02em] text-[#8a8a8e]"
           id="rate-footnote"
         >
-          <sup className="text-[0.65em] text-[#3c3c43]/60">1</sup>Based on rates
-          available through supported protocols at the time of allocation. Rates
-          are variable and not guaranteed.
+          <sup className="text-[0.65em] text-[#3c3c43]/60">1</sup>
+          {copy.rateFootnote}
         </p>
 
         <div
@@ -171,13 +196,13 @@ export function LandingFooter() {
           data-reveal="fade"
         >
           <div className="flex flex-col gap-4 text-[16px] leading-5 tracking-[-0.02em] text-[#3c3c43]/40 sm:flex-row sm:items-center sm:gap-8">
-            <p>© 2026 Loyal. All rights reserved.</p>
+            <p>{copy.copyright}</p>
             <iframe
               className="h-[30px] w-[250px] border-0 [color-scheme:normal]"
               height="30"
               scrolling="no"
               src="https://status.askloyal.com/badge?theme=light"
-              title="Loyal status badge"
+              title={copy.statusBadgeTitle}
               width="250"
             />
           </div>
@@ -207,7 +232,7 @@ export function LandingFooter() {
 
         <div className="relative w-full overflow-hidden" data-reveal="lift">
           <Image
-            alt="Loyal"
+            alt={copy.wordmarkAlt}
             className="h-auto w-full"
             height={565}
             priority

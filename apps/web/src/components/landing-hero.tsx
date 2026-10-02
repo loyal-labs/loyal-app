@@ -6,12 +6,10 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import type { LandingDict } from "@/features/marketing/i18n/en/landing";
+import { fillTemplate } from "@/features/marketing/i18n/template";
 import type { EarnPublicStats } from "@/lib/yield-optimization/earn-public-stats.server";
 
-const AUM_TOOLTIP =
-  "Cumulative value deposited into our active Earn routing policies.";
-const VOLUME_TOOLTIP =
-  "Total USDC reallocated by confirmed Earn optimizations. This measures routing throughput across reserves, so the same deposited dollar can add to volume again when it is moved by a later optimization.";
 const compactUsdFormatter = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 2,
@@ -20,14 +18,20 @@ const compactUsdFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
 });
 
-function HeroStatTooltip({ text }: { text: string }) {
+function HeroStatTooltip({
+  moreInfoLabel,
+  text,
+}: {
+  moreInfoLabel: string;
+  text: string;
+}) {
   const id = useId();
 
   return (
     <span className="t-tt-wrap">
       <button
         aria-describedby={id}
-        aria-label="More info"
+        aria-label={moreInfoLabel}
         className="t-tt-trigger flex size-6 cursor-help items-center justify-center opacity-60"
         type="button"
       >
@@ -48,10 +52,14 @@ function HeroStatTooltip({ text }: { text: string }) {
 
 function HeroStat({
   label,
+  loadingTemplate,
+  moreInfoLabel,
   tooltip,
   value,
 }: {
   label: string;
+  loadingTemplate: string;
+  moreInfoLabel: string;
   tooltip?: string;
   value: string | null;
 }) {
@@ -61,7 +69,9 @@ function HeroStat({
         <p className="text-[20px] leading-6 text-white/80 lg:text-white">
           {label}
         </p>
-        {tooltip ? <HeroStatTooltip text={tooltip} /> : null}
+        {tooltip ? (
+          <HeroStatTooltip moreInfoLabel={moreInfoLabel} text={tooltip} />
+        ) : null}
       </div>
       {value ? (
         <p className="w-full text-center font-semibold text-[48px] leading-[48px] text-white lg:text-left">
@@ -69,7 +79,7 @@ function HeroStat({
         </p>
       ) : (
         <span
-          aria-label={`Loading ${label}`}
+          aria-label={fillTemplate(loadingTemplate, { label })}
           className="h-12 w-48 max-w-full animate-pulse rounded-xl bg-white/20 motion-reduce:animate-none"
           role="status"
         />
@@ -78,7 +88,7 @@ function HeroStat({
   );
 }
 
-function LandingHeroStats() {
+function LandingHeroStats({ copy }: { copy: LandingDict["hero"] }) {
   const [stats, setStats] = useState<EarnPublicStats | null>(null);
   const [hasError, setHasError] = useState(false);
 
@@ -112,32 +122,38 @@ function LandingHeroStats() {
 
   return (
     <section
-      aria-label="Loyal Stats"
+      aria-label={copy.statsAriaLabel}
       className="flex w-full flex-col items-center gap-4 pt-12 lg:col-span-3 lg:items-start lg:col-start-10 lg:row-start-1 lg:justify-self-end lg:self-center lg:gap-6 lg:pt-0 xl:w-[356px]"
       data-hero-reveal="right"
       data-hero-reveal-delay="2"
     >
       <HeroStat
-        label="Earn AUM"
-        tooltip={AUM_TOOLTIP}
+        label={copy.stats.aum.label}
+        loadingTemplate={copy.loadingTemplate}
+        moreInfoLabel={copy.moreInfo}
+        tooltip={copy.stats.aum.tooltip}
         value={stats ? compactUsdFormatter.format(stats.aumUsd) : null}
       />
       <HeroStat
-        label="Optimization Volume"
-        tooltip={VOLUME_TOOLTIP}
+        label={copy.stats.volume.label}
+        loadingTemplate={copy.loadingTemplate}
+        moreInfoLabel={copy.moreInfo}
+        tooltip={copy.stats.volume.tooltip}
         value={
           stats ? compactUsdFormatter.format(stats.optimizationVolumeUsd) : null
         }
       />
       <HeroStat
-        label="Total Users"
+        label={copy.stats.users.label}
+        loadingTemplate={copy.loadingTemplate}
+        moreInfoLabel={copy.moreInfo}
         value={stats ? stats.totalUsers.toLocaleString("en-US") : null}
       />
     </section>
   );
 }
 
-export function LandingHero() {
+export function LandingHero({ copy }: { copy: LandingDict["hero"] }) {
   const { loyalAppUrl } = usePublicEnv();
   const animationContainerRef = useRef<HTMLDivElement>(null);
 
@@ -182,21 +198,10 @@ export function LandingHero() {
             <div className="flex w-full flex-col items-center gap-8 lg:items-start lg:gap-9">
               <div className="flex w-full flex-col items-center gap-4 lg:items-start lg:gap-6">
                 <h1 className="max-w-[420px] text-[44px] font-bold uppercase leading-none tracking-[-0.88px] lg:text-[64px] lg:font-semibold lg:normal-case lg:tracking-[-1.28px]">
-                  Make your idle&nbsp;cash smarter
+                  {copy.headline}
                 </h1>
                 <p className="max-w-full text-[20px] font-normal leading-6 tracking-[-0.4px] text-white/80 lg:w-[338px] lg:text-[24px] lg:leading-[1.1] lg:tracking-[-0.48px]">
-                  Connect your wallet once and earn the best available rate on
-                  your cash on Solana
-                  <sup className="text-[0.65em]">
-                    <a
-                      aria-label="Rate disclaimer"
-                      className="no-underline"
-                      href="#rate-footnote"
-                    >
-                      1
-                    </a>
-                  </sup>{" "}
-                  automatically
+                  {copy.subtitle}
                 </p>
               </div>
 
@@ -205,7 +210,7 @@ export function LandingHero() {
                 href={loyalAppUrl}
                 rel="noopener noreferrer"
               >
-                Start earning
+                {copy.startEarning}
               </Link>
 
               <div className="hidden w-full max-w-[448px] flex-col items-start gap-3 lg:flex">
@@ -221,7 +226,7 @@ export function LandingHero() {
                     src="/landing/assets/hero-open-web.svg"
                     width={24}
                   />
-                  Open web app
+                  {copy.openWebApp}
                 </Link>
                 <Link
                   className="inline-flex h-14 items-center justify-center gap-2 rounded-full bg-black/15 py-5 pl-3.5 pr-6 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
@@ -234,7 +239,7 @@ export function LandingHero() {
                     src="/landing/assets/hero-download-loyal.svg"
                     width={24}
                   />
-                  Download Loyal
+                  {copy.downloadLoyal}
                 </Link>
               </div>
             </div>
@@ -246,7 +251,7 @@ export function LandingHero() {
             data-hero-reveal-delay="1"
           >
             <Image
-              alt="Loyal Earn screen showing 9.48% APY, autodeposit on, and $822.66 earned"
+              alt={copy.phoneAlt}
               className="h-auto w-full lg:hidden"
               height={361}
               priority
@@ -254,14 +259,14 @@ export function LandingHero() {
               width={361}
             />
             <div
-              aria-label="Loyal app animation: connect a wallet, watch the balance grow, and set up autodeposit"
+              aria-label={copy.animationAriaLabel}
               className="hidden aspect-[2/3] w-full lg:block"
               ref={animationContainerRef}
               role="img"
             />
           </div>
 
-          <LandingHeroStats />
+          <LandingHeroStats copy={copy} />
         </div>
       </div>
     </section>

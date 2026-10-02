@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import type { LandingDict } from "@/features/marketing/i18n/en/landing";
 
 type Segment = "Extension" | "Mobile" | "Web";
 
@@ -14,7 +15,7 @@ const seekerDappStoreUrl = "solanadappstore://details?id=com.loyal.app";
 // ASK-1588: today only Seeker (mobile) and the Web app are active surfaces.
 // The Telegram Mini App and every browser extension are marked "Coming soon"
 // until Earn ships in them. To re-enable once Earn lands there, drop the
-// `disabled`/`note` from the relevant cards below and restore their targets:
+// `disabled` from the relevant cards below and restore their targets:
 //   - extensions  -> href "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack"
 //                    + install-conversion tracking via X_PIXEL_EVENTS.installExtension
 //   - Telegram MA -> href "https://t.me/askloyal_tgbot/app?startapp=askloyalcom"
@@ -23,28 +24,24 @@ const browserCards = [
     disabled: true,
     icon: "/landing/figma/get-started-chrome.svg",
     label: "Chrome",
-    note: "Coming soon",
     shape: "rounded-[24px]",
   },
   {
     disabled: true,
     icon: "/landing/figma/get-started-brave.svg",
     label: "Brave",
-    note: "Coming soon",
     shape: "rounded-[400px]",
   },
   {
     disabled: true,
     icon: "/landing/figma/get-started-edge.svg",
     label: "Edge",
-    note: "Coming soon",
     shape: "rounded-[400px]",
   },
   {
     disabled: true,
     icon: "/landing/figma/get-started-firefox.svg",
     label: "Firefox",
-    note: "Coming soon",
     shape: "rounded-[24px]",
   },
 ];
@@ -59,14 +56,12 @@ const mobileCards = [
     disabled: true,
     icon: "/landing/figma/get-started-telegram-mini-app.svg",
     label: "Telegram Mini App",
-    note: "Coming soon",
     shape: "rounded-[400px]",
   },
   {
     disabled: true,
     icon: "/landing/figma/get-started-android.svg",
     label: "Android",
-    note: "Coming soon",
     shape: "rounded-[24px]",
   },
 ];
@@ -78,26 +73,24 @@ const segmentByHash: Record<string, Segment> = {
   "#get-started-web": "Web",
 };
 
-const previewBySegment: Record<Segment, { alt: string; src: string }> = {
-  Extension: {
-    alt: "Loyal browser extension wallet preview",
-    src: "/landing/figma/get-started-extension-wallet.png",
-  },
-  Mobile: {
-    alt: "Loyal mobile app wallet preview",
-    src: "/landing/figma/get-started-mobile-wallet.png",
-  },
-  Web: {
-    alt: "Loyal web app wallet preview",
-    src: "/landing/figma/get-started-web-wallet.png",
-  },
+const previewSrcBySegment: Record<Segment, string> = {
+  Extension: "/landing/figma/get-started-extension-wallet.png",
+  Mobile: "/landing/figma/get-started-mobile-wallet.png",
+  Web: "/landing/figma/get-started-web-wallet.png",
 };
 
-export function LandingGetStarted() {
+export function LandingGetStarted({
+  copy,
+}: {
+  copy: LandingDict["getStarted"];
+}) {
   const { loyalAppUrl } = usePublicEnv();
   const [activeSegment, setActiveSegment] = useState<Segment>("Web");
   const [showSeekerQr, setShowSeekerQr] = useState(false);
-  const activePreview = previewBySegment[activeSegment];
+  const activePreview = {
+    alt: copy.previews[activeSegment].alt,
+    src: previewSrcBySegment[activeSegment],
+  };
 
   useEffect(() => {
     const syncTabFromHash = () => {
@@ -168,11 +161,11 @@ export function LandingGetStarted() {
         >
           <div className="flex w-full flex-col items-start justify-center gap-6">
             <h2 className="whitespace-nowrap text-[48px] font-semibold leading-none tracking-[-0.02em] text-black">
-              Get started{" "}
+              {copy.title}{" "}
             </h2>
 
             <div
-              aria-label="Get started platform"
+              aria-label={copy.platformAriaLabel}
               className="flex h-11 w-full items-center justify-center rounded-[60px] bg-[#f5f5f5] p-1 lg:w-auto"
               role="tablist"
             >
@@ -193,7 +186,7 @@ export function LandingGetStarted() {
                     role="tab"
                     type="button"
                   >
-                    {segment}
+                    {copy.segments[segment]}
                   </button>
                 );
               })}
@@ -210,6 +203,7 @@ export function LandingGetStarted() {
             <div className="grid aspect-square min-w-0 grid-rows-2 gap-2 overflow-hidden lg:aspect-auto lg:h-[600px] lg:gap-6">
               <SeekerCard
                 className="h-full"
+                copy={copy}
                 dataRevealDelay={1}
                 iconClassName="h-16 w-16 lg:h-24 lg:w-24"
                 isQrVisible={showSeekerQr}
@@ -221,6 +215,7 @@ export function LandingGetStarted() {
                   <PlatformCard
                     appUrl={loyalAppUrl}
                     className="h-full"
+                    comingSoonLabel={copy.comingSoon}
                     dataRevealDelay={index + 2}
                     iconClassName="h-16 w-16 lg:h-24 lg:w-24"
                     key={platform.label}
@@ -234,16 +229,17 @@ export function LandingGetStarted() {
             <ActionCard
               dataRevealDelay={1}
               href={loyalAppUrl}
-              label="Open web app"
+              label={copy.openWebApp}
             />
           ) : (
             <div className="grid min-w-0 grid-cols-2 gap-2 overflow-hidden lg:h-[600px] lg:grid-rows-2 lg:gap-6">
               {browserCards.map((browser, index) => (
                 <PlatformCard
+                  appUrl={loyalAppUrl}
+                  comingSoonLabel={copy.comingSoon}
                   iconClassName="h-16 w-16 lg:h-24 lg:w-24"
                   key={browser.label}
                   platform={browser}
-                  appUrl={loyalAppUrl}
                   dataRevealDelay={index + 1}
                 />
               ))}
@@ -344,6 +340,7 @@ function ActionCard({
 
 function SeekerCard({
   className = "",
+  copy,
   dataRevealDelay,
   iconClassName,
   isQrVisible,
@@ -351,6 +348,7 @@ function SeekerCard({
   preserveAspect = true,
 }: {
   className?: string;
+  copy: LandingDict["getStarted"];
   dataRevealDelay: number;
   iconClassName: string;
   isQrVisible: boolean;
@@ -363,8 +361,8 @@ function SeekerCard({
     <button
       aria-label={
         isQrVisible
-          ? "Seeker dApp Store QR code"
-          : "Show Seeker dApp Store QR code"
+          ? copy.seekerQrAriaLabel
+          : copy.showSeekerQrAriaLabel
       }
       className={classNames}
       data-reveal="scale"
@@ -392,12 +390,12 @@ function SeekerCard({
                 className="h-28 w-28 lg:h-36 lg:w-36"
                 level="M"
                 marginSize={1}
-                title="Loyal Seeker dApp Store listing QR code"
+                title={copy.seekerQrTitle}
                 value={seekerDappStoreUrl}
               />
             </span>
             <span className="rounded-full bg-white px-3 py-1 text-center text-[13px] font-normal leading-5 text-[#3c3c43]/60">
-              Only available on Seeker
+              {copy.seekerOnly}
             </span>
           </>
         ) : (
@@ -423,6 +421,7 @@ function SeekerCard({
 function PlatformCard({
   appUrl,
   className = "",
+  comingSoonLabel,
   dataRevealDelay,
   iconClassName,
   platform,
@@ -430,6 +429,7 @@ function PlatformCard({
 }: {
   appUrl: string;
   className?: string;
+  comingSoonLabel: string;
   dataRevealDelay: number;
   iconClassName: string;
   platform: {
@@ -437,7 +437,6 @@ function PlatformCard({
     href?: string;
     icon: string;
     label: string;
-    note?: string;
     onClick?: () => void;
     shape: string;
   };
@@ -470,9 +469,9 @@ function PlatformCard({
           <span className="flex items-center justify-center whitespace-nowrap rounded-[100px] bg-white px-3 py-1 text-[14px] font-normal leading-5 text-[#f9363c] transition duration-200 ease-out group-hover:scale-105">
             {platform.label}
           </span>
-          {platform.note ? (
+          {platform.disabled ? (
             <span className="whitespace-nowrap text-[11px] font-normal leading-3 text-[#3c3c43]/45">
-              {platform.note}
+              {comingSoonLabel}
             </span>
           ) : null}
         </span>
