@@ -243,7 +243,7 @@ Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any 
 
 **How does Loyal compare to Phantom or Backpack?** Loyal adds Smart Accounts and an AI-agent permission layer on top of your existing wallet. Phantom and Backpack are still great wallets; Loyal sits alongside them, holding the Smart Account that an agent operates within your rules. Smart Accounts let an AI agent research, suggest, and execute within your rules, plus automatic yield on your shielded USDC via Kamino. Loyal connects to every Solana dApp that supports wallet adapters. You can use Phantom or Backpack as a signer on a Loyal Smart Account; Loyal doesn't replace them.
 
-**Where can I download Loyal?** Loyal runs in four places, all on the same Squads-based smart account: the web app at askloyal.com, the Chrome extension on the Chrome Web Store, the Telegram mini-app at @askloyal_tgbot, and the Android app on Google Play. iOS isn't available yet.
+**Where can I download Loyal?** Loyal runs in four places, all on the same Squads-based smart account: the web app at askloyal.com, the Chrome extension on the Chrome Web Store, the Telegram mini-app at @askloyal_tgbot, and the Android app on Google Play (https://play.google.com/store/apps/details?id=com.askloyal.app). iOS isn't available yet.
 
 ### About Loyal
 

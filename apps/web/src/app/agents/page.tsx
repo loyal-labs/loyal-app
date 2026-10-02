@@ -30,6 +30,7 @@ import { CardsTwo } from "@/features/marketing/blocks/cards-two";
 import { Hero } from "@/features/marketing/blocks/hero";
 import { Section } from "@/features/marketing/blocks/section";
 import { TextImageHero } from "@/features/marketing/blocks/text-image";
+import { googlePlayUrl } from "@/lib/store-links";
 
 const PAGE_TITLE =
   "Agent Wallet on Solana | Smart Accounts for AI Agents | Loyal";
@@ -385,7 +386,21 @@ export default function AgentsPage() {
       <TextImageHero
         layout="text-right"
         title="Get started"
-        body="Runs in the web app, browser extension, Telegram mini-app, and Android app, all backed by the same Squads Smart Account. Supported assets: USDC, SOL, USDT."
+        body={
+          <>
+            Runs in the web app, browser extension, Telegram mini-app, and{" "}
+            <a
+              className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+              href={googlePlayUrl("agents-page")}
+              rel="noopener"
+              target="_blank"
+            >
+              Android app
+            </a>
+            , all backed by the same Squads Smart Account. Supported assets:
+            USDC, SOL, USDT.
+          </>
+        }
         cta={{ label: "Get started", href: "https://app.askloyal.com" }}
         image={{
           src: "/landing/figma/get-started-extension-wallet.png",

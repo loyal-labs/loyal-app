@@ -22,6 +22,7 @@ import { CardsGrid } from "@/features/marketing/blocks/cards-grid";
 import { Hero } from "@/features/marketing/blocks/hero";
 import { Section } from "@/features/marketing/blocks/section";
 import { TextImageHero } from "@/features/marketing/blocks/text-image";
+import { googlePlayUrl } from "@/lib/store-links";
 
 const PAGE_TITLE = "Best Available Stablecoin Yield on Solana | Loyal";
 const PAGE_DESCRIPTION =
@@ -516,10 +517,18 @@ export default function EarnPage() {
         body={
           <>
             Deposit dollars, set how much goes to earning, and Loyal routes it
-            to the best available rate from there. Loyal lives in four
-            places, all on the same Squads-based smart account: web app,
-            Chrome extension, Telegram mini-app, and the Android app.{" "}
-            <strong>Stay Loyal.</strong>
+            to the best available rate from there. Loyal lives in four places,
+            all on the same Squads-based smart account: web app, Chrome
+            extension, Telegram mini-app, and the{" "}
+            <a
+              className="underline underline-offset-4 transition-colors hover:text-[#f9363c]"
+              href={googlePlayUrl("earn-page")}
+              rel="noopener"
+              target="_blank"
+            >
+              Android app
+            </a>
+            . <strong>Stay Loyal.</strong>
           </>
         }
         cta={{ label: "Get started", href: "https://app.askloyal.com" }}
