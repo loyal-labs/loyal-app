@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   aggregateEarnFleetAllocation,
+  deriveEarnFleetSharePrices,
   type EarnFleetVaultState,
 } from "./earn-fleet-allocation.shared";
 
@@ -35,7 +36,14 @@ function position(
   amountSemantics: string | null = LIQUIDITY,
   redeemableLiquidityRaw: string | null = null
 ) {
-  return { amountRaw, amountSemantics, redeemableLiquidityRaw, reserve };
+  return {
+    amountRaw,
+    amountSemantics,
+    liquidityMint: "MINT",
+    market: "MARKET",
+    redeemableLiquidityRaw,
+    reserve,
+  };
 }
 
 describe("aggregateEarnFleetAllocation", () => {
@@ -145,5 +153,71 @@ describe("aggregateEarnFleetAllocation", () => {
     }).toEqual({ included: 2, missing: 1, stale: 1, total: 4 });
     expect(sample.excludedAmountRaw).toBe("300");
     expect(sample.oldestSourceAt).toBeNull();
+  });
+});
+
+describe("deriveEarnFleetSharePrices", () => {
+  test("prices a reserve from its largest recent collateral position", () => {
+    const prices = deriveEarnFleetSharePrices(
+      [
+        vault({
+          observedSlot: "500",
+          positions: [position("R1", "2000000000", COLLATERAL, "2120000000")],
+        }),
+        vault({
+          observedAtMs: NOW.getTime() - 60 * 1000,
+          observedSlot: "510",
+          positions: [position("R1", "8000000000", COLLATERAL, "8480000008")],
+        }),
+      ],
+      NOW
+    );
+
+    expect(prices).toEqual([
+      {
+        liquidityMint: "MINT",
+        market: "MARKET",
+        observedAtMs: NOW.getTime() - 60 * 1000,
+        reserve: "R1",
+        sharePrice: 1.060000001,
+        slot: 510,
+      },
+    ]);
+  });
+
+  test("skips positions that cannot give a trustworthy current price", () => {
+    const prices = deriveEarnFleetSharePrices(
+      [
+        // Too small to resolve an hourly move.
+        vault({
+          positions: [position("DUST", "999999999", COLLATERAL, "1059999999")],
+        }),
+        // Snapshot older than an hour.
+        vault({
+          observedAtMs: NOW.getTime() - HOUR_MS - 1,
+          positions: [position("OLD", "5000000000", COLLATERAL, "5300000000")],
+        }),
+        // Liquidity amounts carry no collateral ratio; unconverted collateral has no price.
+        vault({
+          positions: [
+            position("LIQ", "5000000000"),
+            position("RAW", "5000000000", COLLATERAL),
+          ],
+        }),
+        // No market recorded for the position.
+        vault({
+          positions: [
+            {
+              ...position("NOMARKET", "5000000000", COLLATERAL, "5300000000"),
+              market: null,
+            },
+          ],
+        }),
+        { currentIdle: [], snapshot: null, vaultId: "new" },
+      ],
+      NOW
+    );
+
+    expect(prices).toEqual([]);
   });
 });

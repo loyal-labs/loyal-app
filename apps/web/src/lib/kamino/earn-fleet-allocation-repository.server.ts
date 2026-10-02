@@ -63,6 +63,8 @@ export async function loadEarnFleetVaultStates(
       COALESCE((
         SELECT json_agg(json_build_object(
           'reserve', position.reserve,
+          'market', position.market,
+          'liquidityMint', position.liquidity_mint,
           'amountRaw', position.amount_raw::text,
           'amountSemantics', COALESCE(
             position.planning_metadata->>'amountSemantics',

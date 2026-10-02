@@ -14,8 +14,17 @@ const COLLATERAL_UNIT_SEMANTICS =
 
 export const EARN_FLEET_ALLOCATION_CALC_VERSION = 1;
 
+// A share price is liquidity per collateral unit. A smaller position rounds
+// too coarsely to resolve how far that ratio moves in an hour.
+const MIN_PRICED_COLLATERAL_RAW = BigInt(1_000_000_000);
+// Only a snapshot this recent prices its reserves as of now.
+const MAX_PRICED_SNAPSHOT_AGE_MS = HOUR_MS;
+const SHARE_PRICE_SCALE = BigInt(1_000_000_000_000);
+
 export type EarnFleetVaultPosition = {
   reserve: string;
+  market: string | null;
+  liquidityMint: string | null;
   amountRaw: string;
   amountSemantics: string | null;
   // Recorded conversion of a collateral-unit amount into liquidity.
@@ -32,6 +41,15 @@ export type EarnFleetVaultState = {
     positions: EarnFleetVaultPosition[];
   } | null;
   currentIdle: { amountRaw: string; observedSlot: string }[];
+};
+
+export type EarnFleetSharePrice = {
+  reserve: string;
+  market: string;
+  liquidityMint: string;
+  sharePrice: number;
+  observedAtMs: number;
+  slot: number;
 };
 
 export type EarnFleetAllocationSample = {
@@ -95,6 +113,69 @@ function idleRaw(
     total += amount;
   }
   return total;
+}
+
+// Share price of each reserve the fleet holds, read off its largest recent
+// position: the liquidity that position redeems for, per collateral unit.
+// The sweep computes that liquidity with interest accrued to the snapshot, so
+// the price is current even when the reserve account itself has not been
+// refreshed on chain for hours.
+export function deriveEarnFleetSharePrices(
+  vaults: readonly EarnFleetVaultState[],
+  now: Date
+): EarnFleetSharePrice[] {
+  const nowMs = now.getTime();
+  const prices = new Map<string, EarnFleetSharePrice>();
+  const largest = new Map<string, bigint>();
+
+  for (const { snapshot } of vaults) {
+    if (
+      !snapshot ||
+      snapshot.observedAtMs > nowMs ||
+      nowMs - snapshot.observedAtMs > MAX_PRICED_SNAPSHOT_AGE_MS
+    ) {
+      continue;
+    }
+    const slot = Number(snapshot.observedSlot);
+    if (!Number.isSafeInteger(slot) || slot <= 0) {
+      continue;
+    }
+    for (const position of snapshot.positions) {
+      if (
+        position.amountSemantics !== COLLATERAL_UNIT_SEMANTICS ||
+        !position.market ||
+        !position.liquidityMint
+      ) {
+        continue;
+      }
+      const collateral = parseRawAmount(position.amountRaw);
+      const liquidity = parseRawAmount(position.redeemableLiquidityRaw);
+      if (
+        collateral === null ||
+        liquidity === null ||
+        liquidity <= BigInt(0) ||
+        collateral < MIN_PRICED_COLLATERAL_RAW ||
+        collateral <= (largest.get(position.reserve) ?? BigInt(0))
+      ) {
+        continue;
+      }
+      largest.set(position.reserve, collateral);
+      prices.set(position.reserve, {
+        liquidityMint: position.liquidityMint,
+        market: position.market,
+        observedAtMs: snapshot.observedAtMs,
+        reserve: position.reserve,
+        sharePrice:
+          Number((liquidity * SHARE_PRICE_SCALE) / collateral) /
+          Number(SHARE_PRICE_SCALE),
+        slot,
+      });
+    }
+  }
+
+  return [...prices.values()].sort((a, b) =>
+    a.reserve.localeCompare(b.reserve)
+  );
 }
 
 export function aggregateEarnFleetAllocation(
