@@ -814,6 +814,17 @@ export function dedupKey(
   payload: ClickStackWebhookPayload,
   analysis: AlertAnalysis
 ): string {
+  // A latched worker stops until a human clears it, so a latch must never be
+  // folded into a window opened by earlier noise or by an earlier latch. Keyed
+  // per evaluation range: a retry or a group split of the same evaluation
+  // stays one message, a later latch pages again. Read from the raw body so
+  // it still works when ALERT_COLUMNS has drifted and no rows parsed.
+  if (LATCHED_FIELD.test(payload.body)) {
+    return `${normalizeTitle(payload.title)}::latched::${evaluationKey(
+      payload
+    )}`;
+  }
+
   if (analysis.signatures.length === 0) {
     return payload.eventId;
   }
@@ -823,6 +834,9 @@ export function dedupKey(
   ].sort();
   return `${normalizeTitle(payload.title)}::${fnv1a(signatures.join("\n"))}`;
 }
+
+/** A quoted CSV field that is `latched` or ends in `.latched`, e.g. a stage or body. */
+const LATCHED_FIELD = /"(?:[^"\n]*\.)?latched"/;
 
 /** Drops the emoji and the matched-line count so only the alert name is left. */
 export function normalizeTitle(title: string): string {

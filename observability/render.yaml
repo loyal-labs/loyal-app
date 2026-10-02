@@ -48,7 +48,7 @@ projects:
             disk:
               name: clickstack-data
               mountPath: /var/lib/clickhouse
-              sizeGB: 10
+              sizeGB: 20
 
           # Relays ClickStack alert webhooks to Telegram and Slack. Private service: it is
           # reached only over this environment's private network, so the webhook
