@@ -1,0 +1,68 @@
+name: clickstack-original-20f4-publication
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/clickstack-original-20f4-publication]
+    paths: [.github/workflows/clickstack-original-publication.yml]
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: clickstack-original-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 20f4ba444a5508569b74bc0a2ac1f25350e770d4
+          persist-credentials: false
+      - name: Verify exact source bytes and bound context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 20f4ba444a5508569b74bc0a2ac1f25350e770d4
+          cd observability
+          printf '%s\n' \
+            '43c70173653cd16b3997d1c50c368f3a0c5e0d178a2d1463515b2a271b061277  Dockerfile' \
+            'fcb544ef9c49d0174254051c7d6d17727e274c907f2734ce388fd417bc8143c3  nginx.conf' \
+            '694a1028860e9408d6df85700edaa6a77c66827e601b5134bbc8377ec97f1be2  scripts/entrypoint.sh' \
+            'ed87ba1c4ff85711f0c62ec32e6772b8f4bd5bb51305ca911accdbd3bbf862ee  scripts/smoke-live.sh' | sha256sum -c -
+          printf '%s\n' '*' '!Dockerfile' '!Dockerfile.dockerignore' '!nginx.conf' '!scripts/' '!scripts/entrypoint.sh' '!scripts/smoke-live.sh' > Dockerfile.dockerignore
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: observability
+          file: observability/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/loyal-labs/loyal-app/clickstack:source-20f4ba444a5508569b74bc0a2ac1f25350e770d4-run-${{ github.run_id }}
+          labels: |
+            org.opencontainers.image.revision=20f4ba444a5508569b74bc0a2ac1f25350e770d4
+            org.opencontainers.image.source=https://github.com/loyal-labs/loyal-app
+            loyal.publication.revision=${{ github.sha }}
+            loyal.publication.run=${{ github.run_id }}
+          provenance: mode=max
+      - name: Record immutable output
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir publication
+          jq -n --arg digest "$DIGEST" --arg publication "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
+            '{image:"ghcr.io/loyal-labs/loyal-app/clickstack",digest:$digest,source_revision:"20f4ba444a5508569b74bc0a2ac1f25350e770d4",publication_revision:$publication,run_id:$run,platform:"linux/amd64",activation:false}' > publication/clickstack.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clickstack-original-${{ github.run_id }}
+          path: publication/clickstack.json
+          if-no-files-found: error
+          retention-days: 30
