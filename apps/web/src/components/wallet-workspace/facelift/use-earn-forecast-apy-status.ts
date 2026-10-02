@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { fetchEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
-import { FALLBACK_EARN_APY } from "@/lib/kamino/earn-forecast.client";
+import { useEarnForecastSummary } from "@/hooks/use-earn-forecast-summary";
+import {
+  FALLBACK_EARN_APY,
+  toForecastApy,
+} from "@/lib/kamino/earn-forecast.client";
 import type { EarnForecastApy } from "@/lib/kamino/earn-forecast.shared";
 
 type EarnForecastApyStatus = {
@@ -16,30 +17,9 @@ type EarnForecastApyStatus = {
 // flashing it and re-animating when the real number lands. A failed fetch
 // still reveals the fallback — the skeleton must never persist.
 export function useEarnForecastApyStatus(): EarnForecastApyStatus {
-  const [status, setStatus] = useState<EarnForecastApyStatus>({
-    apy: FALLBACK_EARN_APY,
-    isLoaded: false,
-  });
-
-  useEffect(() => {
-    let isMounted = true;
-
-    fetchEarnForecastApy()
-      .then((apy) => {
-        if (isMounted) {
-          setStatus({ apy, isLoaded: true });
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setStatus((current) => ({ ...current, isLoaded: true }));
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  return status;
+  const { summary, isLoaded } = useEarnForecastSummary();
+  return {
+    apy: summary ? toForecastApy(summary.forecast) : FALLBACK_EARN_APY,
+    isLoaded,
+  };
 }

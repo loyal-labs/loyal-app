@@ -1,7 +1,7 @@
 // Realized Earn APY from Kamino reserve share prices (liquidity per
-// collateral token). Share prices only rise with accrued interest, so their
-// growth is exactly what a depositor earned; no rate samples or routing
-// simulation are involved.
+// collateral token). Signed share-price growth measures realized reserve
+// returns; the headline annualizes the observed fleet allocation's return.
+// No rate samples or routing simulation are involved.
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -13,13 +13,27 @@ const LIVE_WINDOW_MS = DAY_MS;
 const LIVE_MIN_WINDOW_MS = 6 * HOUR_MS;
 const MAX_INTERPOLATION_GAP_MS = 6 * HOUR_MS;
 const MAX_STALENESS_MS = 3 * HOUR_MS;
+const MAX_ALLOCATION_GAP_MS = 6 * HOUR_MS;
 // Reserves lacking history may be ignored only while the rest still
 // represents this share of Earn AUM.
 const MIN_COVERED_WEIGHT_SHARE = 0.9;
+const IDLE_RESERVE = "__idle__";
 
 export type SharePricePoint = {
   observedAtMs: number;
   sharePrice: number;
+};
+
+export type EarnAllocationHistory = {
+  currentIdleMismatch: boolean;
+  vaults: { id: string; firstSeenAtMs: number }[];
+  snapshots: {
+    vaultId: string;
+    observedAtMs: number;
+    weights: ReadonlyMap<string, number>;
+    idleAmountRaw: number;
+    unsupported: boolean;
+  }[];
 };
 
 export type RealizedApySource = "realized_7d" | "live";
@@ -36,12 +50,13 @@ export type RealizedApyResult = {
   source: RealizedApySource;
   loyalSeries: RealizedApySample[];
   mainUsdcReserveSeries: RealizedApySample[];
+  measuredAtMs: number;
 };
 
 export type RealizedApyInput = {
   // Ascending by observedAtMs.
   histories: ReadonlyMap<string, readonly SharePricePoint[]>;
-  weights: ReadonlyMap<string, number>;
+  allocations: EarnAllocationHistory;
   benchmarkReserve: string;
   nowMs: number;
 };
@@ -114,9 +129,117 @@ function clampAndRoundBps(bps: number): number {
   return Math.max(0, Math.round(bps));
 }
 
-function weightedBps(
-  valuesByReserve: ReadonlyMap<string, number | null>,
-  weights: ReadonlyMap<string, number>
+type AllocationPoint = {
+  atMs: number;
+  incomplete: boolean;
+  weights: ReadonlyMap<string, number>;
+};
+
+function allocationTimeline(
+  allocations: EarnAllocationHistory
+): AllocationPoint[] {
+  type Snapshot = EarnAllocationHistory["snapshots"][number];
+  type Change =
+    | { atMs: number; kind: "start"; vaultId: string }
+    | { atMs: number; kind: "snapshot" | "expiry"; snapshot: Snapshot };
+  const changes: Change[] = allocations.vaults.map((vault) => ({
+    atMs: vault.firstSeenAtMs,
+    kind: "start",
+    vaultId: vault.id,
+  }));
+  for (const snapshot of allocations.snapshots) {
+    changes.push({ atMs: snapshot.observedAtMs, kind: "snapshot", snapshot });
+    if (
+      snapshot.idleAmountRaw > 0 ||
+      [...snapshot.weights.values()].some((weight) => weight > 0)
+    ) {
+      changes.push({
+        atMs: snapshot.observedAtMs + MAX_ALLOCATION_GAP_MS,
+        kind: "expiry",
+        snapshot,
+      });
+    }
+  }
+  changes.sort(
+    (a, b) =>
+      a.atMs - b.atMs ||
+      { start: 0, snapshot: 1, expiry: 2 }[a.kind] -
+        { start: 0, snapshot: 1, expiry: 2 }[b.kind]
+  );
+
+  const currentByVault = new Map<string, Snapshot>();
+  const invalidVaults = new Set<string>();
+  const weights = new Map<string, number>();
+  const timeline: AllocationPoint[] = [];
+  const addWeights = (snapshot: Snapshot, direction: number) => {
+    for (const [reserve, amount] of snapshot.weights) {
+      weights.set(reserve, (weights.get(reserve) ?? 0) + direction * amount);
+    }
+    weights.set(
+      IDLE_RESERVE,
+      (weights.get(IDLE_RESERVE) ?? 0) + direction * snapshot.idleAmountRaw
+    );
+  };
+  for (const change of changes) {
+    if (change.kind === "start") {
+      if (!currentByVault.has(change.vaultId)) {
+        invalidVaults.add(change.vaultId);
+      }
+    } else if (change.kind === "snapshot") {
+      const previous = currentByVault.get(change.snapshot.vaultId);
+      if (previous) {
+        addWeights(previous, -1);
+      }
+      currentByVault.set(change.snapshot.vaultId, change.snapshot);
+      addWeights(change.snapshot, 1);
+      if (change.snapshot.unsupported) {
+        invalidVaults.add(change.snapshot.vaultId);
+      } else {
+        invalidVaults.delete(change.snapshot.vaultId);
+      }
+    } else if (
+      currentByVault.get(change.snapshot.vaultId) === change.snapshot
+    ) {
+      invalidVaults.add(change.snapshot.vaultId);
+    }
+    const point = {
+      atMs: change.atMs,
+      incomplete: invalidVaults.size > 0,
+      weights: new Map(weights),
+    };
+    if (timeline.at(-1)?.atMs === point.atMs) {
+      timeline[timeline.length - 1] = point;
+    } else {
+      timeline.push(point);
+    }
+  }
+  return timeline;
+}
+
+function allocationIndexAt(
+  timeline: readonly AllocationPoint[],
+  atMs: number
+): number {
+  let low = 0;
+  let high = timeline.length - 1;
+  let index = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (timeline[middle].atMs <= atMs) {
+      index = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return index;
+}
+
+function coveredSegmentGrowth(
+  histories: RealizedApyInput["histories"],
+  weights: ReadonlyMap<string, number>,
+  startMs: number,
+  endMs: number
 ): number | null {
   let totalWeight = 0;
   let coveredWeight = 0;
@@ -126,10 +249,17 @@ function weightedBps(
       continue;
     }
     totalWeight += weight;
-    const value = valuesByReserve.get(reserve);
-    if (value !== null && value !== undefined) {
+    if (reserve === IDLE_RESERVE) {
       coveredWeight += weight;
-      weightedSum += weight * value;
+      weightedSum += weight;
+      continue;
+    }
+    const points = histories.get(reserve) ?? [];
+    const startPrice = sharePriceAt(points, startMs);
+    const endPrice = sharePriceAt(points, endMs);
+    if (startPrice !== null && startPrice > 0 && endPrice !== null) {
+      coveredWeight += weight;
+      weightedSum += weight * (endPrice / startPrice);
     }
   }
   if (
@@ -138,45 +268,138 @@ function weightedBps(
   ) {
     return null;
   }
-  return clampAndRoundBps(weightedSum / coveredWeight);
+  return weightedSum / coveredWeight;
+}
+
+// Deposits and withdrawals change size; reserve moves change only subsequent
+// returns. Full vault snapshots supply the allocation at each segment boundary.
+function portfolioAnnualizedGrowth(
+  input: RealizedApyInput,
+  timeline: readonly AllocationPoint[],
+  endMs: number,
+  windowMs: number,
+  minWindowMs: number
+): number | null {
+  const firstSnapshot = input.allocations.snapshots[0]?.observedAtMs;
+  if (firstSnapshot === undefined) {
+    return null;
+  }
+  const startMs = Math.max(endMs - windowMs, firstSnapshot);
+  const spanMs = endMs - startMs;
+  if (spanMs < minWindowMs) {
+    return null;
+  }
+
+  let atMs = startMs;
+  let growth = 1;
+  while (atMs < endMs) {
+    const index = allocationIndexAt(timeline, atMs);
+    const state = timeline[index];
+    if (!state || state.incomplete) {
+      return null;
+    }
+    const nextSnapshot = timeline[index + 1]?.atMs;
+    const nextHour = (Math.floor(atMs / HOUR_MS) + 1) * HOUR_MS;
+    const nextMs = Math.min(endMs, nextHour, nextSnapshot ?? endMs);
+    const segment = coveredSegmentGrowth(
+      input.histories,
+      state.weights,
+      atMs,
+      nextMs
+    );
+    if (segment === null || segment <= 0) {
+      return null;
+    }
+    growth *= segment;
+    atMs = nextMs;
+  }
+  return (growth ** (YEAR_MS / spanMs) - 1) * 10_000;
 }
 
 export function computeRealizedApy(
   input: RealizedApyInput
 ): RealizedApyResult | null {
-  const realizedByReserve = new Map<string, number | null>();
-  const liveByReserve = new Map<string, number | null>();
-
-  for (const reserve of input.weights.keys()) {
-    const points = input.histories.get(reserve) ?? [];
-    const latest = points[points.length - 1];
-    if (!latest || input.nowMs - latest.observedAtMs > MAX_STALENESS_MS) {
-      realizedByReserve.set(reserve, null);
-      liveByReserve.set(reserve, null);
-      continue;
-    }
-    realizedByReserve.set(
-      reserve,
-      annualizedGrowth(
-        points,
-        latest.observedAtMs,
-        REALIZED_WINDOW_MS,
-        REALIZED_WINDOW_MS
-      )
-    );
-    liveByReserve.set(
-      reserve,
-      annualizedGrowth(
-        points,
-        latest.observedAtMs,
-        LIVE_WINDOW_MS,
-        LIVE_MIN_WINDOW_MS
-      )
-    );
+  if (input.allocations.currentIdleMismatch) {
+    return null;
   }
-
-  const realized7dBps = weightedBps(realizedByReserve, input.weights);
-  const liveBps = weightedBps(liveByReserve, input.weights);
+  // Never let a future-dated recorder row set the measurement time or supply
+  // the interpolation point for a return that has not yet happened.
+  const boundedInput: RealizedApyInput = {
+    ...input,
+    histories: new Map(
+      [...input.histories].map(([reserve, points]) => [
+        reserve,
+        points.filter((point) => point.observedAtMs <= input.nowMs),
+      ])
+    ),
+  };
+  const timeline = allocationTimeline(input.allocations);
+  let measurementEndMs = Math.max(
+    ...[...boundedInput.histories.values()].flatMap((points) =>
+      points.length ? [points[points.length - 1].observedAtMs] : []
+    )
+  );
+  if (!Number.isFinite(measurementEndMs)) {
+    return null;
+  }
+  // A price may lag a later fleet sweep. Resolve the allocation as of the
+  // shared price timestamp, stepping back if active reserves differ there.
+  let aligned = false;
+  for (let attempt = 0; attempt <= timeline.length; attempt++) {
+    const state = timeline[allocationIndexAt(timeline, measurementEndMs)];
+    if (!state || state.incomplete) {
+      return null;
+    }
+    let coveredWeight = 0;
+    let totalWeight = 0;
+    const latestTimes: number[] = [];
+    for (const [reserve, weight] of state.weights) {
+      totalWeight += weight;
+      if (reserve === IDLE_RESERVE) {
+        coveredWeight += weight;
+        continue;
+      }
+      const points = boundedInput.histories.get(reserve) ?? [];
+      const latest = points[points.length - 1];
+      if (latest && input.nowMs - latest.observedAtMs <= MAX_STALENESS_MS) {
+        coveredWeight += weight;
+        latestTimes.push(latest.observedAtMs);
+      }
+    }
+    if (
+      totalWeight <= 0 ||
+      coveredWeight / totalWeight < MIN_COVERED_WEIGHT_SHARE ||
+      latestTimes.length === 0
+    ) {
+      return null;
+    }
+    const nextEndMs = Math.min(measurementEndMs, ...latestTimes);
+    if (nextEndMs === measurementEndMs) {
+      aligned = true;
+      break;
+    }
+    measurementEndMs = nextEndMs;
+  }
+  if (!aligned) {
+    return null;
+  }
+  const realizedGrowth = portfolioAnnualizedGrowth(
+    boundedInput,
+    timeline,
+    measurementEndMs,
+    REALIZED_WINDOW_MS,
+    REALIZED_WINDOW_MS
+  );
+  const liveGrowth = portfolioAnnualizedGrowth(
+    boundedInput,
+    timeline,
+    measurementEndMs,
+    LIVE_WINDOW_MS,
+    LIVE_MIN_WINDOW_MS
+  );
+  const realized7dBps =
+    realizedGrowth === null ? null : clampAndRoundBps(realizedGrowth);
+  const liveBps = liveGrowth === null ? null : clampAndRoundBps(liveGrowth);
   if (realized7dBps === null && liveBps === null) {
     return null;
   }
@@ -189,11 +412,12 @@ export function computeRealizedApy(
   return {
     headlineBps: useRealized ? realized7dBps : (liveBps as number),
     liveBps,
-    loyalSeries: buildLoyalSeries(input),
+    loyalSeries: buildLoyalSeries(boundedInput, timeline),
     mainUsdcReserveSeries: buildReserveSeries(
-      input.histories.get(input.benchmarkReserve) ?? [],
+      boundedInput.histories.get(input.benchmarkReserve) ?? [],
       input.nowMs
     ),
+    measuredAtMs: measurementEndMs,
     realized7dBps,
     source: useRealized ? "realized_7d" : "live",
   };
@@ -212,26 +436,24 @@ function seriesHours(nowMs: number): number[] {
   return hours;
 }
 
-// Uses today's AUM weights for every past hour; per-hour historical weights
-// are not stored.
-function buildLoyalSeries(input: RealizedApyInput): RealizedApySample[] {
+function buildLoyalSeries(
+  input: RealizedApyInput,
+  timeline: readonly AllocationPoint[]
+): RealizedApySample[] {
   const samples: RealizedApySample[] = [];
   for (const hour of seriesHours(input.nowMs)) {
-    const values = new Map<string, number | null>();
-    for (const reserve of input.weights.keys()) {
-      values.set(
-        reserve,
-        annualizedGrowth(
-          input.histories.get(reserve) ?? [],
-          hour,
-          REALIZED_WINDOW_MS,
-          REALIZED_WINDOW_MS
-        )
-      );
-    }
-    const apyBps = weightedBps(values, input.weights);
-    if (apyBps !== null) {
-      samples.push({ apyBps, observedAt: new Date(hour).toISOString() });
+    const growth = portfolioAnnualizedGrowth(
+      input,
+      timeline,
+      hour,
+      REALIZED_WINDOW_MS,
+      REALIZED_WINDOW_MS
+    );
+    if (growth !== null) {
+      samples.push({
+        apyBps: clampAndRoundBps(growth),
+        observedAt: new Date(hour).toISOString(),
+      });
     }
   }
   return samples;

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   computeRealizedApy,
+  type EarnAllocationHistory,
   type SharePricePoint,
 } from "./earn-realized-apy.shared";
 
@@ -33,14 +34,38 @@ function history(
 
 function run(
   histories: [string, SharePricePoint[]][],
-  weights: [string, number][]
+  weights: [string, number][],
+  allocations: EarnAllocationHistory = allocationHistory(() => weights)
 ) {
   return computeRealizedApy({
+    allocations,
     benchmarkReserve: BENCH,
     histories: new Map(histories),
     nowMs: NOW,
-    weights: new Map(weights),
   });
+}
+
+function allocationHistory(
+  weightsAt: (atMs: number) => [string, number][],
+  overrides: Partial<EarnAllocationHistory> = {}
+): EarnAllocationHistory {
+  const start = NOW - 10 * DAY;
+  const snapshots = [];
+  for (let at = start; at <= NOW; at += 5 * HOUR) {
+    snapshots.push({
+      idleAmountRaw: 0,
+      observedAtMs: at,
+      unsupported: false,
+      vaultId: "one",
+      weights: new Map(weightsAt(at)),
+    });
+  }
+  return {
+    currentIdleMismatch: false,
+    snapshots,
+    vaults: [{ firstSeenAtMs: start, id: "one" }],
+    ...overrides,
+  };
 }
 
 describe("computeRealizedApy", () => {
@@ -89,6 +114,136 @@ describe("computeRealizedApy", () => {
       ]
     );
     expect(result?.realized7dBps).toBe(550);
+  });
+
+  test("a rebalance changes only subsequent returns and preserves earlier chart hours", () => {
+    const allocations = allocationHistory((at) =>
+      at < NOW - DAY ? [[A, 1]] : [[B, 1]]
+    );
+    const result = run(
+      [
+        [A, history(0.04, 10)],
+        [B, history(0.16, 10)],
+      ],
+      [[B, 1]],
+      allocations
+    );
+    expect(result?.realized7dBps).toBeGreaterThan(500);
+    expect(result?.realized7dBps).toBeLessThan(700);
+    const before = result?.loyalSeries.find(
+      (sample) => Date.parse(sample.observedAt) === NOW - DAY - 5 * 60 * 1000
+    );
+    expect(before?.apyBps).toBe(400);
+  });
+
+  test("hourly as-of sampling applies an intra-hour rebalance at the next hour", () => {
+    const firstHour = NOW - 10 * DAY - 5 * 60 * 1000;
+    const rebalanceAt = NOW - 2 * DAY;
+    const snapshots = [];
+    for (let hour = firstHour; hour <= NOW; hour += HOUR) {
+      snapshots.push({
+        idleAmountRaw: 0,
+        observedAtMs: hour,
+        unsupported: false,
+        vaultId: "fleet",
+        weights: new Map([[hour < rebalanceAt ? A : B, 1]]),
+      });
+    }
+    const result = run(
+      [
+        [A, history(0.04, 10)],
+        [B, history(0.16, 10)],
+      ],
+      [[B, 1]],
+      {
+        currentIdleMismatch: false,
+        snapshots,
+        vaults: [{ firstSeenAtMs: firstHour, id: "fleet" }],
+      }
+    );
+    const prior = result?.loyalSeries.find(
+      (sample) => Date.parse(sample.observedAt) === rebalanceAt - 5 * 60 * 1000
+    );
+    const next = result?.loyalSeries.find(
+      (sample) =>
+        Date.parse(sample.observedAt) === rebalanceAt + 115 * 60 * 1000
+    );
+    expect(prior?.apyBps).toBe(400);
+    expect(next?.apyBps).toBeGreaterThan(400);
+  });
+
+  test("a fleet sweep after the latest share price does not invalidate an unchanged allocation", () => {
+    const allocations = allocationHistory(() => [[A, 1]]);
+    allocations.snapshots.push({
+      idleAmountRaw: 0,
+      observedAtMs: NOW - 60_000,
+      unsupported: false,
+      vaultId: "one",
+      weights: new Map([[A, 1]]),
+    });
+    const prices = history(0.06, 10, NOW - 5 * 60_000);
+    const result = run([[A, prices]], [[A, 1]], allocations);
+    expect(result?.headlineBps).toBe(600);
+    expect(result?.measuredAtMs).toBe(NOW - 5 * 60_000);
+  });
+
+  test("staggered reserve price samples interpolate to a common timestamp", () => {
+    const a = history(0.04, 10, NOW - 4 * 60_000);
+    const b = history(0.16, 10, NOW - 3 * 60_000);
+    const result = run(
+      [
+        [A, a],
+        [B, b],
+      ],
+      [
+        [A, 1],
+        [B, 1],
+      ]
+    );
+    expect(result?.measuredAtMs).toBe(NOW - 4 * 60_000);
+    expect(result?.headlineBps).toBeGreaterThan(900);
+    expect(result?.headlineBps).toBeLessThan(1100);
+  });
+
+  test("future share prices cannot become the measurement timestamp", () => {
+    const prices = history(0.06, 10, NOW + HOUR);
+    const result = run([[A, prices]], [[A, 1]]);
+    expect(result?.measuredAtMs).toBeLessThanOrEqual(NOW);
+  });
+
+  test("rejects unknown units, current idle mismatch, and missing allocation coverage", () => {
+    const prices: [string, SharePricePoint[]][] = [[A, history(0.06, 10)]];
+    const base = allocationHistory(() => [[A, 1]]);
+    expect(
+      run(prices, [[A, 1]], { ...base, currentIdleMismatch: true })
+    ).toBeNull();
+    const damaged = run(prices, [[A, 1]], {
+      ...base,
+      snapshots: base.snapshots.map((snapshot, index) =>
+        index === 20 ? { ...snapshot, unsupported: true } : snapshot
+      ),
+    });
+    expect(damaged?.realized7dBps).toBeNull();
+    expect(damaged?.source).toBe("live");
+    expect(
+      run(prices, [[A, 1]], {
+        ...base,
+        snapshots: base.snapshots.slice(0, -3),
+      })
+    ).toBeNull();
+  });
+
+  test("counts documented idle balance as zero earning capital", () => {
+    const base = allocationHistory(() => [[A, 1]]);
+    const allocations = {
+      ...base,
+      snapshots: base.snapshots.map((snapshot) => ({
+        ...snapshot,
+        idleAmountRaw: 1,
+      })),
+    };
+    const result = run([[A, history(0.06, 10)]], [[A, 1]], allocations);
+    expect(result?.realized7dBps).toBe(296);
   });
 
   test("returns null when weighted reserves with history cover under 90% of AUM", () => {
@@ -168,8 +323,8 @@ describe("computeRealizedApy", () => {
         [B, 2],
       ]
     );
-    // 0.8 * 600bps + 0.2 * (-1000bps) = 280bps, not
-    // 0.8 * 600bps + 0.2 * max(0, -1000bps) = 480bps.
-    expect(result?.realized7dBps).toBe(280);
+    // Compounded segment growth yields about 259bps; flooring losses first
+    // would materially inflate the displayed rate.
+    expect(result?.realized7dBps).toBe(259);
   });
 });

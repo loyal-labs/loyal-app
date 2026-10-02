@@ -5,13 +5,14 @@ import { Stablecoin } from "@loyal-labs/actions/types";
 
 import {
   computeRealizedApy,
+  type EarnAllocationHistory,
   REALIZED_WINDOW_MS,
   type RealizedApyResult,
   SERIES_WINDOW_MS,
   type SharePricePoint,
 } from "./earn-realized-apy.shared";
 import {
-  loadEarnAumWeightsByReserve,
+  loadEarnAllocationHistory,
   loadReserveSharePriceHistories,
 } from "./earn-reserve-share-price-repository.server";
 import {
@@ -596,7 +597,10 @@ export function resetEarnForecastCacheForTests() {
 
 export type RealizedEarnForecastDependencies = {
   cluster: string;
-  loadWeights: () => Promise<Map<string, number>>;
+  loadAllocations: (
+    sinceMs: number,
+    nowMs: number
+  ) => Promise<EarnAllocationHistory>;
   loadHistories: (
     reserves: string[],
     sinceMs: number
@@ -607,9 +611,10 @@ function createRealizedDependencies(): RealizedEarnForecastDependencies {
   const cluster = resolveEarnForecastCluster();
   return {
     cluster,
+    loadAllocations: (sinceMs, nowMs) =>
+      loadEarnAllocationHistory(sinceMs, nowMs),
     loadHistories: (reserves, sinceMs) =>
       loadReserveSharePriceHistories(cluster, reserves, sinceMs),
-    loadWeights: () => loadEarnAumWeightsByReserve(),
   };
 }
 
@@ -618,7 +623,7 @@ function realizedResultToForecast(
   now: Date
 ): MediumFeeAwareEarnForecastResult {
   const window = {
-    endedAt: now.toISOString(),
+    endedAt: new Date(result.measuredAtMs).toISOString(),
     startedAt: result.loyalSeries[0]?.observedAt ?? now.toISOString(),
   };
   const seriesBps = result.loyalSeries.map((sample) => sample.apyBps);
@@ -652,11 +657,12 @@ function realizedResultToForecast(
     },
     summary: {
       apyBps: result.headlineBps,
+      availability: "available",
       rangeHighBps: Math.max(result.headlineBps, ...seriesBps),
       rangeLowBps: Math.min(result.headlineBps, ...seriesBps),
       source: result.source,
       strategy: REALIZED_STRATEGY,
-      updatedAt: now.toISOString(),
+      updatedAt: new Date(result.measuredAtMs).toISOString(),
       window,
     },
   };
@@ -666,36 +672,43 @@ export async function getRealizedEarnForecastFromDependencies(
   deps: RealizedEarnForecastDependencies,
   now = new Date()
 ): Promise<MediumFeeAwareEarnForecastResult | null> {
-  const weights = await deps.loadWeights();
-  const reserves = [
-    ...new Set([...weights.keys(), KAMINO_MAIN_MARKET_USDC_RESERVE]),
-  ];
-  const histories = await deps.loadHistories(
-    reserves,
+  const sinceMs =
     now.getTime() -
-      SERIES_WINDOW_MS -
-      REALIZED_WINDOW_MS -
-      HISTORY_LOOKBACK_SLACK_MS
-  );
+    SERIES_WINDOW_MS -
+    REALIZED_WINDOW_MS -
+    HISTORY_LOOKBACK_SLACK_MS;
+  const allocations = await deps.loadAllocations(sinceMs, now.getTime());
+  const reserves = [
+    ...new Set([
+      ...allocations.snapshots.flatMap((snapshot) => [
+        ...snapshot.weights.keys(),
+      ]),
+      KAMINO_MAIN_MARKET_USDC_RESERVE,
+    ]),
+  ];
+  const histories = await deps.loadHistories(reserves, sinceMs);
   const result = computeRealizedApy({
     benchmarkReserve: KAMINO_MAIN_MARKET_USDC_RESERVE,
+    allocations,
     histories,
     nowMs: now.getTime(),
-    weights,
   });
   if (!result) {
     const nowMs = now.getTime();
-    const staleOrMissingReserves = [...weights.keys()].filter((reserve) => {
-      const points = histories.get(reserve);
-      const latest = points?.[points.length - 1];
-      return (
-        !latest ||
-        nowMs - latest.observedAtMs > REALIZED_APY_STALE_LOG_THRESHOLD_MS
-      );
-    });
+    const latestWeights = allocations.snapshots.at(-1)?.weights ?? new Map();
+    const staleOrMissingReserves = [...latestWeights.keys()].filter(
+      (reserve) => {
+        const points = histories.get(reserve);
+        const latest = points?.[points.length - 1];
+        return (
+          !latest ||
+          nowMs - latest.observedAtMs > REALIZED_APY_STALE_LOG_THRESHOLD_MS
+        );
+      }
+    );
     console.warn("[earn-forecast] realized APY unavailable", {
       staleOrMissingReserves,
-      weightedReserveCount: weights.size,
+      weightedReserveCount: latestWeights.size,
     });
     return null;
   }
@@ -831,7 +844,34 @@ export async function getMediumFeeAwareEarnForecast(
     lastRealized = realized;
   }
 
-  const value = realized ?? lastRealized ?? fallbackResult(now);
-  cache = { expiresAt: now.getTime() + CACHE_TTL_MS, value };
+  const recentLastRealized =
+    lastRealized &&
+    now.getTime() - Date.parse(lastRealized.summary.updatedAt) <=
+      REALIZED_APY_STALE_LOG_THRESHOLD_MS
+      ? lastRealized
+      : null;
+  const value =
+    realized ??
+    (recentLastRealized
+      ? {
+          ...recentLastRealized,
+          summary: {
+            ...recentLastRealized.summary,
+            availability: "stale" as const,
+          },
+        }
+      : fallbackResult(now));
+  const remainingFreshMs =
+    value.summary.availability === "unavailable"
+      ? CACHE_TTL_MS
+      : Math.max(
+          0,
+          REALIZED_APY_STALE_LOG_THRESHOLD_MS -
+            (now.getTime() - Date.parse(value.summary.updatedAt))
+        );
+  cache = {
+    expiresAt: now.getTime() + Math.min(CACHE_TTL_MS, remainingFreshMs),
+    value,
+  };
   return value;
 }

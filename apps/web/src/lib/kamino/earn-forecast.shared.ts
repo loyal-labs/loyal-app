@@ -9,6 +9,7 @@ export type EarnForecastResponse = {
     | "realized_7d_share_price";
   // Which measurement won for the realized strategy; absent otherwise.
   source?: "realized_7d" | "live";
+  availability?: "available" | "stale" | "unavailable";
   apyBps: number;
   rangeLowBps: number;
   rangeHighBps: number;
@@ -18,7 +19,7 @@ export type EarnForecastResponse = {
 
 export type EarnForecastApy = Pick<
   EarnForecastResponse,
-  "apyBps" | "rangeHighBps" | "rangeLowBps"
+  "apyBps" | "availability" | "rangeHighBps" | "rangeLowBps"
 >;
 
 export type EarnForecastApyHistorySample = {
@@ -51,6 +52,7 @@ export type EarnForecastSummaryResponse = {
 // below the measured realized APY (6.44%, 2026-09-22) so an outage cannot
 // overpromise.
 export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
+  availability: "unavailable",
   apyBps: 600,
   rangeHighBps: 600,
   rangeLowBps: 600,
@@ -64,7 +66,16 @@ export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
   },
 };
 
-export function formatEarnApyLabel(apyBps: number): string {
+export function formatEarnApyLabel(
+  apyBps: number,
+  availability: EarnForecastResponse["availability"] = "available"
+): string {
+  if (availability === "unavailable") {
+    return "APY unavailable";
+  }
+  if (availability === "stale") {
+    return `${(apyBps / 100).toFixed(2)}% APY (stale)`;
+  }
   return `${(apyBps / 100).toFixed(2)}% APY`;
 }
 

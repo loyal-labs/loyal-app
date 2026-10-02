@@ -87,7 +87,10 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   const estimatedEarnedAmounts = deriveEarnEarningsDisplayAmounts({
     apyBps: deriveEstimatedEarnedAmountApyBps({
       earningsData: lifetimeData,
-      fallbackApyBps: earnForecastApy.apyBps,
+      fallbackApyBps:
+        earnForecastApy.availability === "unavailable"
+          ? 0
+          : earnForecastApy.apyBps,
     }),
     canLiveEstimate,
     dailyData,
