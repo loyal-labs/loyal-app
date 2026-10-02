@@ -4756,34 +4756,31 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
           Showing available recorded history
         </span>
       ) : null}
-      <HydratedHistoricalApyChart {...props} />
+      <HydratedHistoricalApyChart
+        {...props}
+        apyHistory={history}
+        samples={downsampleHistoricalApySamples(visibleSamples)}
+      />
     </>
   );
 }
 
 function HydratedHistoricalApyChart({
   apyDataRevealed,
+  apyHistory,
   axisTickCount = 2,
   rangeId,
-}: HistoricalApyChartProps) {
+  samples,
+}: HistoricalApyChartProps & {
+  apyHistory: EarnForecastApyHistoryResponse;
+  samples: HistoricalApySample[];
+}) {
   // Unique per instance so simultaneously mounted charts (e.g. compact pane +
   // expanded overlay) don't resolve each other's reveal clip rects.
   const revealClipId = `historical-chart-reveal-clip-${useId().replace(
     /[^a-zA-Z0-9_-]/g,
     ""
   )}`;
-  const apyHistory = useEarnForecastApyHistory();
-  const samples = useMemo(() => {
-    const fetchedSamples = toHistoricalApySamples(apyHistory);
-    return downsampleHistoricalApySamples(
-      fetchedSamples.filter(
-        (sample) =>
-          sample.observedAtMs >=
-          Date.now() -
-            HISTORICAL_RANGE_CONFIG[rangeId].spanDays * 24 * 60 * 60 * 1000
-      )
-    );
-  }, [apyHistory, rangeId]);
   const mainUsdcSamples = useMemo(() => {
     if (rangeId !== "30D") {
       return [];
