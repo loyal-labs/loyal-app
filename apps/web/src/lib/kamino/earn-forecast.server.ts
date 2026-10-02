@@ -15,6 +15,10 @@ import type {
   TimescaleSupportedReserveRow,
 } from "./timescale-reserve-client.server";
 import {
+  type OverridableSolanaEnv,
+  resolveLoyalWebSolanaEnvFromEnv,
+} from "@/lib/core/config/solana-env-override";
+import {
   getLatestEarnApyHourlyForecast,
   getLatestEarnForecastSnapshot,
   snapshotRecordToEarnForecast,
@@ -37,7 +41,6 @@ export const KAMINO_MAIN_MARKET_USDC_RESERVE =
   "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59";
 export const KAMINO_MAIN_MARKET_USDC_MINT =
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const SOLANA_ENV_ENV_NAME = "NEXT_PUBLIC_SOLANA_ENV";
 const SAFE_FEE_AWARE_STRATEGY = "safe_fee_aware_1bps";
 const MEDIUM_FEE_AWARE_STRATEGY = "medium_fee_aware_1bps";
 const SAFE_RISK_PROFILE = "safe";
@@ -519,12 +522,16 @@ export function computeMediumFeeAwareEarnForecast(
   };
 }
 
-function resolveEarnForecastCluster(): string {
-  const cluster = process.env[SOLANA_ENV_ENV_NAME];
-  if (cluster === "devnet" || cluster === "localnet") {
-    return cluster;
-  }
-  return "mainnet-beta";
+// One resolver for both the RPC environment and the cluster label written to
+// Yield Neon, so an env override can never record rows under the wrong label.
+export function resolveEarnForecastSolanaEnv(): OverridableSolanaEnv {
+  return resolveLoyalWebSolanaEnvFromEnv(process.env);
+}
+
+export function resolveEarnForecastCluster(): string {
+  return resolveEarnForecastSolanaEnv() === "devnet"
+    ? "devnet"
+    : "mainnet-beta";
 }
 
 function getTimescaleDatabaseUrl(): string | null {
