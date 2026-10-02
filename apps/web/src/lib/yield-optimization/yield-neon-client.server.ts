@@ -661,7 +661,7 @@ export const earnApyHourlySnapshots = loyalYieldSchema.table(
 );
 
 // Hourly Kamino reserve share prices (liquidity per collateral token).
-// Migration owned by loyal-yield-routing (0074_earn_reserve_share_prices).
+// Migration owned by loyal-yield-routing (0084_earn_reserve_share_prices).
 export const earnReserveSharePrices = loyalYieldSchema.table(
   "earn_reserve_share_prices",
   {

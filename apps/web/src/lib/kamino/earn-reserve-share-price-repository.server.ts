@@ -55,6 +55,10 @@ export async function upsertReserveSharePrices(
         sharePrice: sql`excluded.share_price`,
         slot: sql`excluded.slot`,
       },
+      // A delayed overlapping cron must not replace newer reserve state.
+      setWhere: sql`excluded.slot > ${earnReserveSharePrices.slot}
+        OR (excluded.slot = ${earnReserveSharePrices.slot}
+          AND excluded.observed_at >= ${earnReserveSharePrices.observedAt})`,
     });
 }
 

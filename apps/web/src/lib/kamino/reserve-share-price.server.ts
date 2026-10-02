@@ -26,6 +26,7 @@ import {
 } from "./timescale-reserve-client.server";
 
 const HOUR_MS = 60 * 60 * 1000;
+const MAX_RESERVE_AGE_MS = 3 * HOUR_MS;
 const ACCOUNTS_PER_REQUEST = 100;
 // Large probe amount so integer rounding in the redeem calculation is
 // negligible relative to the share price.
@@ -37,6 +38,8 @@ export function sharePriceFromReserveAccount(data: Buffer): {
   liquidityMint: string;
   collateralSupplyRaw: bigint;
   totalLiquiditySupplyScaled: bigint;
+  reserveLastUpdateSlot: number;
+  reserveLastUpdateStale: boolean;
 } {
   const snapshot = parseKaminoReserveSnapshot(data);
   const accounts = parseKaminoReserveTokenAccounts(data);
@@ -51,12 +54,17 @@ export function sharePriceFromReserveAccount(data: Buffer): {
     market: accounts.lendingMarket.toBase58(),
     sharePrice: Number(liquidityRaw) / Number(SHARE_PRICE_PROBE_COLLATERAL_RAW),
     totalLiquiditySupplyScaled: snapshot.totalLiquiditySupplyScaled,
+    // Kamino Reserve: 8-byte discriminator, u64 version, then LastUpdate
+    // (u64 slot, u8 stale). Decode only after the SDK validates the account.
+    reserveLastUpdateSlot: Number(data.readBigUInt64LE(16)),
+    reserveLastUpdateStale: data[24] !== 0,
   };
 }
 
 export type RecordSharePriceDependencies = {
   cluster: string;
   connection: {
+    getBlockTime: (slot: number) => Promise<number | null>;
     getMultipleAccountsInfoAndContext: (keys: PublicKey[]) => Promise<{
       context: { slot: number };
       value: (Pick<AccountInfo<Buffer>, "data"> | null)[];
@@ -83,11 +91,9 @@ export async function recordEarnReserveSharePrices(
       KAMINO_MAIN_MARKET_USDC_RESERVE,
     ]),
   ];
-  const observedHour = new Date(
-    Math.floor(deps.now.getTime() / HOUR_MS) * HOUR_MS
-  );
   const rows: ReserveSharePriceRow[] = [];
   const missing: string[] = [];
+  const blockTimes = new Map<number, number | null>();
 
   for (let start = 0; start < reserves.length; start += ACCOUNTS_PER_REQUEST) {
     const chunk = reserves.slice(start, start + ACCOUNTS_PER_REQUEST);
@@ -96,38 +102,62 @@ export async function recordEarnReserveSharePrices(
         chunk.map((reserve) => new PublicKey(reserve))
       );
 
-    chunk.forEach((reserve, index) => {
+    for (const [index, reserve] of chunk.entries()) {
       const account = value[index];
       if (!account) {
         missing.push(reserve);
-        return;
+        continue;
       }
       try {
         const parsed = sharePriceFromReserveAccount(account.data);
         if (
           parsed.collateralSupplyRaw === BigInt(0) ||
-          parsed.totalLiquiditySupplyScaled === BigInt(0)
+          parsed.totalLiquiditySupplyScaled === BigInt(0) ||
+          !Number.isFinite(parsed.sharePrice) ||
+          parsed.sharePrice <= 0 ||
+          parsed.reserveLastUpdateStale ||
+          !Number.isSafeInteger(parsed.reserveLastUpdateSlot) ||
+          parsed.reserveLastUpdateSlot <= 0 ||
+          parsed.reserveLastUpdateSlot > context.slot
         ) {
           missing.push(reserve);
-          return;
+          continue;
+        }
+        const updateSlot = parsed.reserveLastUpdateSlot;
+        if (!blockTimes.has(updateSlot)) {
+          blockTimes.set(
+            updateSlot,
+            await deps.connection.getBlockTime(updateSlot)
+          );
+        }
+        const blockTime = blockTimes.get(updateSlot);
+        const observedAtMs = blockTime == null ? NaN : blockTime * 1000;
+        if (
+          !Number.isFinite(observedAtMs) ||
+          observedAtMs > deps.now.getTime() ||
+          deps.now.getTime() - observedAtMs > MAX_RESERVE_AGE_MS
+        ) {
+          missing.push(reserve);
+          continue;
         }
         rows.push({
           liquidityMint: parsed.liquidityMint,
           market: parsed.market,
-          observedAt: deps.now,
-          observedHour,
+          // Timestamp the actual reserve state, not the time it was polled.
+          observedAt: new Date(observedAtMs),
+          observedHour: new Date(Math.floor(observedAtMs / HOUR_MS) * HOUR_MS),
           reserve,
           sharePrice: parsed.sharePrice,
-          slot: context.slot,
+          slot: updateSlot,
         });
       } catch (error) {
-        console.warn("[earn-share-price] unparseable reserve", {
+        console.warn("[earn-share-price] unavailable reserve observation", {
           error,
           reserve,
         });
         missing.push(reserve);
       }
-    });
+    }
   }
 
   await deps.upsert(deps.cluster, rows);
