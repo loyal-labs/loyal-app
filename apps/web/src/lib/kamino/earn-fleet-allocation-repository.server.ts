@@ -41,10 +41,12 @@ function jsonArray<T>(value: unknown): T[] {
   return Array.isArray(parsed) ? (parsed as T[]) : [];
 }
 
-// One row per Earn vault with its latest complete snapshot, that snapshot's
-// funded positions and the vault's current idle balances. Each vault costs
-// one top-1 probe of the complete-snapshot history index, so the read stays
-// bounded by fleet size and never scans snapshot history.
+// One row per active Earn vault with its latest complete snapshot, that
+// snapshot's funded positions and the vault's current idle balances. Inactive
+// vaults are left out: their complete snapshots are missing or stale, so
+// their capital cannot be placed. Each vault costs one top-1 probe of the
+// complete-snapshot history index, so the read stays bounded by fleet size
+// and never scans snapshot history.
 export async function loadEarnFleetVaultStates(
   now: Date,
   client: YieldOptimizationClient = getYieldOptimizationClient()
@@ -94,6 +96,7 @@ export async function loadEarnFleetVaultStates(
       LIMIT 1
     ) AS snapshot ON true
     WHERE vault.vault_index = ${EARN_VAULT_INDEX}
+      AND vault.active = true
       AND vault.first_seen_at <= ${asOf}::timestamptz
     ORDER BY vault.id
   `;
