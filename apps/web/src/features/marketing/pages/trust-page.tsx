@@ -56,7 +56,12 @@ export function TrustPage({
       </script>
 
       <LandingScrollAnimations />
-      <LandingHeader copy={common.header} locale={locale} />
+      <LandingHeader
+        copy={common.header}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/trust"
+      />
 
       {/* Block 1 — Hero (light) */}
       <Hero
@@ -189,7 +194,12 @@ export function TrustPage({
         items={common.faq.items}
         locale={locale}
       />
-      <LandingFooter copy={common.footer} locale={locale} />
+      <LandingFooter
+        copy={common.footer}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/trust"
+      />
     </main>
   );
 }

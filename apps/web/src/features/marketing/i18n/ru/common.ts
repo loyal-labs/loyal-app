@@ -29,6 +29,7 @@ export const ruCommon: CommonDict = {
     startEarning: "Начать зарабатывать",
     openApp: "Открыть приложение",
   },
+  languageSwitch: { ariaLabel: "Язык" },
   footer: {
     homeAriaLabel: "Loyal: на главную",
     columns: {

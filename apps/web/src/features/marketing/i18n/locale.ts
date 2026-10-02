@@ -35,3 +35,12 @@ export function localizedHref(locale: Locale, href: string): string {
   }
   return `${prefix}${path === "/" ? "" : path}${hash}`;
 }
+
+/** hreflang map for a translated path. English is the x-default. */
+export function alternateLanguages(path: TranslatedPath) {
+  return {
+    en: path,
+    ru: localizedHref("ru", path),
+    "x-default": path,
+  };
+}

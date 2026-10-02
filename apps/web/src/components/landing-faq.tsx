@@ -8,7 +8,6 @@ import type { FaqItem } from "@/features/marketing/i18n/types";
 
 export type { FaqItem } from "@/features/marketing/i18n/types";
 
-
 export function LandingFaq({
   items = enCommon.faq.items,
   heading = enCommon.faq.heading,

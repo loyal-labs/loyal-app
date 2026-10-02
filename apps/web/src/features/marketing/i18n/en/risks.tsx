@@ -15,8 +15,8 @@ export const enRisks = {
     description:
       "Every way a Loyal Earn deposit can lose money, what the automation is allowed to do, and what it can't. Earn lends your stablecoins on Kamino from your own Squads smart account.",
     ogImageAlt: "Loyal Earn risks",
-  } as PageMeta,
-  breadcrumb: { home: "Home", page: "Risks" } as BreadcrumbCopy,
+  } satisfies PageMeta,
+  breadcrumb: { home: "Home", page: "Risks" } satisfies BreadcrumbCopy,
   // Empty in English. Translations may set a notice rendered above the page body.
   legalNotice: "",
   hero: {
@@ -175,7 +175,7 @@ export const enRisks = {
       containment:
         "Your funds stay in your smart account. Any Solana client, including the CLI, can withdraw them.",
     },
-  ] as RiskRow[],
+  ] satisfies RiskRow[],
   compareRows: [
     {
       label: "Who holds the funds",
@@ -219,7 +219,7 @@ export const enRisks = {
       aave: "2020",
       exchange: "Varies",
     },
-  ] as CompareRow[],
+  ] satisfies CompareRow[],
   faqs: [
     {
       question: "Is Loyal Earn safe?",
@@ -256,7 +256,7 @@ export const enRisks = {
       answer:
         "Not automatically yet. Loyal Watchdog, in development with Webacy, will watch connected protocols for health drops and hack signals and pull funds back into your own account through a whitelisted policy. Until it ships, a Kamino exploit affects Earn deposits the same way it affects any Kamino lender.",
     },
-  ] as FaqItem[],
+  ] satisfies FaqItem[],
 };
 
 export type RisksDict = typeof enRisks;

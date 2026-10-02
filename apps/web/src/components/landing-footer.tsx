@@ -8,7 +8,12 @@ import {
   type CommonDict,
   enCommon,
 } from "@/features/marketing/i18n/en/common";
-import { type Locale, localizedHref } from "@/features/marketing/i18n/locale";
+import {
+  type Locale,
+  localizedHref,
+  type TranslatedPath,
+} from "@/features/marketing/i18n/locale";
+import { LanguageSwitch } from "@/features/marketing/ui/language-switch";
 
 type FooterCopy = CommonDict["footer"];
 
@@ -127,9 +132,13 @@ function FooterTextLink({
 export function LandingFooter({
   locale = "en",
   copy = enCommon.footer,
+  path = "/",
+  languageSwitchLabel = enCommon.languageSwitch.ariaLabel,
 }: {
   locale?: Locale;
   copy?: FooterCopy;
+  path?: TranslatedPath;
+  languageSwitchLabel?: string;
 } = {}) {
   const footerColumns = buildFooterColumns(locale, copy);
 
@@ -197,6 +206,12 @@ export function LandingFooter({
         >
           <div className="flex flex-col gap-4 text-[16px] leading-5 tracking-[-0.02em] text-[#3c3c43]/40 sm:flex-row sm:items-center sm:gap-8">
             <p>{copy.copyright}</p>
+            <LanguageSwitch
+              ariaLabel={languageSwitchLabel}
+              className="text-black"
+              locale={locale}
+              path={path}
+            />
             <iframe
               className="h-[30px] w-[250px] border-0 [color-scheme:normal]"
               height="30"

@@ -58,7 +58,12 @@ export function LandingPage({
     <main className="min-h-screen overflow-x-clip bg-white text-black">
       <LandingAnalyticsBootstrap />
       <LandingScrollAnimations />
-      <LandingHeader copy={common.header} locale={locale} />
+      <LandingHeader
+        copy={common.header}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/"
+      />
       <LandingHero copy={dict.hero} />
       <LandingSupportedBy copy={dict.supportedBy} />
 
@@ -203,7 +208,12 @@ export function LandingPage({
 
       <LandingGetStarted copy={dict.getStarted} />
 
-      <LandingFooter copy={common.footer} locale={locale} />
+      <LandingFooter
+        copy={common.footer}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/"
+      />
     </main>
   );
 }

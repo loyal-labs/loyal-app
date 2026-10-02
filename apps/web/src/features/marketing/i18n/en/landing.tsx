@@ -1,6 +1,9 @@
 import type { PageMeta } from "../types";
 
 export const enLanding = {
+  // Mirrors the English `metadata` in src/app/layout.tsx (the English `/` route
+  // still inherits it). Keep the two in sync by hand: the Russian `meta` is
+  // translated from this one.
   meta: {
     title: "Loyal: Solana Wallet That Earns Yield Automatically",
     description:

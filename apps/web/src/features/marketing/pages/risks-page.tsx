@@ -53,7 +53,12 @@ export function RisksPage({
       </script>
 
       <LandingScrollAnimations />
-      <LandingHeader copy={common.header} locale={locale} />
+      <LandingHeader
+        copy={common.header}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/risks"
+      />
 
       {/* Hero is light, so the notice sits directly under the header on white */}
       {dict.legalNotice ? (
@@ -170,7 +175,12 @@ export function RisksPage({
         items={dict.faqs}
         locale={locale}
       />
-      <LandingFooter copy={common.footer} locale={locale} />
+      <LandingFooter
+        copy={common.footer}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/risks"
+      />
     </main>
   );
 }

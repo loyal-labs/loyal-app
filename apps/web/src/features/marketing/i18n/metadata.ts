@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 
 import { SITE_URL } from "@/lib/seo/site";
 
-import { type Locale, localizedHref, type TranslatedPath } from "./locale";
+import {
+  alternateLanguages,
+  type Locale,
+  localizedHref,
+  type TranslatedPath,
+} from "./locale";
 import type { BreadcrumbCopy, PageMeta } from "./types";
 
 const OG_LOCALE: Partial<Record<Locale, string>> = { ru: "ru_RU" };
@@ -26,7 +31,7 @@ export function buildPageMetadata({
   return {
     title: meta.title,
     description: meta.description,
-    alternates: { canonical: url },
+    alternates: { canonical: url, languages: alternateLanguages(path) },
     robots: { index: true, follow: true },
     openGraph: {
       type: "website",

@@ -14,8 +14,13 @@ import {
   type CommonDict,
   enCommon,
 } from "@/features/marketing/i18n/en/common";
-import { type Locale, localizedHref } from "@/features/marketing/i18n/locale";
+import {
+  type Locale,
+  localizedHref,
+  type TranslatedPath,
+} from "@/features/marketing/i18n/locale";
 import { fillTemplate } from "@/features/marketing/i18n/template";
+import { LanguageSwitch } from "@/features/marketing/ui/language-switch";
 import {
   MARKETING_PAGE_SLUGS,
   type MarketingPage,
@@ -64,9 +69,13 @@ const stickyRevealOffset = 68;
 export function LandingHeader({
   locale = "en",
   copy = enCommon.header,
+  path = "/",
+  languageSwitchLabel = enCommon.languageSwitch.ariaLabel,
 }: {
   locale?: Locale;
   copy?: HeaderCopy;
+  path?: TranslatedPath;
+  languageSwitchLabel?: string;
 } = {}) {
   const navLinks = buildNavLinks(locale, copy);
   const featurePages = buildFeaturePages(copy);
@@ -227,11 +236,13 @@ export function LandingHeader({
           isEyeOpen={isIntroEyeOpen}
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
+          languageSwitchLabel={languageSwitchLabel}
           locale={locale}
           loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-static"
           menuId="landing-mobile-menu-static"
           navLinks={navLinks}
+          path={path}
           featurePages={featurePages}
           onMenuOpenChange={setIsMenuOpen}
           shouldAnimateIn
@@ -254,11 +265,13 @@ export function LandingHeader({
           isEyeOpen
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
+          languageSwitchLabel={languageSwitchLabel}
           locale={locale}
           loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-sticky"
           menuId="landing-mobile-menu-sticky"
           navLinks={navLinks}
+          path={path}
           featurePages={featurePages}
           onMenuOpenChange={setIsMenuOpen}
           tokenTicker={tokenTicker}
@@ -276,12 +289,14 @@ function HeaderContent({
   isEyeOpen,
   isMenuOpen,
   isBlinking,
+  languageSwitchLabel,
   locale,
   loyalAppUrl,
   maskId,
   menuId,
   navLinks,
   onMenuOpenChange,
+  path,
   shouldAnimateIn = false,
   tokenTicker = null,
 }: {
@@ -292,12 +307,14 @@ function HeaderContent({
   isEyeOpen: boolean;
   isMenuOpen: boolean;
   isBlinking: boolean;
+  languageSwitchLabel: string;
   locale: Locale;
   loyalAppUrl: string;
   maskId: string;
   menuId: string;
   navLinks: NavItem[];
   onMenuOpenChange: (isOpen: boolean) => void;
+  path: TranslatedPath;
   shouldAnimateIn?: boolean;
   tokenTicker?: LoyalTokenTickerData | null;
 }) {
@@ -434,6 +451,14 @@ function HeaderContent({
           </Link>
         )}
 
+        <LanguageSwitch
+          ariaLabel={languageSwitchLabel}
+          className="text-white"
+          locale={locale}
+          path={path}
+          tabIndex={linkTabIndex}
+        />
+
         <Link
           className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
           href={loyalAppUrl}
@@ -513,6 +538,13 @@ function HeaderContent({
               </Link>
             );
           })}
+          <LanguageSwitch
+            ariaLabel={languageSwitchLabel}
+            className="px-3 py-2"
+            locale={locale}
+            path={path}
+            tabIndex={isMenuOpen && interactive ? undefined : -1}
+          />
         </nav>
       </div>
     </div>

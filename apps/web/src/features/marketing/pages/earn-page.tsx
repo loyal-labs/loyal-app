@@ -55,7 +55,12 @@ export function EarnPage({
       </script>
 
       <LandingScrollAnimations />
-      <LandingHeader copy={common.header} locale={locale} />
+      <LandingHeader
+        copy={common.header}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/earn"
+      />
 
       {/* Block 1 — Hero (dark) */}
       <Hero
@@ -235,7 +240,12 @@ export function EarnPage({
         items={dict.faqs}
         locale={locale}
       />
-      <LandingFooter copy={common.footer} locale={locale} />
+      <LandingFooter
+        copy={common.footer}
+        languageSwitchLabel={common.languageSwitch.ariaLabel}
+        locale={locale}
+        path="/earn"
+      />
     </main>
   );
 }

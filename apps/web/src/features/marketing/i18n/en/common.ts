@@ -28,6 +28,7 @@ export const enCommon = {
     startEarning: "Start earning",
     openApp: "Open app",
   },
+  languageSwitch: { ariaLabel: "Language" },
   footer: {
     homeAriaLabel: "Loyal home",
     columns: {
@@ -105,7 +106,7 @@ export const enCommon = {
         answer:
           "Yes. Loyal runs in your browser, on the web, and on mobile, so the same account model follows you across devices.",
       },
-    ] as FaqItem[],
+    ] satisfies FaqItem[],
   },
 };
 

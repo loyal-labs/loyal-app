@@ -9,8 +9,8 @@ export const enTrust = {
     description:
       "Loyal is non-custodial by architecture. Your account is a Squads smart account, your yield comes from Kamino, and your funds keep working whether or not Loyal does.",
     ogImageAlt: "Loyal trust and security",
-  } as PageMeta,
-  breadcrumb: { home: "Home", page: "Trust" } as BreadcrumbCopy,
+  } satisfies PageMeta,
+  breadcrumb: { home: "Home", page: "Trust" } satisfies BreadcrumbCopy,
   hero: {
     title: "Your funds don't depend on Loyal",
     body: "Your keys stay yours. Your account is a Squads smart account and your yield comes from Kamino, the same infrastructure that secures billions on Solana. Everything keeps working whether or not we do.",
