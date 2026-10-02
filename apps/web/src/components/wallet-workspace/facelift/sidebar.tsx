@@ -461,11 +461,21 @@ export function FaceliftSidebar({
                     {isApyLoaded ? (
                       <PopDigits
                         segments={[
-                          { text: formatEarnApyLabel(earnApy.apyBps) },
+                          {
+                            text: formatEarnApyLabel(
+                              earnApy.apyBps,
+                              earnApy.availability,
+                              earnApy.source
+                            ),
+                          },
                         ]}
                       />
                     ) : (
-                      formatEarnApyLabel(earnApy.apyBps)
+                      formatEarnApyLabel(
+                        earnApy.apyBps,
+                        earnApy.availability,
+                        earnApy.source
+                      )
                     )}
                   </span>
                 </span>

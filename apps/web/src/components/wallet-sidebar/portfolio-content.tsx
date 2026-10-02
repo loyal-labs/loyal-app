@@ -195,7 +195,11 @@ function EarnPortfolioRow({
   onOpen?: () => void;
 }) {
   const earnForecastApy = useEarnForecastApy();
-  const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
+  const earnApyLabel = formatEarnApyLabel(
+    earnForecastApy.apyBps,
+    earnForecastApy.availability,
+    earnForecastApy.source
+  );
   const displayBalance =
     hasPosition && Number.isFinite(balance) ? Math.max(0, balance) : 0;
   const [balanceWhole, balanceFraction] = displayBalance
@@ -411,9 +415,7 @@ function AutodepositStatusCard({
   const secretClickLastAtRef = useRef(0);
 
   // Hidden trigger: 5 quick taps on the coin image open the mock sheet.
-  const handleSecretIconClick = (
-    event: React.MouseEvent<HTMLImageElement>,
-  ) => {
+  const handleSecretIconClick = (event: React.MouseEvent<HTMLImageElement>) => {
     event.stopPropagation();
     const now = Date.now();
     if (now - secretClickLastAtRef.current > 1500) {

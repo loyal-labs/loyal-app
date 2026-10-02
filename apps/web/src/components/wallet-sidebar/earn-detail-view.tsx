@@ -1481,12 +1481,23 @@ function EarningsBlock({
               width: "100%",
             }}
           >
-            <ForecastChart
-              apy={apy}
-              isBalanceHidden={isBalanceHidden}
-              key={forecastAmount}
-              principal={forecastAmount}
-            />
+            {apy.availability === "unavailable" ? (
+              <div role="status">APY forecast unavailable</div>
+            ) : (
+              <>
+                {apy.availability === "stale" ? (
+                  <span className="text-xs text-muted-foreground">
+                    APY data is stale
+                  </span>
+                ) : null}
+                <ForecastChart
+                  apy={apy}
+                  isBalanceHidden={isBalanceHidden}
+                  key={forecastAmount}
+                  principal={forecastAmount}
+                />
+              </>
+            )}
           </div>
         </div>
         <div
@@ -2602,7 +2613,10 @@ export function EarnDetailView({
     });
   const estimatedEarnedAmountApyBps = deriveEstimatedEarnedAmountApyBps({
     earningsData,
-    fallbackApyBps: earnForecastApy.apyBps,
+    fallbackApyBps:
+      earnForecastApy.availability === "unavailable"
+        ? 0
+        : earnForecastApy.apyBps,
   });
   const visibleCurrentPositionHoldings =
     currentPositionHoldings?.filter((holding) => {
@@ -4519,8 +4533,6 @@ type HistoricalApySample = {
   observedAtMs: number;
 };
 
-const HISTORICAL_APY_BASELINE = 5;
-const HISTORICAL_APY_MIN = 2.5;
 const HISTORICAL_APY_STATIC_BENCHMARKS = EARN_COMPARISON_SERIES.filter(
   (
     series
@@ -4528,71 +4540,12 @@ const HISTORICAL_APY_STATIC_BENCHMARKS = EARN_COMPARISON_SERIES.filter(
     fixedApyBps: number;
   } => series.key !== "loyal" && series.key !== "mainUsdcReserve"
 );
-const HISTORICAL_RANGE_CONFIG: Record<
-  EarningsRangeId,
-  { points: number; seed: number; spanDays: number }
-> = {
-  "7D": { points: 112, seed: 17, spanDays: 7 },
-  "30D": { points: 168, seed: 30, spanDays: 30 },
-  "1Y": { points: 184, seed: 365, spanDays: 365 },
-  ALL: { points: 208, seed: 540, spanDays: 540 },
+const HISTORICAL_RANGE_CONFIG: Record<EarningsRangeId, { spanDays: number }> = {
+  "7D": { spanDays: 7 },
+  "30D": { spanDays: 30 },
+  "1Y": { spanDays: 365 },
+  ALL: { spanDays: 540 },
 };
-// Fixed spike positions/magnitudes so the mocked line resembles the reference
-// screenshot: a calm ~5% baseline with a sharp burst up to ~33% APY.
-const HISTORICAL_APY_SPIKES = [
-  { at: 0.31, magnitude: 7, width: 0.006 },
-  { at: 0.34, magnitude: 28, width: 0.005 },
-  { at: 0.38, magnitude: 18, width: 0.006 },
-  { at: 0.42, magnitude: 8, width: 0.008 },
-  { at: 0.46, magnitude: 9, width: 0.006 },
-  { at: 0.54, magnitude: 4, width: 0.016 },
-  { at: 0.86, magnitude: 3, width: 0.02 },
-];
-
-// Deterministic PRNG (mulberry32) keyed per range so the mocked series is
-// stable across re-renders and only changes when the period changes.
-function mulberry32(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d_2b_79_f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
-
-function buildHistoricalApySamples(
-  rangeId: EarningsRangeId,
-  now: Date
-): HistoricalApySample[] {
-  const config = HISTORICAL_RANGE_CONFIG[rangeId];
-  const random = mulberry32(config.seed);
-  const endMs = now.getTime();
-  const spanMs = config.spanDays * 24 * 60 * 60 * 1000;
-
-  return Array.from({ length: config.points }, (_, index) => {
-    const progress = index / (config.points - 1);
-    let apyPercent =
-      HISTORICAL_APY_BASELINE +
-      (random() - 0.5) * 1.2 +
-      Math.sin(index * 0.7 + config.seed) * 0.35;
-
-    for (const spike of HISTORICAL_APY_SPIKES) {
-      const distance = (progress - spike.at) / spike.width;
-      if (Math.abs(distance) < 6) {
-        apyPercent +=
-          spike.magnitude *
-          Math.exp(-(distance * distance)) *
-          (0.85 + random() * 0.3);
-      }
-    }
-
-    return {
-      apyPercent: Math.max(HISTORICAL_APY_MIN, apyPercent),
-      observedAtMs: endMs - spanMs * (1 - progress),
-    };
-  });
-}
 
 function toHistoricalApySamples(
   history: ReturnType<typeof useEarnForecastApyHistory>
@@ -4762,6 +4715,27 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
     getHistoricalChartClientSnapshot,
     getHistoricalChartServerSnapshot
   );
+  const forecast = useEarnForecastApy();
+  const history = useEarnForecastApyHistory();
+
+  const rangeStartMs =
+    Date.now() -
+    HISTORICAL_RANGE_CONFIG[props.rangeId].spanDays * 24 * 60 * 60 * 1000;
+  const visibleSamples = toHistoricalApySamples(history).filter(
+    (sample) => sample.observedAtMs >= rangeStartMs
+  );
+  if (forecast.availability === "unavailable" || visibleSamples.length === 0) {
+    return (
+      <div
+        className="flex min-h-0 w-full flex-1 items-center justify-center text-muted-foreground"
+        role="status"
+      >
+        {forecast.source === "live"
+          ? "Historical 7-day APY unavailable; live APY uses 6–24h"
+          : "Historical APY unavailable"}
+      </div>
+    );
+  }
 
   if (!isHydrated) {
     // The fallback history intentionally ends at the current local time. Keep
@@ -4772,7 +4746,19 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
     return <div aria-hidden="true" className="min-h-0 w-full flex-1" />;
   }
 
-  return <HydratedHistoricalApyChart {...props} />;
+  return (
+    <>
+      {forecast.availability === "stale" ? (
+        <span className="text-xs text-muted-foreground">APY data is stale</span>
+      ) : null}
+      {visibleSamples[0].observedAtMs > rangeStartMs + 2 * 60 * 60 * 1000 ? (
+        <span className="text-xs text-muted-foreground">
+          Showing available recorded history
+        </span>
+      ) : null}
+      <HydratedHistoricalApyChart {...props} />
+    </>
+  );
 }
 
 function HydratedHistoricalApyChart({
@@ -4789,12 +4775,13 @@ function HydratedHistoricalApyChart({
   const apyHistory = useEarnForecastApyHistory();
   const samples = useMemo(() => {
     const fetchedSamples = toHistoricalApySamples(apyHistory);
-    if (rangeId === "30D" && fetchedSamples.length > 0) {
-      return downsampleHistoricalApySamples(fetchedSamples);
-    }
-
     return downsampleHistoricalApySamples(
-      buildHistoricalApySamples(rangeId, new Date())
+      fetchedSamples.filter(
+        (sample) =>
+          sample.observedAtMs >=
+          Date.now() -
+            HISTORICAL_RANGE_CONFIG[rangeId].spanDays * 24 * 60 * 60 * 1000
+      )
     );
   }, [apyHistory, rangeId]);
   const mainUsdcSamples = useMemo(() => {
@@ -6396,11 +6383,22 @@ function EarnDepositChartsSection({
           }}
         >
           <div style={{ padding: "12px", width: "100%" }}>
-            <DepositChart
-              apy={apy}
-              mainUsdcReserveApyBps={mainUsdcReserveApyBps}
-              principal={forecastAmount}
-            />
+            {apy.availability === "unavailable" ? (
+              <div role="status">APY forecast unavailable</div>
+            ) : (
+              <>
+                {apy.availability === "stale" ? (
+                  <span className="text-xs text-muted-foreground">
+                    APY data is stale
+                  </span>
+                ) : null}
+                <DepositChart
+                  apy={apy}
+                  mainUsdcReserveApyBps={mainUsdcReserveApyBps}
+                  principal={forecastAmount}
+                />
+              </>
+            )}
           </div>
         </div>
         <div
@@ -6465,7 +6463,11 @@ export function EarnDepositView({
   const mainUsdcReserveApyBps = deriveMainUsdcReserveForecastApyBps(
     earnForecastApyHistory
   );
-  const earnApyLabel = formatEarnApyLabel(earnForecastApy.apyBps);
+  const earnApyLabel = formatEarnApyLabel(
+    earnForecastApy.apyBps,
+    earnForecastApy.availability,
+    earnForecastApy.source
+  );
   const amountInputRef = useRef<HTMLInputElement | null>(null);
   const sourceOptions =
     sources.length > 0 ? sources : FALLBACK_EARN_DEPOSIT_SOURCES;
@@ -6514,7 +6516,10 @@ export function EarnDepositView({
   const buildCurrentDraft = (): EarnDepositDraft => ({
     amount: effectiveDepositAmount,
     amountLabel: effectiveDepositAmountLabel,
-    forecastApyBps: earnForecastApy.apyBps,
+    forecastApyBps:
+      earnForecastApy.availability === "unavailable"
+        ? 0
+        : earnForecastApy.apyBps,
     source: selectedSource,
     symbol: "USDC",
     tokenDecimals: selectedSource.decimals,

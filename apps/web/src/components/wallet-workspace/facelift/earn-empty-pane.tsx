@@ -43,17 +43,32 @@ export function EarnEmptyPane({
     apyDependent?: boolean;
     emphasized?: boolean;
     text: string;
-  }[] = [
-    { text: "Turn" },
-    { emphasized: true, text: formatHeadlineUsd(HEADLINE_PRINCIPAL_USD) },
-    { text: "into" },
-    { apyDependent: true, emphasized: true, text: formatHeadlineUsd(target) },
-    { text: "in" },
-    { text: "a" },
-    { text: "year" },
-    { text: "with" },
-    { apyDependent: true, text: formatEarnApyLabel(apy.apyBps) },
-  ];
+  }[] =
+    apy.availability === "unavailable"
+      ? [
+          { text: "Earn" },
+          { text: "on" },
+          { emphasized: true, text: formatHeadlineUsd(HEADLINE_PRINCIPAL_USD) },
+          { apyDependent: true, text: "APY unavailable" },
+        ]
+      : [
+          { text: "Turn" },
+          { emphasized: true, text: formatHeadlineUsd(HEADLINE_PRINCIPAL_USD) },
+          { text: "into" },
+          {
+            apyDependent: true,
+            emphasized: true,
+            text: formatHeadlineUsd(target),
+          },
+          { text: "in" },
+          { text: "a" },
+          { text: "year" },
+          { text: "with" },
+          {
+            apyDependent: true,
+            text: formatEarnApyLabel(apy.apyBps, apy.availability, apy.source),
+          },
+        ];
 
   return (
     <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-card max-[795px]:overflow-clip max-[795px]:rounded-none">
