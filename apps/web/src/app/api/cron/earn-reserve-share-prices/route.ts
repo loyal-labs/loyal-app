@@ -8,18 +8,20 @@ import { recordEarnReserveSharePricesNow } from "@/lib/kamino/reserve-share-pric
 
 import { validateCronAuthHeader } from "../_shared/auth";
 
+// The allocation read may use its full 10 second limit before prices start.
+export const maxDuration = 60;
+
 async function handleCronRequest(request: Request) {
   const authError = validateCronAuthHeader(request);
   if (authError) {
     return authError;
   }
 
-  const now = new Date();
   // The allocation runs first so its reserves are priced in the same run. A
   // failed allocation sample must not cost the hour's share prices.
   let allocation: EarnFleetAllocationRecordResult | null = null;
   try {
-    allocation = await recordEarnFleetAllocationNow(now);
+    allocation = await recordEarnFleetAllocationNow();
     if (allocation.vaultsIncluded < allocation.vaultsTotal) {
       console.warn("[cron/earn-reserve-share-prices] incomplete fleet", {
         allocation,
@@ -33,8 +35,10 @@ async function handleCronRequest(request: Request) {
   }
 
   try {
+    // Prices take their own clock: a reserve updated while the allocation was
+    // being read must not look like it came from the future.
     const result = await recordEarnReserveSharePricesNow(
-      now,
+      new Date(),
       allocation?.reserves ?? []
     );
     if (result.missing.length > 0) {

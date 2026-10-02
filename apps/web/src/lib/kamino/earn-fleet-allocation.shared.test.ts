@@ -101,6 +101,30 @@ describe("aggregateEarnFleetAllocation", () => {
     expect(sample.excludedAmountRaw).toBe("60");
   });
 
+  test("does not sum idle rows once one of them has left the snapshot slot", () => {
+    const partlyMoved = [
+      { amountRaw: "7", observedSlot: "100" },
+      { amountRaw: "9999", observedSlot: "250" },
+    ];
+    const sample = aggregateEarnFleetAllocation(
+      [
+        vault({
+          contextIdleRaw: "5",
+          currentIdle: partlyMoved,
+          positions: [position("R1", "100")],
+        }),
+        // Without a context value the moved mint's idle capital is unknown.
+        vault({ currentIdle: partlyMoved, positions: [position("R1", "60")] }),
+      ],
+      NOW
+    );
+
+    expect(sample.reserveAmounts).toEqual({ R1: "100" });
+    expect(sample.idleAmountRaw).toBe("5");
+    expect(sample.vaultsInvalid).toBe(1);
+    expect(sample.excludedAmountRaw).toBe("60");
+  });
+
   test("excludes funded vaults with an old snapshot but keeps emptied ones", () => {
     const old = NOW.getTime() - 6 * HOUR_MS - 1;
     const sample = aggregateEarnFleetAllocation(
