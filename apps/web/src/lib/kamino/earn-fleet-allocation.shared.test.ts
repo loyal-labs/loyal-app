@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   aggregateEarnFleetAllocation,
+  earnAllocationHistoryFromSamples,
   type EarnFleetVaultState,
 } from "./earn-fleet-allocation.shared";
 
@@ -121,5 +122,43 @@ describe("aggregateEarnFleetAllocation", () => {
     }).toEqual({ included: 2, missing: 1, stale: 1, total: 4 });
     expect(sample.excludedAmountRaw).toBe("300");
     expect(sample.oldestSourceAt).toBeNull();
+  });
+});
+
+describe("earnAllocationHistoryFromSamples", () => {
+  const sample = {
+    idleAmountRaw: "10",
+    observedAtMs: NOW.getTime(),
+    reserveAmounts: { R1: "300", R2: "0" },
+    vaultsIncluded: 3,
+    vaultsTotal: 3,
+  };
+
+  test("turns a complete sample into fleet weights with idle kept apart", () => {
+    const [snapshot] = earnAllocationHistoryFromSamples(
+      [sample],
+      NOW.getTime()
+    ).snapshots;
+
+    expect([...snapshot.weights]).toEqual([["R1", 300]]);
+    expect(snapshot.idleAmountRaw).toBe(10);
+    expect(snapshot.unsupported).toBe(false);
+  });
+
+  test("marks samples with left-out vaults or unreadable amounts unsupported", () => {
+    const history = earnAllocationHistoryFromSamples(
+      [
+        { ...sample, vaultsIncluded: 2 },
+        { ...sample, reserveAmounts: { R1: "9007199254740993" } },
+        { ...sample, idleAmountRaw: "1.5" },
+      ],
+      NOW.getTime()
+    );
+
+    expect(history.snapshots.map((snapshot) => snapshot.unsupported)).toEqual([
+      true,
+      true,
+      true,
+    ]);
   });
 });

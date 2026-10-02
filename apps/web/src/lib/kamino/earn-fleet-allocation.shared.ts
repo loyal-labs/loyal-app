@@ -3,6 +3,8 @@
 // snapshot. Recorded once an hour so realized APY can weight every past hour
 // by the allocation held then, without rebuilding fleet history per request.
 
+import type { EarnAllocationHistory } from "./earn-realized-apy.shared";
+
 const HOUR_MS = 60 * 60 * 1000;
 // A funded vault whose latest complete snapshot is older than this no longer
 // describes where its capital is.
@@ -188,5 +190,65 @@ export function aggregateEarnFleetAllocation(
     vaultsMissing: missing,
     vaultsStale: stale,
     vaultsTotal: vaults.length,
+  };
+}
+
+export type EarnFleetAllocationHistorySample = {
+  observedAtMs: number;
+  reserveAmounts: Record<string, string>;
+  idleAmountRaw: string;
+  vaultsTotal: number;
+  vaultsIncluded: number;
+};
+
+// Weights are compared as JS numbers; raw six-decimal stablecoin totals stay
+// exact far beyond any realistic fleet size.
+function safeWeight(value: unknown): number | null {
+  if (typeof value !== "string" || !RAW_AMOUNT_PATTERN.test(value)) {
+    return null;
+  }
+  const amount = Number(value);
+  return Number.isSafeInteger(amount) ? amount : null;
+}
+
+// The recorded samples become one synthetic "fleet" vault for the realized
+// APY calculation. A sample that left any vault out, or holds an unreadable
+// amount, is unsupported: its capital is unknown, so the hours it covers
+// cannot be measured.
+export function earnAllocationHistoryFromSamples(
+  samples: readonly EarnFleetAllocationHistorySample[],
+  sinceMs: number
+): EarnAllocationHistory {
+  return {
+    currentIdleMismatch: false,
+    snapshots: samples.map((sample) => {
+      const weights = new Map<string, number>();
+      const idleAmountRaw = safeWeight(sample.idleAmountRaw);
+      let unsupported =
+        idleAmountRaw === null || sample.vaultsIncluded < sample.vaultsTotal;
+      for (const [reserve, amountRaw] of Object.entries(
+        sample.reserveAmounts
+      )) {
+        const amount = safeWeight(amountRaw);
+        if (amount === null) {
+          unsupported = true;
+        } else if (amount > 0) {
+          weights.set(reserve, amount);
+        }
+      }
+      return {
+        idleAmountRaw: idleAmountRaw ?? 0,
+        observedAtMs: sample.observedAtMs,
+        unsupported,
+        vaultId: "fleet",
+        weights,
+      };
+    }),
+    vaults: [
+      {
+        firstSeenAtMs: Math.floor(sinceMs / HOUR_MS) * HOUR_MS,
+        id: "fleet",
+      },
+    ],
   };
 }

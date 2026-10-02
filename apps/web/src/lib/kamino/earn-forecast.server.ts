@@ -615,7 +615,7 @@ function createRealizedDependencies(): RealizedEarnForecastDependencies {
     cluster,
     hasRecentPrices: (sinceMs) => hasEarnSharePriceHistory(cluster, sinceMs),
     loadAllocations: (sinceMs, nowMs) =>
-      loadEarnAllocationHistory(sinceMs, nowMs),
+      loadEarnAllocationHistory(cluster, sinceMs, nowMs),
     loadHistories: (reserves, sinceMs) =>
       loadReserveSharePriceHistories(cluster, reserves, sinceMs),
   };

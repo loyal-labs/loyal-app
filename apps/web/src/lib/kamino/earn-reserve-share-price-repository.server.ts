@@ -1,34 +1,20 @@
 import "server-only";
 
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
 import {
+  earnFleetAllocationsHourly,
   earnReserveSharePrices,
   getYieldOptimizationClient,
-  managedVaults,
   userYieldPositions,
-  vaultIdleTokenBalancesCurrent,
-  vaultPositionSnapshotPositions,
-  vaultPositionSnapshots,
   type YieldOptimizationClient,
 } from "@/lib/yield-optimization/yield-neon-client.server";
 
+import { earnAllocationHistoryFromSamples } from "./earn-fleet-allocation.shared";
 import type {
   EarnAllocationHistory,
   SharePricePoint,
 } from "./earn-realized-apy.shared";
-
-function safeRawAmount(value: unknown): number | null {
-  if (
-    typeof value !== "number" &&
-    typeof value !== "string" &&
-    typeof value !== "bigint"
-  ) {
-    return null;
-  }
-  const amount = Number(value);
-  return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
-}
 
 export type ReserveSharePriceRow = {
   reserve: string;
@@ -134,310 +120,50 @@ export async function hasEarnSharePriceHistory(
   return rows.length > 0;
 }
 
-// Complete vault snapshots record the fleet allocation, including concurrent
-// reserves and idle capital. Sample the last snapshot as of each hour and
-// aggregate in PostgreSQL; a rebalance within an hour takes effect at the next
-// sample. Sparse balance deltas avoid joining every vault to every hour. The
-// API never transfers a fleet-sized snapshot history.
+// A sample stays in force until the next one, for at most six hours, so the
+// allocation at the start of the window can come from just before it.
+const HOUR_MS = 60 * 60 * 1000;
+const ALLOCATION_SEED_LOOKBACK_MS = 6 * HOUR_MS;
+
+// Hourly fleet allocation samples written by the share-price cron. Reading
+// them is bounded by the window length (one row per hour), not by fleet size
+// or snapshot history.
 export async function loadEarnAllocationHistory(
+  cluster: string,
   sinceMs: number,
   nowMs: number,
   client: YieldOptimizationClient = getYieldOptimizationClient()
 ): Promise<EarnAllocationHistory> {
-  const start = new Date(
-    Math.floor(sinceMs / (60 * 60 * 1000)) * 60 * 60 * 1000
-  );
-  const end = new Date(nowMs);
-  const query = sql`
-    WITH hours AS (
-      SELECT generate_series(${start}::timestamptz,
-        date_trunc('hour', ${end}::timestamptz), interval '1 hour') AS hour
-      UNION SELECT ${end}::timestamptz
-    ),
-    vaults AS (
-      SELECT id, first_seen_at
-      FROM ${managedVaults}
-      WHERE vault_index = ${EARN_VAULT_INDEX}
-        AND first_seen_at <= ${end}::timestamptz
-    ),
-    seed AS (
-      SELECT snapshot.*
-      FROM vaults AS vault
-      CROSS JOIN LATERAL (
-        SELECT source.id, source.vault_id, source.observed_at,
-          source.observed_slot,
-          source.context->>'idle_vault_liquidity_amount_raw' AS idle_text
-        FROM ${vaultPositionSnapshots} AS source
-        WHERE source.vault_id = vault.id
-          AND source.observed_at <= ${start}
-          AND source.context->>'publication_scope' = 'complete_product_vault'
-        ORDER BY source.observed_at DESC, source.observed_slot DESC,
-          source.id DESC
-        LIMIT 1
-      ) AS snapshot
-    ),
-    window_snapshots AS (
-      SELECT snapshot.*
-      FROM vaults AS vault
-      CROSS JOIN LATERAL (
-        SELECT source.id, source.vault_id, source.observed_at,
-          source.observed_slot,
-          source.context->>'idle_vault_liquidity_amount_raw' AS idle_text
-        FROM ${vaultPositionSnapshots} AS source
-        WHERE source.vault_id = vault.id
-          AND source.observed_at > ${start}
-          AND source.observed_at <= ${end}
-          AND source.context->>'publication_scope' = 'complete_product_vault'
-        ORDER BY source.observed_at, source.observed_slot, source.id
-        OFFSET 0
-      ) AS snapshot
-    ),
-    selected AS (
-      SELECT * FROM seed
-      UNION ALL
-      SELECT * FROM window_snapshots
-    ),
-    intervals AS (
-      SELECT snapshot.id, snapshot.vault_id, snapshot.observed_at,
-        snapshot.observed_slot, snapshot.idle_text, vault.first_seen_at,
-        LEAD(snapshot.observed_at) OVER (
-          PARTITION BY snapshot.vault_id
-          ORDER BY snapshot.observed_at, snapshot.observed_slot, snapshot.id
-        ) AS next_at
-      FROM selected AS snapshot
-      JOIN vaults AS vault ON vault.id = snapshot.vault_id
-    ),
-    -- Each selected snapshot's reserve rows are normalized once. Unknown or
-    -- collateral units without a redeemable amount invalidate its interval.
-    reserve_values AS (
-      SELECT position.snapshot_id, position.reserve,
-        CASE
-          WHEN COALESCE(position.planning_metadata->>'amountSemantics',
-            position.planning_metadata->>'amount_semantics') =
-              'kamino_redeemable_liquidity'
-            AND position.amount_raw >= 0
-            THEN position.amount_raw::numeric
-          WHEN COALESCE(position.planning_metadata->>'amountSemantics',
-            position.planning_metadata->>'amount_semantics') =
-              'kamino_obligation_collateral_deposited_amount'
-            AND COALESCE(position.planning_metadata->>'redeemable_liquidity_amount_raw',
-              position.planning_metadata->>'redeemable_source_liquidity_amount_raw')
-              ~ '^[0-9]+$'
-            THEN COALESCE(position.planning_metadata->>'redeemable_liquidity_amount_raw',
-              position.planning_metadata->>'redeemable_source_liquidity_amount_raw')::numeric
-          ELSE NULL
-        END AS amount_raw
-      FROM ${vaultPositionSnapshotPositions} AS position
-      JOIN selected AS snapshot ON snapshot.id = position.snapshot_id
-      WHERE position.has_value = true
-    ),
-    snapshot_totals AS (
-      SELECT snapshot_id, COALESCE(SUM(amount_raw), 0) AS reserve_raw,
-        bool_or(amount_raw IS NULL) AS bad_reserve
-      FROM reserve_values
-      GROUP BY snapshot_id
-    ),
-    snapshot_state AS (
-      SELECT allocation.id, allocation.vault_id, allocation.observed_at,
-        allocation.observed_slot, allocation.next_at,
-        GREATEST(allocation.observed_at, allocation.first_seen_at) AS active_at,
-        GREATEST(allocation.next_at, allocation.first_seen_at) AS inactive_at,
-        GREATEST(allocation.observed_at + interval '6 hours 1 microsecond',
-          allocation.first_seen_at) AS stale_at,
-        CASE WHEN allocation.idle_text ~ '^[0-9]+$'
-          THEN allocation.idle_text::numeric
-          ELSE NULL END AS idle_raw,
-        COALESCE(total.reserve_raw, 0) AS reserve_raw,
-        COALESCE(total.bad_reserve, false) OR
-          COALESCE(allocation.idle_text, '')
-            !~ '^[0-9]+$' AS invalid
-      FROM intervals AS allocation
-      LEFT JOIN snapshot_totals AS total ON total.snapshot_id = allocation.id
-    ),
-    current_idle AS (
-      SELECT vault_id, SUM(amount_raw)::numeric AS amount_raw
-      FROM ${vaultIdleTokenBalancesCurrent}
-      GROUP BY vault_id
-    ),
-    latest_state AS (
-      SELECT DISTINCT ON (vault_id) vault_id, idle_raw
-      FROM snapshot_state
-      ORDER BY vault_id, observed_at DESC, observed_slot DESC, id DESC
-    ),
-    current_mismatch AS (
-      SELECT COALESCE(bool_or(
-        COALESCE(latest.idle_raw, -1) IS DISTINCT FROM
-          COALESCE(idle.amount_raw, 0)), false) AS invalid
-      FROM vaults AS vault
-      LEFT JOIN latest_state AS latest ON latest.vault_id = vault.id
-      LEFT JOIN current_idle AS idle ON idle.vault_id = vault.id
-    ),
-    -- Each snapshot adds its balance at observation and removes it when the
-    -- next snapshot for that vault takes over. Invalid/funded-stale intervals
-    -- contribute a count rather than hiding missing historical exposure.
-    event_rows AS (
-      SELECT state.active_at AS at, value.reserve::text AS key,
-        value.amount_raw AS delta
-      FROM snapshot_state AS state
-      JOIN reserve_values AS value ON value.snapshot_id = state.id
-      WHERE value.amount_raw > 0
-      UNION ALL
-      SELECT state.inactive_at, value.reserve::text, -value.amount_raw
-      FROM snapshot_state AS state
-      JOIN reserve_values AS value ON value.snapshot_id = state.id
-      WHERE state.next_at IS NOT NULL AND value.amount_raw > 0
-      UNION ALL
-      SELECT state.active_at, '__idle__', state.idle_raw
-      FROM snapshot_state AS state WHERE state.idle_raw > 0
-      UNION ALL
-      SELECT state.inactive_at, '__idle__', -state.idle_raw
-      FROM snapshot_state AS state
-      WHERE state.next_at IS NOT NULL AND state.idle_raw > 0
-      UNION ALL
-      SELECT state.active_at, '__covered__', 1::numeric
-      FROM snapshot_state AS state
-      UNION ALL
-      SELECT state.inactive_at, '__covered__', -1::numeric
-      FROM snapshot_state AS state WHERE state.next_at IS NOT NULL
-      UNION ALL
-      SELECT vault.first_seen_at, '__expected__', 1::numeric
-      FROM vaults AS vault
-      UNION ALL
-      SELECT state.active_at, '__invalid__', 1::numeric
-      FROM snapshot_state AS state WHERE state.invalid
-      UNION ALL
-      SELECT state.inactive_at, '__invalid__', -1::numeric
-      FROM snapshot_state AS state
-      WHERE state.invalid AND state.next_at IS NOT NULL
-      UNION ALL
-      SELECT state.stale_at, '__invalid__', 1::numeric
-      FROM snapshot_state AS state
-      WHERE (state.reserve_raw > 0 OR state.idle_raw > 0)
-        AND (state.next_at IS NULL OR
-          state.next_at > state.observed_at + interval '6 hours 1 microsecond')
-      UNION ALL
-      SELECT state.inactive_at, '__invalid__', -1::numeric
-      FROM snapshot_state AS state
-      WHERE (state.reserve_raw > 0 OR state.idle_raw > 0)
-        AND state.next_at > state.observed_at + interval '6 hours 1 microsecond'
-    ),
-    event_deltas AS (
-      SELECT at, key, SUM(delta) AS delta
-      FROM event_rows
-      WHERE at <= ${end}::timestamptz
-      GROUP BY at, key
-    ),
-    keys AS (
-      SELECT DISTINCT reserve::text AS key
-      FROM reserve_values WHERE amount_raw > 0
-      UNION ALL SELECT '__idle__'
-      UNION ALL SELECT '__covered__'
-      UNION ALL SELECT '__expected__'
-      UNION ALL SELECT '__invalid__'
-    ),
-    sweep_rows AS (
-      SELECT at, key, delta, 0 AS kind FROM event_deltas
-      UNION ALL
-      SELECT hour.hour AS at, key.key, 0::numeric AS delta, 1 AS kind
-      FROM hours AS hour CROSS JOIN keys AS key
-    ),
-    sampled AS (
-      SELECT at AS hour, key, kind,
-        SUM(delta) OVER (PARTITION BY key ORDER BY at, kind
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS amount_raw
-      FROM sweep_rows
-    ),
-    hour_totals AS (
-      SELECT hour,
-        MAX(amount_raw) FILTER (WHERE key = '__idle__') AS idle_raw,
-        MAX(amount_raw) FILTER (WHERE key = '__covered__') AS covered,
-        MAX(amount_raw) FILTER (WHERE key = '__expected__') AS expected,
-        MAX(amount_raw) FILTER (WHERE key = '__invalid__') AS invalid
-      FROM sampled WHERE kind = 1
-      GROUP BY hour
-    ),
-    reserve_hours AS (
-      SELECT hour, key AS reserve, amount_raw::text AS amount_raw
-      FROM sampled
-      WHERE kind = 1 AND key NOT IN (
-        '__idle__', '__covered__', '__expected__', '__invalid__')
-        AND amount_raw > 0
+  const rows = await client.db
+    .select({
+      idleAmountRaw: earnFleetAllocationsHourly.idleAmountRaw,
+      observedAt: earnFleetAllocationsHourly.observedAt,
+      reserveAmounts: earnFleetAllocationsHourly.reserveAmounts,
+      vaultsIncluded: earnFleetAllocationsHourly.vaultsIncluded,
+      vaultsTotal: earnFleetAllocationsHourly.vaultsTotal,
+    })
+    .from(earnFleetAllocationsHourly)
+    .where(
+      and(
+        eq(earnFleetAllocationsHourly.cluster, cluster),
+        // Range on the primary key; observed_at lies inside its hour.
+        gte(
+          earnFleetAllocationsHourly.observedHour,
+          new Date(
+            Math.floor((sinceMs - ALLOCATION_SEED_LOOKBACK_MS) / HOUR_MS) *
+              HOUR_MS
+          )
+        ),
+        lte(earnFleetAllocationsHourly.observedHour, new Date(nowMs)),
+        lte(earnFleetAllocationsHourly.observedAt, new Date(nowMs))
+      )
     )
-    SELECT hour.hour,
-      (COALESCE(total.expected, 0) <= 0
-        OR COALESCE(total.covered, 0) <> COALESCE(total.expected, 0)
-        OR COALESCE(total.invalid, 0) > 0
-        OR (hour.hour = ${end}::timestamptz AND mismatch.invalid)) AS incomplete,
-      reserve.reserve, reserve.amount_raw,
-      COALESCE(total.idle_raw, 0)::text AS idle_raw
-    FROM hours AS hour
-    LEFT JOIN hour_totals AS total ON total.hour = hour.hour
-    LEFT JOIN reserve_hours AS reserve ON reserve.hour = hour.hour
-    CROSS JOIN current_mismatch AS mismatch
-    ORDER BY hour.hour, reserve.reserve
-    LIMIT 100001
-  `;
-  // Neon HTTP has no interactive transactions, but batch runs these three
-  // statements in one transaction. The local postgres-js adapter uses an
-  // interactive transaction instead. The database enforces the time limit;
-  // abandoning a client promise would leave the expensive query running.
-  const db = client.db;
-  const result =
-    typeof db.batch === "function"
-      ? (
-          await db.batch([
-            db.execute(sql`SET TRANSACTION READ ONLY`),
-            db.execute(sql`SET LOCAL statement_timeout = '10s'`),
-            db.execute(query),
-          ])
-        )[2]
-      : await db.transaction(async (tx) => {
-          await tx.execute(sql`SET TRANSACTION READ ONLY`);
-          await tx.execute(sql`SET LOCAL statement_timeout = '10s'`);
-          return tx.execute(query);
-        });
-  const rows = Array.isArray(result)
-    ? result
-    : "rows" in result && Array.isArray(result.rows)
-    ? result.rows
-    : [];
-  if (rows.length > 100_000) {
-    throw new Error("Earn allocation aggregation exceeded the output bound.");
-  }
-  const snapshots = new Map<
-    number,
-    Omit<EarnAllocationHistory["snapshots"][number], "weights"> & {
-      weights: Map<string, number>;
-    }
-  >();
-  for (const row of rows as Record<string, unknown>[]) {
-    const observedAtMs = new Date(String(row.hour)).getTime();
-    const amountRaw = row.reserve === null ? 0 : safeRawAmount(row.amount_raw);
-    const idleAmountRaw = safeRawAmount(row.idle_raw);
-    if (!Number.isFinite(observedAtMs)) {
-      throw new Error("Earn allocation aggregation returned an invalid hour.");
-    }
-    const snapshot = snapshots.get(observedAtMs) ?? {
-      idleAmountRaw: idleAmountRaw ?? 0,
-      observedAtMs,
-      unsupported: row.incomplete !== false || idleAmountRaw === null,
-      vaultId: "fleet",
-      weights: new Map<string, number>(),
-    };
-    if (row.reserve !== null && typeof row.reserve === "string") {
-      if (amountRaw === null) {
-        snapshot.unsupported = true;
-      } else if (amountRaw > 0) {
-        snapshot.weights.set(row.reserve, amountRaw);
-      }
-    }
-    snapshots.set(observedAtMs, snapshot);
-  }
-  return {
-    currentIdleMismatch: false,
-    snapshots: [...snapshots.values()],
-    vaults: [{ firstSeenAtMs: start.getTime(), id: "fleet" }],
-  };
+    .orderBy(asc(earnFleetAllocationsHourly.observedHour));
+
+  return earnAllocationHistoryFromSamples(
+    rows.map((row) => ({ ...row, observedAtMs: row.observedAt.getTime() })),
+    sinceMs
+  );
 }
 
 export async function loadReserveSharePriceHistories(
