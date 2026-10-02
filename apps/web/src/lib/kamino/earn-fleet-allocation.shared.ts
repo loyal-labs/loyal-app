@@ -70,29 +70,31 @@ function redeemableLiquidityRaw(
   return null;
 }
 
-// Complete snapshots replace the vault's idle balances in the same
-// transaction, so idle rows at the snapshot's slot are its idle capital. A
-// later partial observation moves those rows to a newer slot; the snapshot's
-// own context value is then the only idle amount consistent with it.
+// The snapshot's own context value is its idle capital. Snapshots written by
+// web reconciliation carry none, so theirs comes from the vault's idle rows,
+// one per mint. Those rows describe the snapshot only while every one is
+// still at its slot: a later single-mint update moves one row and leaves the
+// rest, and summing what remains would drop that mint's idle capital.
 function idleRaw(
   snapshot: NonNullable<EarnFleetVaultState["snapshot"]>,
   currentIdle: EarnFleetVaultState["currentIdle"]
 ): bigint | null {
-  const atSnapshot = currentIdle.filter(
-    (balance) => balance.observedSlot === snapshot.observedSlot
-  );
-  if (atSnapshot.length > 0) {
-    let total = BigInt(0);
-    for (const balance of atSnapshot) {
-      const amount = parseRawAmount(balance.amountRaw);
-      if (amount === null) {
-        return null;
-      }
-      total += amount;
-    }
-    return total;
+  const contextIdle = parseRawAmount(snapshot.contextIdleRaw);
+  if (contextIdle !== null) {
+    return contextIdle;
   }
-  return parseRawAmount(snapshot.contextIdleRaw);
+  if (currentIdle.length === 0) {
+    return null;
+  }
+  let total = BigInt(0);
+  for (const balance of currentIdle) {
+    const amount = parseRawAmount(balance.amountRaw);
+    if (balance.observedSlot !== snapshot.observedSlot || amount === null) {
+      return null;
+    }
+    total += amount;
+  }
+  return total;
 }
 
 export function aggregateEarnFleetAllocation(
