@@ -8,8 +8,8 @@ import { recordEarnReserveSharePricesNow } from "@/lib/kamino/reserve-share-pric
 
 import { validateCronAuthHeader } from "../_shared/auth";
 
-// The allocation read may use its full 10 second limit before prices start.
-export const maxDuration = 60;
+// The allocation read may use its full 30 second limit before prices start.
+export const maxDuration = 120;
 
 async function handleCronRequest(request: Request) {
   const authError = validateCronAuthHeader(request);

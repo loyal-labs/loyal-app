@@ -63,6 +63,8 @@ export async function loadEarnFleetVaultStates(
       COALESCE((
         SELECT json_agg(json_build_object(
           'reserve', position.reserve,
+          'market', position.market,
+          'liquidityMint', position.liquidity_mint,
           'amountRaw', position.amount_raw::text,
           'amountSemantics', COALESCE(
             position.planning_metadata->>'amountSemantics',
@@ -102,20 +104,22 @@ export async function loadEarnFleetVaultStates(
   `;
   // Neon HTTP has no interactive transactions, but batch runs these three
   // statements in one transaction. The local postgres-js adapter uses an
-  // interactive transaction instead. The database enforces the time limit.
+  // interactive transaction instead. The database enforces the time limit:
+  // the read takes under 100 ms on cached pages but several seconds when an
+  // hourly run finds them cold, and this job has no caller waiting.
   const db = client.db;
   const result =
     typeof db.batch === "function"
       ? (
           await db.batch([
             db.execute(sql`SET TRANSACTION READ ONLY`),
-            db.execute(sql`SET LOCAL statement_timeout = '10s'`),
+            db.execute(sql`SET LOCAL statement_timeout = '30s'`),
             db.execute(query),
           ])
         )[2]
       : await db.transaction(async (tx) => {
           await tx.execute(sql`SET TRANSACTION READ ONLY`);
-          await tx.execute(sql`SET LOCAL statement_timeout = '10s'`);
+          await tx.execute(sql`SET LOCAL statement_timeout = '30s'`);
           return tx.execute(query);
         });
 
