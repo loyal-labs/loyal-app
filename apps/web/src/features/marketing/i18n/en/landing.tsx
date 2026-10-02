@@ -74,6 +74,8 @@ export const enLanding = {
     title: "Multiple wallets, one smart account",
     startEarning: "Start earning",
     howItWorks: "How it works",
+    phoneAnimationAriaLabel:
+      "Loyal wallet on a phone showing total balance, Earn yield chart, and stablecoin and crypto holdings",
   },
   developers: {
     technology: {

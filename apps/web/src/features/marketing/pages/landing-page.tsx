@@ -132,7 +132,9 @@ export function LandingPage({
             data-reveal-delay="1"
           >
             <div className="relative mt-6 aspect-[488/732] w-full max-w-[488px] lg:mt-0">
-              <LandingPhoneLottie />
+              <LandingPhoneLottie
+                ariaLabel={dict.wallets.phoneAnimationAriaLabel}
+              />
             </div>
           </div>
         </div>
