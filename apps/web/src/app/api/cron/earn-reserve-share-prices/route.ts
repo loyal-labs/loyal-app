@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  type EarnFleetAllocationRecordResult,
+  recordEarnFleetAllocationNow,
+} from "@/lib/kamino/earn-fleet-allocation.server";
 import { recordEarnReserveSharePricesNow } from "@/lib/kamino/reserve-share-price.server";
 
 import { validateCronAuthHeader } from "../_shared/auth";
@@ -10,14 +14,38 @@ async function handleCronRequest(request: Request) {
     return authError;
   }
 
+  const now = new Date();
+  // The allocation runs first so its reserves are priced in the same run. A
+  // failed allocation sample must not cost the hour's share prices.
+  let allocation: EarnFleetAllocationRecordResult | null = null;
   try {
-    const result = await recordEarnReserveSharePricesNow();
+    allocation = await recordEarnFleetAllocationNow(now);
+    if (allocation.vaultsIncluded < allocation.vaultsTotal) {
+      console.warn("[cron/earn-reserve-share-prices] incomplete fleet", {
+        allocation,
+      });
+    }
+  } catch (error) {
+    console.error(
+      "[cron/earn-reserve-share-prices] Allocation recording failed",
+      error
+    );
+  }
+
+  try {
+    const result = await recordEarnReserveSharePricesNow(
+      now,
+      allocation?.reserves ?? []
+    );
     if (result.missing.length > 0) {
       console.warn("[cron/earn-reserve-share-prices] missing reserves", {
         missing: result.missing,
       });
     }
-    return NextResponse.json(result);
+    return NextResponse.json(
+      { ...result, allocation },
+      { status: allocation ? 200 : 500 }
+    );
   } catch (error) {
     console.error("[cron/earn-reserve-share-prices] Recording failed", error);
     return NextResponse.json(
