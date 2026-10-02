@@ -97,6 +97,7 @@ export function toForecastApy(
         (payload.strategy === "safe_no_fees" ? "unavailable" : "available"),
     rangeHighBps: payload.rangeHighBps,
     rangeLowBps: payload.rangeLowBps,
+    source: payload.source,
   };
 }
 

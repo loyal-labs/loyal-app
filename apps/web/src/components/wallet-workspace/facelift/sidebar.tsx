@@ -464,13 +464,18 @@ export function FaceliftSidebar({
                           {
                             text: formatEarnApyLabel(
                               earnApy.apyBps,
-                              earnApy.availability
+                              earnApy.availability,
+                              earnApy.source
                             ),
                           },
                         ]}
                       />
                     ) : (
-                      formatEarnApyLabel(earnApy.apyBps, earnApy.availability)
+                      formatEarnApyLabel(
+                        earnApy.apyBps,
+                        earnApy.availability,
+                        earnApy.source
+                      )
                     )}
                   </span>
                 </span>

@@ -66,7 +66,7 @@ export function EarnEmptyPane({
           { text: "with" },
           {
             apyDependent: true,
-            text: formatEarnApyLabel(apy.apyBps, apy.availability),
+            text: formatEarnApyLabel(apy.apyBps, apy.availability, apy.source),
           },
         ];
 

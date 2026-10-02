@@ -169,7 +169,8 @@ export function EarnPositionPane({
                         {
                           text: formatEarnApyLabel(
                             apy.apyBps,
-                            apy.availability
+                            apy.availability,
+                            apy.source
                           ),
                         },
                       ]}

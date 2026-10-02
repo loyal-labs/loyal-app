@@ -392,7 +392,8 @@ export function WalletHomePage({
                                   {
                                     text: formatEarnApyLabel(
                                       earnApy.apyBps,
-                                      earnApy.availability
+                                      earnApy.availability,
+                                      earnApy.source
                                     ),
                                   },
                                 ]}
@@ -400,7 +401,8 @@ export function WalletHomePage({
                             ) : (
                               formatEarnApyLabel(
                                 earnApy.apyBps,
-                                earnApy.availability
+                                earnApy.availability,
+                                earnApy.source
                               )
                             )}
                           </span>

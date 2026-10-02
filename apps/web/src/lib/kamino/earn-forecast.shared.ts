@@ -19,7 +19,7 @@ export type EarnForecastResponse = {
 
 export type EarnForecastApy = Pick<
   EarnForecastResponse,
-  "apyBps" | "availability" | "rangeHighBps" | "rangeLowBps"
+  "apyBps" | "availability" | "rangeHighBps" | "rangeLowBps" | "source"
 >;
 
 export type EarnForecastApyHistorySample = {
@@ -68,13 +68,18 @@ export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
 
 export function formatEarnApyLabel(
   apyBps: number,
-  availability: EarnForecastResponse["availability"] = "available"
+  availability: EarnForecastResponse["availability"] = "available",
+  source?: EarnForecastResponse["source"]
 ): string {
   if (availability === "unavailable") {
     return "APY unavailable";
   }
-  if (availability === "stale") {
-    return `${(apyBps / 100).toFixed(2)}% APY (stale)`;
+  const qualifiers = [
+    ...(source === "live" ? ["6–24h live"] : []),
+    ...(availability === "stale" ? ["stale"] : []),
+  ];
+  if (qualifiers.length > 0) {
+    return `${(apyBps / 100).toFixed(2)}% APY (${qualifiers.join(", ")})`;
   }
   return `${(apyBps / 100).toFixed(2)}% APY`;
 }

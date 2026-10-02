@@ -24,6 +24,7 @@ test("a measured APY expires on its source timestamp and an unavailable response
             ? {
                 apyBps: 650,
                 strategy: "realized_7d_share_price",
+                source: "live",
                 updatedAt: new Date(NOW - 179 * 60_000).toISOString(),
                 availability: "available",
               }
@@ -41,6 +42,7 @@ test("a measured APY expires on its source timestamp and an unavailable response
     resetEarnForecastSummaryCacheForTests();
     const first = await fetchEarnForecastSummary();
     expect(toForecastApy(first.forecast).availability).toBe("available");
+    expect(toForecastApy(first.forecast).source).toBe("live");
     now += 2 * 60_000;
     const second = await fetchEarnForecastSummary();
     expect(toForecastApy(second.forecast).availability).toBe("unavailable");

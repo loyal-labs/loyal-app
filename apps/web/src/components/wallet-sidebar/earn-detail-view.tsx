@@ -4721,18 +4721,18 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
   const rangeStartMs =
     Date.now() -
     HISTORICAL_RANGE_CONFIG[props.rangeId].spanDays * 24 * 60 * 60 * 1000;
-  if (
-    forecast.availability === "unavailable" ||
-    !toHistoricalApySamples(history).some(
-      (sample) => sample.observedAtMs >= rangeStartMs
-    )
-  ) {
+  const visibleSamples = toHistoricalApySamples(history).filter(
+    (sample) => sample.observedAtMs >= rangeStartMs
+  );
+  if (forecast.availability === "unavailable" || visibleSamples.length === 0) {
     return (
       <div
         className="flex min-h-0 w-full flex-1 items-center justify-center text-muted-foreground"
         role="status"
       >
-        Historical APY unavailable
+        {forecast.source === "live"
+          ? "Historical 7-day APY unavailable; live APY uses 6–24h"
+          : "Historical APY unavailable"}
       </div>
     );
   }
@@ -4750,6 +4750,11 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
     <>
       {forecast.availability === "stale" ? (
         <span className="text-xs text-muted-foreground">APY data is stale</span>
+      ) : null}
+      {visibleSamples[0].observedAtMs > rangeStartMs + 2 * 60 * 60 * 1000 ? (
+        <span className="text-xs text-muted-foreground">
+          Showing available recorded history
+        </span>
       ) : null}
       <HydratedHistoricalApyChart {...props} />
     </>
@@ -6460,7 +6465,8 @@ export function EarnDepositView({
   );
   const earnApyLabel = formatEarnApyLabel(
     earnForecastApy.apyBps,
-    earnForecastApy.availability
+    earnForecastApy.availability,
+    earnForecastApy.source
   );
   const amountInputRef = useRef<HTMLInputElement | null>(null);
   const sourceOptions =

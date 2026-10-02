@@ -197,7 +197,8 @@ function EarnPortfolioRow({
   const earnForecastApy = useEarnForecastApy();
   const earnApyLabel = formatEarnApyLabel(
     earnForecastApy.apyBps,
-    earnForecastApy.availability
+    earnForecastApy.availability,
+    earnForecastApy.source
   );
   const displayBalance =
     hasPosition && Number.isFinite(balance) ? Math.max(0, balance) : 0;

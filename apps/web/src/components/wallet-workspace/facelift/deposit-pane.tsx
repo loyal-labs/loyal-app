@@ -547,13 +547,18 @@ export function DepositPane({
                               {
                                 text: formatEarnApyLabel(
                                   apy.apyBps,
-                                  apy.availability
+                                  apy.availability,
+                                  apy.source
                                 ),
                               },
                             ]}
                           />
                         ) : (
-                          formatEarnApyLabel(apy.apyBps, apy.availability)
+                          formatEarnApyLabel(
+                            apy.apyBps,
+                            apy.availability,
+                            apy.source
+                          )
                         )}
                       </span>
                     </span>
