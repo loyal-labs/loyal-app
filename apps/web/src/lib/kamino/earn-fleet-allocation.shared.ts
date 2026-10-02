@@ -197,9 +197,12 @@ export type EarnFleetAllocationHistorySample = {
   observedAtMs: number;
   reserveAmounts: Record<string, string>;
   idleAmountRaw: string;
-  vaultsTotal: number;
-  vaultsIncluded: number;
+  excludedAmountRaw: string;
 };
+
+// A sample still measures its hours while the last-known capital of the
+// vaults it left out stays within this share of the capital it covers.
+const MAX_EXCLUDED_CAPITAL_SHARE = 0.01;
 
 // Weights are compared as JS numbers; raw six-decimal stablecoin totals stay
 // exact far beyond any realistic fleet size.
@@ -212,9 +215,11 @@ function safeWeight(value: unknown): number | null {
 }
 
 // The recorded samples become one synthetic "fleet" vault for the realized
-// APY calculation. A sample that left any vault out, or holds an unreadable
-// amount, is unsupported: its capital is unknown, so the hours it covers
-// cannot be measured.
+// APY calculation. A sample that holds an unreadable amount, or left out more
+// capital than MAX_EXCLUDED_CAPITAL_SHARE allows, is unsupported: where the
+// fleet's capital sat is unknown, so the hours it covers cannot be measured.
+// Vaults without a complete snapshot have no known capital and do not count
+// against a sample.
 export function earnAllocationHistoryFromSamples(
   samples: readonly EarnFleetAllocationHistorySample[],
   sinceMs: number
@@ -224,8 +229,9 @@ export function earnAllocationHistoryFromSamples(
     snapshots: samples.map((sample) => {
       const weights = new Map<string, number>();
       const idleAmountRaw = safeWeight(sample.idleAmountRaw);
-      let unsupported =
-        idleAmountRaw === null || sample.vaultsIncluded < sample.vaultsTotal;
+      const excludedAmountRaw = safeWeight(sample.excludedAmountRaw);
+      let unsupported = idleAmountRaw === null || excludedAmountRaw === null;
+      let coveredAmountRaw = idleAmountRaw ?? 0;
       for (const [reserve, amountRaw] of Object.entries(
         sample.reserveAmounts
       )) {
@@ -234,7 +240,14 @@ export function earnAllocationHistoryFromSamples(
           unsupported = true;
         } else if (amount > 0) {
           weights.set(reserve, amount);
+          coveredAmountRaw += amount;
         }
+      }
+      if (
+        (excludedAmountRaw ?? 0) >
+        coveredAmountRaw * MAX_EXCLUDED_CAPITAL_SHARE
+      ) {
+        unsupported = true;
       }
       return {
         idleAmountRaw: idleAmountRaw ?? 0,

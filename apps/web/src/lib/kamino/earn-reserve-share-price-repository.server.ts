@@ -136,11 +136,10 @@ export async function loadEarnAllocationHistory(
 ): Promise<EarnAllocationHistory> {
   const rows = await client.db
     .select({
+      excludedAmountRaw: earnFleetAllocationsHourly.excludedAmountRaw,
       idleAmountRaw: earnFleetAllocationsHourly.idleAmountRaw,
       observedAt: earnFleetAllocationsHourly.observedAt,
       reserveAmounts: earnFleetAllocationsHourly.reserveAmounts,
-      vaultsIncluded: earnFleetAllocationsHourly.vaultsIncluded,
-      vaultsTotal: earnFleetAllocationsHourly.vaultsTotal,
     })
     .from(earnFleetAllocationsHourly)
     .where(
