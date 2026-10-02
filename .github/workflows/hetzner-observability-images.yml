@@ -1,95 +1,80 @@
-name: hetzner-observability-images
-
+name: hetzner-relay-original-image
 on:
   workflow_dispatch:
   push:
     branches:
-      - codex/hetzner-clickstack-20260929
+      - codex/relay-original-a6f150-publication
     paths:
       - .github/workflows/hetzner-observability-images.yml
-      - observability/**
-
 permissions:
   contents: read
   packages: write
-
 concurrency:
-  group: hetzner-observability-images-${{ github.sha }}
+  group: hetzner-relay-original-a6f150
   cancel-in-progress: false
-
 jobs:
   package:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: clickstack
-            context: observability
-          - image: telegram-relay
-            context: observability/telegram-relay
+    timeout-minutes: 20
     steps:
-      - name: Check out exact publication source
+      - name: Checkout exact deployed source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: a6f15023325fd157c436167b6f477cd3b7565b2e
           persist-credentials: false
-      - name: Prepare image name and bounded ClickStack context
-        id: source
-        env:
-          REPOSITORY: ${{ github.repository }}
-          IMAGE: ${{ matrix.image }}
+      - name: Apply sole hosting base pin and record inputs
         run: |
           set -euo pipefail
-          echo "image=ghcr.io/${REPOSITORY,,}/${IMAGE}" >> "$GITHUB_OUTPUT"
-          if [ "$IMAGE" = clickstack ]; then
-            # Dockerfile-specific ignore overrides the older context allowlist.
-            # Only tracked COPY inputs enter the build; rehearsal evidence stays out.
-            printf '%s\n' '*' '!Dockerfile' '!nginx.conf' '!scripts/' \
-              '!scripts/entrypoint.sh' '!scripts/smoke-live.sh' \
-              '!scripts/ingestion-check.cjs' '!scripts/database-processes.cjs' \
-              > observability/Dockerfile.dockerignore
-          fi
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+          test "$(git rev-parse HEAD)" = a6f15023325fd157c436167b6f477cd3b7565b2e
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess
+          root=pathlib.Path('observability/telegram-relay')
+          p=root/'Dockerfile';raw=p.read_bytes()
+          old=b'FROM oven/bun:1.3.11-slim AS runtime'
+          new=b'FROM oven/bun:1.3.11-slim@sha256:49a1dfafe49d774e0b75a17bd596d5a8e49231c1fab76d9a30b6fc690c30f30e AS runtime'
+          if raw.count(old)!=1:raise SystemExit('source mismatch')
+          p.write_bytes(raw.replace(old,new))
+          names=subprocess.check_output(['git','ls-files','observability/telegram-relay']).decode().splitlines()
+          for name in names:
+              if name==str(p):continue
+              original=subprocess.check_output(['git','show','HEAD:'+name])
+              if pathlib.Path(name).read_bytes()!=original:raise SystemExit('source changed')
+          pathlib.Path('publication').mkdir()
+          hashes={str(pathlib.Path(n).relative_to(root)):hashlib.sha256(pathlib.Path(n).read_bytes()).hexdigest() for n in names}
+          pathlib.Path('publication/context.json').write_text(json.dumps({'source_revision':'a6f15023325fd157c436167b6f477cd3b7565b2e','hosting_only_delta':'Bun base digest pin','file_sha256':hashes},sort_keys=True))
+          PY
+          test "$(git diff --name-only)" = observability/telegram-relay/Dockerfile
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish commit image
+      - name: Publish original relay only
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.context }}/Dockerfile
+          context: observability/telegram-relay
+          file: observability/telegram-relay/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.source.outputs.image }}:sha-${{ github.sha }}
+          tags: ghcr.io/loyal-labs/loyal-app/telegram-relay:source-a6f15023325fd157c436167b6f477cd3b7565b2e-hostpin-${{ github.run_id }}
           labels: |
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=a6f15023325fd157c436167b6f477cd3b7565b2e
+            org.opencontainers.image.source=https://github.com/loyal-labs/loyal-app
           provenance: mode=max
-      - name: Export publication digest
+      - name: Record immutable publication
         env:
-          IMAGE: ${{ steps.source.outputs.image }}
           DIGEST: ${{ steps.build.outputs.digest }}
-          IMAGE_NAME: ${{ matrix.image }}
+          WORKFLOW_REVISION: ${{ github.sha }}
         run: |
           set -euo pipefail
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          mkdir -p publication
-          jq -n --arg image "$IMAGE" --arg digest "$DIGEST" \
-            --arg commit "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
-            '{image: $image, digest: $digest, reference: ($image + "@" + $digest),
-              tag: ("sha-" + $commit), revision: $commit, platform: "linux/amd64",
-              run_id: $run}' > "publication/${IMAGE_NAME}.json"
-      - name: Retain immutable reference
-        uses: actions/upload-artifact@v4
+          jq -n --arg digest "$DIGEST" --arg run "$GITHUB_RUN_ID" --arg workflow "$WORKFLOW_REVISION" \
+            '{image:"ghcr.io/loyal-labs/loyal-app/telegram-relay",digest:$digest,reference:("ghcr.io/loyal-labs/loyal-app/telegram-relay@"+$digest),revision:"a6f15023325fd157c436167b6f477cd3b7565b2e",workflow_revision:$workflow,platform:"linux/amd64",run_id:$run,hosting_only_delta:"Bun base digest pin"}' > publication/telegram-relay.json
+      - uses: actions/upload-artifact@v4
         with:
-          name: hetzner-observability-${{ matrix.image }}-${{ github.sha }}-${{ github.run_attempt }}
+          name: hetzner-relay-original-a6f150-${{ github.run_id }}-${{ github.run_attempt }}
           path: publication/*.json
           if-no-files-found: error
           retention-days: 30
