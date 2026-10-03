@@ -1,24 +1,24 @@
-import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { AccountLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { NextResponse } from "next/server";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   healPendingEarnAutodepositArtifactProofs,
   probeEarnAutodepositArtifacts,
 } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
-import { reconcileEarnAutodepositPositionPause } from "@/lib/yield-optimization/earn-autodeposit-position-pause.server";
-import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { isEarnAutoswapEnrollmentEnabled } from "@/lib/yield-optimization/earn-autoswap-rollout.server";
+import { readEarnAutodepositPositionPause } from "@/lib/yield-optimization/earn-autodeposit-position-pause.server";
 import {
+  type CurrentEarnAutodepositState,
   findCurrentEarnAutodepositState,
   findPendingEarnAutodepositScheduledSweeps,
   markAutodepositTargetActiveFromArtifacts,
@@ -27,15 +27,16 @@ import {
   reconcileStaleEarnAutodepositScheduledSweeps,
   scheduleBootstrapEarnAutodepositSweep,
   sumEarnAutodepositCurrentPeriodDeposits,
-  type CurrentEarnAutodepositState,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { isEarnAutoswapEnrollmentEnabled } from "@/lib/yield-optimization/earn-autoswap-rollout.server";
 import { findEarnCrossMintSnapshot } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
 import {
-  serializeEarnDepositOnboardingState,
-  serializeAutodepositState,
-  serializeRoutePolicyState,
   type CurrentEarnAutodepositStateWithProgress,
+  serializeAutodepositState,
+  serializeEarnDepositOnboardingState,
+  serializeRoutePolicyState,
 } from "@/lib/yield-optimization/earn-state-serializers.server";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "@/lib/yield-optimization/workers-v2-app-contract.server";
 import {
   deriveEarnDepositOnboardingNextStep,
   findActiveYieldRoutePolicyPair,
@@ -82,7 +83,7 @@ async function hasExpectedWalletTokenDelegate(args: {
   subscriptionAuthority: string | null | undefined;
   walletUsdcAta: string | null | undefined;
 }): Promise<boolean> {
-  if (!args.subscriptionAuthority || !args.walletUsdcAta) {
+  if (!(args.subscriptionAuthority && args.walletUsdcAta)) {
     return false;
   }
 
@@ -97,8 +98,7 @@ async function hasExpectedWalletTokenDelegate(args: {
     "confirmed"
   );
   if (
-    !account ||
-    !account.owner.equals(TOKEN_PROGRAM_ID) ||
+    !account?.owner.equals(TOKEN_PROGRAM_ID) ||
     account.data.length < AccountLayout.span
   ) {
     return false;
@@ -168,7 +168,7 @@ async function reconcileAutodepositArtifacts(args: {
 
   if (
     args.state.status !== "pending" &&
-    (!policyReady || !delegationReady || !tokenApprovalReady)
+    !(policyReady && delegationReady && tokenApprovalReady)
   ) {
     const lifecycleStatus =
       !policyReady && delegationReady ? "pending_policy" : "pending_delegation";
@@ -189,7 +189,7 @@ async function reconcileAutodepositArtifacts(args: {
     tokenApprovalReady
   ) {
     let target = args.state.target;
-    if (!hasRecordedPolicy || !hasRecordedDelegation) {
+    if (!(hasRecordedPolicy && hasRecordedDelegation)) {
       // A stage transaction can land while its confirm never reaches the DB;
       // retry flows skip already-existing stages, so the missing proof would
       // strand the row in pending forever. Backfill it from chain history
@@ -343,6 +343,9 @@ export async function GET(request: Request) {
     loadEarnStatePart("position", () =>
       findReconciledActiveYieldPositionForVault({
         cluster,
+        // Workers-v2 read mode projects the reconciled position without
+        // writing it back (docs/workers-v2/app-contract.md).
+        projectOnly: isWorkersV2AppReadOnlyEarnGetsEnabled(),
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress: principal.walletAddress,
@@ -376,33 +379,41 @@ export async function GET(request: Request) {
         if (!state) {
           return null;
         }
-        let reconciledState = await reconcileAutodepositArtifacts({
-          connection,
-          settings: principal.settingsPda,
-          smartAccountsProgramId: programId,
-          state,
-          walletAddress: principal.walletAddress,
-        });
+        const readOnlyGets = isWorkersV2AppReadOnlyEarnGetsEnabled();
+        let reconciledState = readOnlyGets
+          ? state
+          : await reconcileAutodepositArtifacts({
+              connection,
+              settings: principal.settingsPda,
+              smartAccountsProgramId: programId,
+              state,
+              walletAddress: principal.walletAddress,
+            });
         // Reconcile (or a concurrent close confirm surfaced by its write
         // guards) concluded the autodeposit is closed — same as no row.
         if (reconciledState.target.lifecycleStatus === "closed") {
           return null;
         }
-        // Pause the autodeposit while the wallet has no Earn position to
-        // sweep into (and auto-resume once a deposit recreates the policy
-        // pair) — otherwise the worker perma-fails and the pane shows an
-        // eternal "Execute now".
-        const positionPause = await reconcileEarnAutodepositPositionPause({
-          cluster,
-          settingsPda: principal.settingsPda,
-          state: reconciledState,
-          vaultIndex: EARN_VAULT_INDEX,
-          walletAddress: principal.walletAddress,
-        });
-        reconciledState = positionPause.state;
+        const {
+          state: positionState,
+          pauseReason,
+          resumed: resumedFromPause,
+        } = await readEarnAutodepositPositionPause(
+          {
+            cluster,
+            settingsPda: principal.settingsPda,
+            state: reconciledState,
+            vaultIndex: EARN_VAULT_INDEX,
+            walletAddress: principal.walletAddress,
+          },
+          readOnlyGets
+        );
+        reconciledState = positionState;
         const activatedFromPending =
-          (state.status === "pending" && reconciledState.status === "active") ||
-          positionPause.resumed;
+          !readOnlyGets &&
+          ((state.status === "pending" &&
+            reconciledState.status === "active") ||
+            resumedFromPause);
         if (activatedFromPending) {
           try {
             const snapshotResult =
@@ -446,7 +457,7 @@ export async function GET(request: Request) {
         // Clear stale scheduled sweeps the wallet can no longer back (surplus
         // already swept or spent) so the row disappears instead of lingering
         // as a phantom "Execute now". Only runs when there's a sweep to check.
-        if (scheduledSweeps.length > 0) {
+        if (!readOnlyGets && scheduledSweeps.length > 0) {
           try {
             const balanceSnapshot =
               await readEarnAutodepositBootstrapWalletBalanceSnapshot({
@@ -486,6 +497,7 @@ export async function GET(request: Request) {
         return {
           ...reconciledState,
           depositedThisPeriodRaw,
+          pauseReason,
           scheduledSweeps,
         };
       }

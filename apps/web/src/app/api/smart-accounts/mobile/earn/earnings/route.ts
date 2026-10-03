@@ -1,17 +1,19 @@
-import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import { NextResponse } from "next/server";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
+import type { EarnEarningsUnavailableResponse } from "@/lib/yield-optimization/earnings.shared";
 import {
+  createEarnEarningsReadDependencies,
   createEmptyEarnEarningsRangeSet,
   EarnEarningsUnavailableError,
   readEarnEarningsRangeSet,
 } from "@/lib/yield-optimization/earnings-read-service.server";
-import type { EarnEarningsUnavailableResponse } from "@/lib/yield-optimization/earnings.shared";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "@/lib/yield-optimization/workers-v2-app-contract.server";
 
 const EARN_VAULT_INDEX = 1;
 
@@ -58,13 +60,20 @@ export async function GET(request: Request) {
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   try {
-    const payload = await readEarnEarningsRangeSet({
-      cluster,
-      settings: account.settingsPda,
-      timezone: url.searchParams.get("timezone"),
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress,
-    });
+    // Workers-v2 read mode skips the earnings snapshot cache write
+    // (docs/workers-v2/app-contract.md); legacy keeps read-repair caching.
+    const payload = await readEarnEarningsRangeSet(
+      {
+        cluster,
+        settings: account.settingsPda,
+        timezone: url.searchParams.get("timezone"),
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress,
+      },
+      createEarnEarningsReadDependencies(
+        isWorkersV2AppReadOnlyEarnGetsEnabled()
+      )
+    );
     return NextResponse.json(payload);
   } catch (error) {
     const code =

@@ -1,19 +1,39 @@
 import { describe, expect, mock, test } from "bun:test";
-
+import type { EarnEarningsRangeSetResponse } from "./earnings.shared";
 import {
   calculateEarnEarnings,
   principalAt,
   sortEarningsEvents,
-  type YieldPositionEvent,
   type YieldPortfolioSnapshot,
+  type YieldPositionEvent,
 } from "./earnings-calculator.server";
-import type { EarnEarningsRangeSetResponse } from "./earnings.shared";
 import type {
   UserYieldPositionHistoryEventRecord,
   UserYieldPositionRecord,
 } from "./yield-deposit-repository.server";
 
 mock.module("server-only", () => ({}));
+// The exercised read-service exports take their DB dependencies as injected
+// arguments; the module-level imports below are stubbed so the pure money and
+// coverage logic under test can load without a database client.
+mock.module("drizzle-orm", () => ({
+  and: (...parts: unknown[]) => ({ kind: "and", parts }),
+  eq: (left: unknown, right: unknown) => ({ kind: "eq", left, right }),
+}));
+mock.module("@/lib/kamino/timescale-reserve-client.server", () => ({
+  getTimescaleReserveDatabaseUrl: () => null,
+  TimescaleReserveClient: class {},
+}));
+mock.module("@/lib/yield-optimization/yield-neon-client.server", () => ({
+  earnEarningsSnapshots: {},
+  getYieldOptimizationClient: () => ({}),
+}));
+mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
+  findActiveYieldPositionsForVault: async () => [],
+  findCompleteYieldVaultExposureSnapshots: async () => [],
+  findYieldPositionEvents: async () => [],
+  findYieldPositionHistoryEventsForVault: async () => [],
+}));
 
 const {
   buildHoldingBackedPortfolioSnapshots,
@@ -74,7 +94,7 @@ function readMultiMintEarnings(args: {
       ({
         initialLiquidityMint: stored.initialLiquidityMint,
         principalAmountRaw: BigInt(stored.principalRaw),
-      } as UserYieldPositionRecord)
+      }) as UserYieldPositionRecord
   );
   const storedTotalRaw = positions.reduce(
     (sum, position) => sum + position.principalAmountRaw,
@@ -210,6 +230,203 @@ describe("portfolio earnings verification", () => {
 
     expect(coverage.missingReserves).toEqual(["reserve-b"]);
     expect(coverage.staleReserves).toEqual(["reserve-b"]);
+  });
+
+  // Hourly snapshots of a continuously funded reserve are one funded span.
+  // Sample age must carry across them: two samples 60 hours apart leave a
+  // 60-hour rate hole, which the old per-snapshot sweep hid as 1-hour gaps.
+  test("rejects a sample hole inside continuously funded exposure", () => {
+    const startMs = Date.parse("2026-08-01T00:00:00.000Z");
+    const hourMs = 60 * 60 * 1000;
+    const snapshots = Array.from({ length: 61 }, (_, hour) => ({
+      exposures: [
+        {
+          amountRaw: BigInt(100_000_000),
+          kind: "kamino" as const,
+          liquidityMint: "USDC",
+          reserve: "reserve-a",
+          sourceId: "reserve:reserve-a",
+        },
+      ],
+      observedAt: new Date(startMs + hour * hourMs),
+      observedSlot: BigInt(hour + 1),
+    }));
+
+    const coverage = getPortfolioEarningsCoverage({
+      apySamples: [
+        {
+          observedAt: new Date(startMs),
+          reserve: "reserve-a",
+          supplyApy: 0.1,
+        },
+        {
+          observedAt: new Date(startMs + 60 * hourMs),
+          reserve: "reserve-a",
+          supplyApy: 0.1,
+        },
+      ],
+      now: new Date(startMs + 60 * hourMs),
+      snapshots,
+    });
+
+    expect(coverage.gappedReserves).toEqual(["reserve-a"]);
+    expect(coverage.maxSampleGapMs).toBe(60 * hourMs);
+  });
+
+  test("carries hourly samples across continuously funded snapshots", () => {
+    const startMs = Date.parse("2026-08-01T00:00:00.000Z");
+    const hourMs = 60 * 60 * 1000;
+    const snapshots = Array.from({ length: 61 }, (_, hour) => ({
+      exposures: [
+        {
+          amountRaw: BigInt(100_000_000),
+          kind: "kamino" as const,
+          liquidityMint: "USDC",
+          reserve: "reserve-a",
+          sourceId: "reserve:reserve-a",
+        },
+      ],
+      observedAt: new Date(startMs + hour * hourMs),
+      observedSlot: BigInt(hour + 1),
+    }));
+
+    const coverage = getPortfolioEarningsCoverage({
+      apySamples: Array.from({ length: 61 }, (_, hour) => ({
+        observedAt: new Date(startMs + hour * hourMs),
+        reserve: "reserve-a",
+        supplyApy: 0.1,
+      })),
+      now: new Date(startMs + 60 * hourMs),
+      snapshots,
+    });
+
+    expect(coverage.gappedReserves).toEqual([]);
+    expect(coverage.maxSampleGapMs).toBe(hourMs);
+  });
+
+  test("ignores sample holes where the reserve is unfunded", () => {
+    const startMs = Date.parse("2026-08-01T00:00:00.000Z");
+    const hourMs = 60 * 60 * 1000;
+    const fundedSnapshot = (hour: number) => ({
+      exposures: [
+        {
+          amountRaw: BigInt(100_000_000),
+          kind: "kamino" as const,
+          liquidityMint: "USDC",
+          reserve: "reserve-a",
+          sourceId: "reserve:reserve-a",
+        },
+      ],
+      observedAt: new Date(startMs + hour * hourMs),
+      observedSlot: BigInt(hour + 1),
+    });
+    const unfundedSnapshot = (hour: number) => ({
+      exposures: [
+        {
+          amountRaw: BigInt(100_000_000),
+          kind: "idle" as const,
+          liquidityMint: "USDC",
+          reserve: null,
+          sourceId: "idle:usdc",
+        },
+      ],
+      observedAt: new Date(startMs + hour * hourMs),
+      observedSlot: BigInt(hour + 1),
+    });
+
+    const coverage = getPortfolioEarningsCoverage({
+      apySamples: [
+        ...Array.from({ length: 11 }, (_, hour) => ({
+          observedAt: new Date(startMs + hour * hourMs),
+          reserve: "reserve-a",
+          supplyApy: 0.1,
+        })),
+        {
+          observedAt: new Date(startMs + 50 * hourMs),
+          reserve: "reserve-a",
+          supplyApy: 0.1,
+        },
+      ],
+      now: new Date(startMs + 60 * hourMs),
+      snapshots: [
+        ...Array.from({ length: 10 }, (_, hour) => fundedSnapshot(hour)),
+        ...Array.from({ length: 40 }, (_, hour) => unfundedSnapshot(10 + hour)),
+        ...Array.from({ length: 11 }, (_, hour) => fundedSnapshot(50 + hour)),
+      ],
+    });
+
+    expect(coverage.gappedReserves).toEqual([]);
+    // The only measured gaps are inside funded exposure: hourly samples in the
+    // first span (1h) and the trailing funded window after the fresh h50
+    // resume sample (10h). The 40h unfunded hole itself contributes nothing —
+    // if it were measured it would dominate this maximum.
+    expect(coverage.maxSampleGapMs).toBe(10 * hourMs);
+  });
+
+  test("rejects exposure that resumes after the last sample's lifetime", () => {
+    const startMs = Date.parse("2026-08-01T00:00:00.000Z");
+    const hourMs = 60 * 60 * 1000;
+    const fundedSnapshot = (hour: number) => ({
+      exposures: [
+        {
+          amountRaw: BigInt(100_000_000),
+          kind: "kamino" as const,
+          liquidityMint: "USDC",
+          reserve: "reserve-a",
+          sourceId: "reserve:reserve-a",
+        },
+      ],
+      observedAt: new Date(startMs + hour * hourMs),
+      observedSlot: BigInt(hour + 1),
+    });
+    const unfundedSnapshot = (hour: number) => ({
+      exposures: [],
+      observedAt: new Date(startMs + hour * hourMs),
+      observedSlot: BigInt(hour + 1),
+    });
+
+    const coverage = getPortfolioEarningsCoverage({
+      apySamples: [
+        { observedAt: new Date(startMs), reserve: "reserve-a", supplyApy: 0.1 },
+      ],
+      now: new Date(startMs + 60 * hourMs),
+      snapshots: [
+        ...Array.from({ length: 10 }, (_, hour) => fundedSnapshot(hour)),
+        ...Array.from({ length: 40 }, (_, hour) => unfundedSnapshot(10 + hour)),
+        ...Array.from({ length: 11 }, (_, hour) => fundedSnapshot(50 + hour)),
+      ],
+    });
+
+    expect(coverage.gappedReserves).toEqual(["reserve-a"]);
+    expect(coverage.maxSampleGapMs).toBe(60 * hourMs);
+  });
+
+  test("funding does not reset the age of a rate observed earlier", () => {
+    const hour = 60 * 60 * 1000;
+    const start = Date.parse("2026-08-01T00:00:00Z");
+    const coverage = getPortfolioEarningsCoverage({
+      apySamples: [
+        { observedAt: new Date(start), reserve: "reserve-a", supplyApy: 0.1 },
+      ],
+      now: new Date(start + 40 * hour),
+      snapshots: [
+        {
+          exposures: [
+            {
+              amountRaw: BigInt(1),
+              kind: "kamino",
+              liquidityMint: "USDC",
+              reserve: "reserve-a",
+              sourceId: "reserve:reserve-a",
+            },
+          ],
+          observedAt: new Date(start + 30 * hour),
+          observedSlot: BigInt(1),
+        },
+      ],
+    });
+    expect(coverage.gappedReserves).toEqual(["reserve-a"]);
+    expect(coverage.maxSampleGapMs).toBe(40 * hour);
   });
 
   test("accepts a position whose principal spans several mints", async () => {
@@ -575,7 +792,7 @@ describe("portfolio earnings verification", () => {
         liquidityMint: "USDC",
         reserve: "reserve-a",
         type,
-      } as UserYieldPositionHistoryEventRecord);
+      }) as UserYieldPositionHistoryEventRecord;
     const snapshots = buildHoldingBackedPortfolioSnapshots({
       completeSnapshots: [],
       holdingEvents: [holding("deposit", 3, 50), holding("withdrawal", 2, 0)],

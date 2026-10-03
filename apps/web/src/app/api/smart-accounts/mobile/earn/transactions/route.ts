@@ -1,21 +1,21 @@
-import { NextResponse } from "next/server";
 import { LoyalCluster } from "@loyal-labs/actions";
-
+import { NextResponse } from "next/server";
+import {
+  collapseDuplicateEarnRebalanceTransactions,
+  type SerializedEarnTransaction,
+  serializeEarnTransactionEvent,
+} from "@/app/api/smart-accounts/earn-transactions/formatter";
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "@/lib/yield-optimization/workers-v2-app-contract.server";
 import {
   findYieldPositionHistoryEventsForVault,
   syncConfirmedRebalanceHoldingEventsForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
-import {
-  collapseDuplicateEarnRebalanceTransactions,
-  serializeEarnTransactionEvent,
-  type SerializedEarnTransaction,
-} from "@/app/api/smart-accounts/earn-transactions/formatter";
 
 // Mobile twin of the session `earn-transactions` route. The native Activity >
 // Earn tab lists Earn vault history passively, with no signer held (a wallet
@@ -25,7 +25,11 @@ import {
 // optimizer decisions into history rows; it never provisions a smart account.
 const EARN_VAULT_INDEX = 1;
 
-function jsonError(status: number, code: string, message: string): NextResponse {
+function jsonError(
+  status: number,
+  code: string,
+  message: string
+): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
@@ -96,12 +100,16 @@ export async function GET(request: Request) {
     }
 
     const cluster = resolveConfiguredCluster();
-    await syncConfirmedRebalanceHoldingEventsForVault({
-      cluster,
-      settings: account.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress,
-    });
+    // Backfilling rebalance holding events is a projection write owned by the
+    // observer under workers-v2; legacy reads keep repairing on GET.
+    if (!isWorkersV2AppReadOnlyEarnGetsEnabled()) {
+      await syncConfirmedRebalanceHoldingEventsForVault({
+        cluster,
+        settings: account.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress,
+      });
+    }
 
     const [positionEvents, autodepositEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({

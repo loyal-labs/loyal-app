@@ -17,10 +17,10 @@ import {
   EarningsPrincipalHistoryError,
   normalizeEarningsTimezone,
   PRINCIPAL_CLAMPS,
-  principalAt,
-  sortEarningsEvents,
   type PrincipalClamp,
+  principalAt,
   type ReserveApySample,
+  sortEarningsEvents,
   type YieldPortfolioSnapshot,
   type YieldPositionEvent,
   type YieldPositionPathEvent,
@@ -37,6 +37,7 @@ import {
   earnEarningsSnapshots,
   getYieldOptimizationClient,
 } from "./yield-neon-client.server";
+import { YieldVaultExposureUnitError } from "./yield-vault-exposure-units.shared";
 
 export type EarnEarningsReadInput = {
   cluster: string;
@@ -112,6 +113,7 @@ export class EarnEarningsUnavailableError extends Error {
     | "apy_coverage_incomplete"
     | "deposit_history_incomplete"
     | "earnings_unavailable"
+    | "exposure_units_unknown"
     | "holding_history_mismatch"
     | "principal_history_mismatch"
     | "principal_history_ambiguous";
@@ -181,11 +183,7 @@ function comparePathEvents(
   ) {
     return left.confirmedSlot < right.confirmedSlot ? -1 : 1;
   }
-  if (
-    left.id !== undefined &&
-    right.id !== undefined &&
-    left.id !== right.id
-  ) {
+  if (left.id !== undefined && right.id !== undefined && left.id !== right.id) {
     return left.id < right.id ? -1 : 1;
   }
   const order = {
@@ -413,6 +411,107 @@ export function getPortfolioEarningsHistoryRevision(args: {
     .digest("hex");
 }
 
+// A reserve funded at the next observation keeps its exposure: hourly
+// snapshots of a continuously funded reserve describe one funded span, not a
+// new measurement starting at each snapshot. Sample age therefore carries
+// across snapshots — a reserve sampled once and funded for the next 60 hours
+// has a 60-hour APY gap, not sixty one-hour gaps. Time where the reserve is
+// unfunded measures nothing, but exposure that starts (or resumes) after the
+// last sample's lifetime is still a gap.
+const MAX_APY_SAMPLE_AGE_MS = 36 * 60 * 60 * 1000;
+
+interface FundedSpan {
+  endMs: number;
+  startMs: number;
+}
+
+function mergeFundedSpans(spans: FundedSpan[]): FundedSpan[] {
+  const merged: FundedSpan[] = [];
+  for (const span of [...spans].sort(
+    (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
+  )) {
+    if (span.endMs <= span.startMs) {
+      continue;
+    }
+    const previous = merged.at(-1);
+    if (previous && span.startMs <= previous.endMs) {
+      previous.endMs = Math.max(previous.endMs, span.endMs);
+      continue;
+    }
+    merged.push({ ...span });
+  }
+  return merged;
+}
+
+function fundedKaminoReserves(
+  snapshot: YieldPortfolioSnapshot | undefined
+): string[] {
+  return [
+    ...new Set(
+      (snapshot?.exposures ?? []).flatMap((exposure) =>
+        exposure.kind === "kamino" &&
+        exposure.amountRaw > BigInt(0) &&
+        exposure.reserve
+          ? [exposure.reserve]
+          : []
+      )
+    ),
+  ];
+}
+
+function fundedReserveSpans(
+  snapshots: readonly YieldPortfolioSnapshot[],
+  now: Date
+): Map<string, FundedSpan[]> {
+  const result = new Map<string, FundedSpan[]>();
+  for (let index = 0; index < snapshots.length; index += 1) {
+    const snapshot = snapshots[index];
+    const span = {
+      startMs: snapshot.observedAt.getTime(),
+      endMs: (snapshots[index + 1]?.observedAt ?? now).getTime(),
+    };
+    for (const reserve of fundedKaminoReserves(snapshot)) {
+      const spans = result.get(reserve) ?? [];
+      spans.push(span);
+      result.set(reserve, spans);
+    }
+  }
+  return result;
+}
+
+function fundedSampleGaps(
+  samples: readonly number[],
+  spans: readonly FundedSpan[]
+) {
+  let index = 0;
+  let lastSampleMs: number | null = null;
+  let maxGapMs: number | null = null;
+  let missing = false;
+  const measure = (at: number) => {
+    if (lastSampleMs === null) {
+      missing = true;
+      return;
+    }
+    maxGapMs = Math.max(maxGapMs ?? 0, at - lastSampleMs);
+  };
+  for (const span of mergeFundedSpans([...spans])) {
+    while (index < samples.length && samples[index] <= span.startMs) {
+      lastSampleMs = samples[index++];
+    }
+    // Funding never refreshes the actual rate observation.
+    measure(span.startMs);
+    while (index < samples.length && samples[index] <= span.endMs) {
+      measure(samples[index]);
+      lastSampleMs = samples[index++];
+    }
+    measure(span.endMs);
+  }
+  return {
+    gapped: missing || (maxGapMs !== null && maxGapMs > MAX_APY_SAMPLE_AGE_MS),
+    maxGapMs,
+  };
+}
+
 export function getPortfolioEarningsCoverage(args: {
   apySamples: readonly ReserveApySample[];
   now: Date;
@@ -420,17 +519,10 @@ export function getPortfolioEarningsCoverage(args: {
 }): EarnEarningsCoverage {
   const required = new Map<string, Date>();
   for (const snapshot of args.snapshots) {
-    for (const exposure of snapshot.exposures) {
-      if (
-        exposure.kind !== "kamino" ||
-        exposure.amountRaw <= BigInt(0) ||
-        !exposure.reserve
-      ) {
-        continue;
-      }
-      const earliest = required.get(exposure.reserve);
+    for (const reserve of fundedKaminoReserves(snapshot)) {
+      const earliest = required.get(reserve);
       if (!earliest || snapshot.observedAt < earliest) {
-        required.set(exposure.reserve, snapshot.observedAt);
+        required.set(reserve, snapshot.observedAt);
       }
     }
   }
@@ -442,78 +534,42 @@ export function getPortfolioEarningsCoverage(args: {
     )
     .map(([reserve]) => reserve)
     .sort();
+  const sampleTimesByReserve = new Map<string, number[]>();
+  for (const sample of args.apySamples) {
+    if (!sample.reserve || sample.observedAt > args.now) {
+      continue;
+    }
+    const times = sampleTimesByReserve.get(sample.reserve) ?? [];
+    times.push(sample.observedAt.getTime());
+    sampleTimesByReserve.set(sample.reserve, times);
+  }
+  for (const times of sampleTimesByReserve.values()) {
+    times.sort((left, right) => left - right);
+  }
   const gappedReserves = new Set<string>();
   let maxSampleGapMs: number | null = null;
-  for (let index = 0; index < args.snapshots.length; index += 1) {
-    const snapshot = args.snapshots[index];
-    const intervalEnd = args.snapshots[index + 1]?.observedAt ?? args.now;
-    for (const reserve of new Set(
-      snapshot.exposures.flatMap((exposure) =>
-        exposure.kind === "kamino" &&
-        exposure.amountRaw > BigInt(0) &&
-        exposure.reserve
-          ? [exposure.reserve]
-          : []
-      )
-    )) {
-      const samples = args.apySamples
-        .filter(
-          (sample) =>
-            sample.reserve === reserve && sample.observedAt <= intervalEnd
-        )
-        .sort(
-          (left, right) =>
-            left.observedAt.getTime() - right.observedAt.getTime()
-        );
-      const seed = [...samples]
-        .reverse()
-        .find((sample) => sample.observedAt <= snapshot.observedAt);
-      if (!seed) {
-        gappedReserves.add(reserve);
-        continue;
-      }
-      let cursor = snapshot.observedAt.getTime();
-      for (const sample of samples) {
-        const sampleTime = sample.observedAt.getTime();
-        if (sampleTime <= cursor) {
-          continue;
-        }
-        const gap = sampleTime - cursor;
-        maxSampleGapMs = Math.max(maxSampleGapMs ?? 0, gap);
-        if (gap > 36 * 60 * 60 * 1000) {
-          gappedReserves.add(reserve);
-        }
-        cursor = sampleTime;
-      }
-      const trailingGap = intervalEnd.getTime() - cursor;
-      maxSampleGapMs = Math.max(maxSampleGapMs ?? 0, trailingGap);
-      if (trailingGap > 36 * 60 * 60 * 1000) {
-        gappedReserves.add(reserve);
-      }
+  for (const [reserve, spans] of fundedReserveSpans(args.snapshots, args.now)) {
+    const gap = fundedSampleGaps(
+      sampleTimesByReserve.get(reserve) ?? [],
+      spans
+    );
+    if (gap.gapped) {
+      gappedReserves.add(reserve);
+    }
+    if (gap.maxGapMs !== null) {
+      maxSampleGapMs = Math.max(maxSampleGapMs ?? 0, gap.maxGapMs);
     }
   }
-  const currentReserves = new Set(
-    (args.snapshots.at(-1)?.exposures ?? []).flatMap((exposure) =>
-      exposure.kind === "kamino" &&
-      exposure.amountRaw > BigInt(0) &&
-      exposure.reserve
-        ? [exposure.reserve]
-        : []
-    )
-  );
-  const currentAges = [...currentReserves].map((reserve) => {
-    const latest = [...args.apySamples]
-      .reverse()
-      .find((sample) => sample.reserve === reserve);
+  const currentReserves = fundedKaminoReserves(args.snapshots.at(-1));
+  const currentAges = currentReserves.map((reserve) => {
+    const latest = sampleTimesByReserve.get(reserve)?.at(-1);
     return {
-      age: latest
-        ? Math.max(0, args.now.getTime() - latest.observedAt.getTime())
-        : null,
+      age: latest === undefined ? null : args.now.getTime() - latest,
       reserve,
     };
   });
   const staleReserves = currentAges
-    .filter(({ age }) => age === null || age > 36 * 60 * 60 * 1000)
+    .filter(({ age }) => age === null || age > MAX_APY_SAMPLE_AGE_MS)
     .map(({ reserve }) => reserve)
     .sort();
   return {
@@ -854,9 +910,9 @@ export function createEarnEarningsReadDependencies(
     loadHoldingEvents: findYieldPositionHistoryEventsForVault,
     loadPortfolioSnapshots: findCompleteYieldVaultExposureSnapshots,
     loadPositions: findActiveYieldPositionsForVault,
-    loadSnapshot: readOnly ? async () => null : loadSnapshot,
+    loadSnapshot: readOnly ? () => Promise.resolve(null) : loadSnapshot,
     now: () => new Date(),
-    saveSnapshot: readOnly ? async () => undefined : saveSnapshot,
+    saveSnapshot: readOnly ? () => Promise.resolve() : saveSnapshot,
   };
 }
 
@@ -887,10 +943,10 @@ export async function readEarnEarningsRangeSet(
         dependencies.loadPositions
           ? dependencies.loadPositions(input)
           : dependencies.loadPosition
-          ? dependencies
-              .loadPosition(input)
-              .then((position) => (position ? [position] : []))
-          : [],
+            ? dependencies
+                .loadPosition(input)
+                .then((position) => (position ? [position] : []))
+            : [],
         dependencies.loadLedgerEvents(input),
         dependencies.loadPortfolioSnapshots
           ? dependencies.loadPortfolioSnapshots(input)
@@ -1112,14 +1168,20 @@ export async function readEarnEarningsRangeSet(
     });
     return payload;
   } catch (caught) {
-    const error =
-      caught instanceof EarningsPrincipalHistoryError
-        ? new EarnEarningsUnavailableError(
-            "history_incomplete",
-            caught.message,
-            "principal_history_ambiguous"
-          )
-        : caught;
+    let error = caught;
+    if (caught instanceof EarningsPrincipalHistoryError) {
+      error = new EarnEarningsUnavailableError(
+        "history_incomplete",
+        caught.message,
+        "principal_history_ambiguous"
+      );
+    } else if (caught instanceof YieldVaultExposureUnitError) {
+      error = new EarnEarningsUnavailableError(
+        "history_incomplete",
+        "Earn exposure history has unknown amount units.",
+        "exposure_units_unknown"
+      );
+    }
     const reason =
       error instanceof EarnEarningsUnavailableError
         ? error.code
@@ -1154,8 +1216,8 @@ export async function readEarnEarningsRangeSet(
         error.detailCode === "principal_history_mismatch"
           ? "earnings_principal_mismatch"
           : reason === "history_incomplete"
-          ? "earnings_history_incomplete"
-          : "earnings_unavailable",
+            ? "earnings_history_incomplete"
+            : "earnings_unavailable",
       apyMs,
       ...normalizedError(error),
       historyMs,

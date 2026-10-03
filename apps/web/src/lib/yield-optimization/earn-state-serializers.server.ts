@@ -1,8 +1,9 @@
-import type {
-  CurrentEarnAutodepositState,
-  PendingEarnAutodepositScheduledSweepRecord,
-} from "./earn-autodeposit-repository.server";
 import { getDisplayableEarnAutodepositScheduledSweeps } from "./earn-autodeposit-loaded-state.shared";
+import {
+  type CurrentEarnAutodepositState,
+  EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION,
+  type PendingEarnAutodepositScheduledSweepRecord,
+} from "./earn-autodeposit-repository.server";
 import type {
   EarnDepositOnboardingAttemptRecord,
   EarnDepositOnboardingNextStep,
@@ -12,8 +13,31 @@ import type {
 export type CurrentEarnAutodepositStateWithProgress =
   CurrentEarnAutodepositState & {
     depositedThisPeriodRaw: bigint;
+    // Why the state is effectively paused when status is "paused". Set by the
+    // workers-v2 read path for a derived (unpersisted) pause; otherwise it
+    // falls back to the target's persisted pause reason.
+    pauseReason?: EarnAutodepositPauseReason | null;
     scheduledSweeps: PendingEarnAutodepositScheduledSweepRecord[];
   };
+
+export type EarnAutodepositPauseReason =
+  | "legacy_pause_unrepaired"
+  | "missing_position";
+
+export function resolveEarnAutodepositPauseReason(
+  autodeposit: Pick<
+    CurrentEarnAutodepositStateWithProgress,
+    "pauseReason" | "target"
+  >
+): EarnAutodepositPauseReason | null {
+  if (autodeposit.pauseReason) {
+    return autodeposit.pauseReason;
+  }
+  return autodeposit.target.lifecycleStatus ===
+    EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION
+    ? "missing_position"
+    : null;
+}
 
 function serializeScheduledSweep(
   sweep: PendingEarnAutodepositScheduledSweepRecord
@@ -22,8 +46,7 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
-    executeNowAvailableAt:
-      sweep.executeNowAvailableAt?.toISOString() ?? null,
+    executeNowAvailableAt: sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
@@ -49,7 +72,8 @@ export function serializeAutodepositState(
   return {
     active: autodeposit.target.active,
     amountPerPeriodRaw: autodeposit.target.maxAmountPerPeriod.toString(),
-    balanceSweepPolicyId: autodeposit.target.balanceSweepPolicyId?.toString() ??
+    balanceSweepPolicyId:
+      autodeposit.target.balanceSweepPolicyId?.toString() ??
       autodeposit.policy?.id.toString() ??
       null,
     cluster: autodeposit.target.cluster,
@@ -70,6 +94,7 @@ export function serializeAutodepositState(
       autodeposit.policy?.policySeed ?? autodeposit.target.policySeed
     ).toString(),
     policySignature: autodeposit.target.policySignature,
+    pauseReason: resolveEarnAutodepositPauseReason(autodeposit),
     recurringDelegation: autodeposit.target.recurringDelegation,
     recurringDelegationConfirmedSlot:
       autodeposit.target.recurringDelegationConfirmedSlot?.toString() ?? null,

@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
 import {
-  LoyalCluster,
   getKaminoUsdcEarnTargetForCluster,
+  LoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
+import { NextResponse } from "next/server";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
@@ -11,6 +11,7 @@ import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-sign
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getCurrentReserveUpdatesByReserve } from "@/lib/kamino/timescale-reserve-client.server";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "@/lib/yield-optimization/workers-v2-app-contract.server";
 import {
   findActiveYieldPositionsForVault,
   findReconciledActiveYieldPositionForVault,
@@ -115,10 +116,14 @@ async function loadCurrentSupplyApyBps(
     const rows = await getCurrentReserveUpdatesByReserve({
       reserves: [reserve],
     });
-    const match = rows.find((row) => row.reserve === reserve) ?? rows[0] ?? null;
+    const match =
+      rows.find((row) => row.reserve === reserve) ?? rows[0] ?? null;
     return match ? toApyBps(match.supplyApy) : null;
   } catch (error) {
-    console.warn("[mobile-earn-state] APY lookup failed; returning null", error);
+    console.warn(
+      "[mobile-earn-state] APY lookup failed; returning null",
+      error
+    );
     return null;
   }
 }
@@ -167,6 +172,9 @@ export async function GET(request: Request) {
     const cluster = resolveConfiguredCluster();
     const position = await findReconciledActiveYieldPositionForVault({
       cluster,
+      // Workers-v2 read mode projects the reconciled position without writing
+      // it back (docs/workers-v2/app-contract.md); legacy keeps repairing.
+      projectOnly: isWorkersV2AppReadOnlyEarnGetsEnabled(),
       settings: account.settingsPda,
       vaultIndex: EARN_VAULT_INDEX,
       walletAddress,

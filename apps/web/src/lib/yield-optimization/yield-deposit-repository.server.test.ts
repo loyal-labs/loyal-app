@@ -1053,3 +1053,139 @@ describe("earnings ledger lifecycle projection", () => {
     ).rejects.toThrow("principal_history_position_ambiguous");
   });
 });
+
+describe("workers v2 position reads", () => {
+  test("uses recorded liquidity conversion without repairing any rows", async () => {
+    const { findReconciledActiveYieldPositionForVault } = await import(
+      "./yield-deposit-repository.server"
+    );
+    const position = createPosition();
+    const event = createHoldingEvent({
+      eventType: "snapshot_reconciled",
+      sourceSnapshotId: BigInt(77),
+      amountRaw: BigInt(5000),
+    });
+    const write = mock(() => {
+      throw new Error("read attempted a write");
+    });
+    let reads = 0;
+    const select = mock(() => {
+      const rows =
+        reads++ === 0
+          ? [event]
+          : [
+              {
+                planningMetadata: {
+                  amountSemantics:
+                    "kamino_obligation_collateral_deposited_amount",
+                  redeemable_liquidity_amount_raw: "4210",
+                },
+              },
+            ];
+      const query = {
+        from: () => query,
+        where: () => query,
+        orderBy: () => query,
+        limit: () => Promise.resolve(rows),
+      };
+      return query;
+    });
+    const result = await findReconciledActiveYieldPositionForVault(
+      {
+        cluster: "mainnet-beta",
+        settings: "settings",
+        walletAddress: "wallet",
+        vaultIndex: 1,
+        projectOnly: true,
+      },
+      {
+        client: {
+          db: {
+            query: {
+              userYieldPositions: {
+                findFirst: mock(() => Promise.resolve(position)),
+              },
+              managedVaults: {
+                findFirst: mock(() => Promise.resolve({ id: BigInt(1) })),
+              },
+            },
+            select,
+            insert: write,
+            update: write,
+          },
+        },
+        now: () => new Date(),
+      } as never
+    );
+    expect(result?.currentAmountRaw).toBe(BigInt(4210));
+    expect(result?.principalAmountRaw).toBe(position.principalAmountRaw);
+    expect(reads).toBe(2);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  test("rejects missing conversion instead of substituting principal", async () => {
+    const { findReconciledActiveYieldPositionForVault } = await import(
+      "./yield-deposit-repository.server"
+    );
+    const position = createPosition();
+    const event = createHoldingEvent({
+      eventType: "snapshot_reconciled",
+      sourceSnapshotId: BigInt(77),
+      amountRaw: BigInt(5000),
+    });
+    let reads = 0;
+    const write = mock(() => {
+      throw new Error("read attempted a write");
+    });
+    const select = mock(() => {
+      const rows =
+        reads++ === 0
+          ? [event]
+          : [
+              {
+                planningMetadata: {
+                  amountSemantics:
+                    "kamino_obligation_collateral_deposited_amount",
+                },
+              },
+            ];
+      const query = {
+        from: () => query,
+        where: () => query,
+        orderBy: () => query,
+        limit: () => Promise.resolve(rows),
+      };
+      return query;
+    });
+    await expect(
+      findReconciledActiveYieldPositionForVault(
+        {
+          cluster: "mainnet-beta",
+          settings: "settings",
+          walletAddress: "wallet",
+          vaultIndex: 1,
+          projectOnly: true,
+        },
+        {
+          client: {
+            db: {
+              query: {
+                userYieldPositions: {
+                  findFirst: mock(() => Promise.resolve(position)),
+                },
+                managedVaults: {
+                  findFirst: mock(() => Promise.resolve({ id: BigInt(1) })),
+                },
+              },
+              select,
+              insert: write,
+              update: write,
+            },
+          },
+          now: () => new Date(),
+        } as never
+      )
+    ).rejects.toThrow("yield_vault_exposure_conversion_evidence_missing");
+    expect(write).not.toHaveBeenCalled();
+  });
+});

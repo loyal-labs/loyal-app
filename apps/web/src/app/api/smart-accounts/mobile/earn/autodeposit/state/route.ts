@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { AccountLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { NextResponse } from "next/server";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
@@ -18,19 +18,20 @@ import {
   probeEarnAutodepositArtifacts,
 } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
-import { reconcileEarnAutodepositPositionPause } from "@/lib/yield-optimization/earn-autodeposit-position-pause.server";
 import { getDisplayableEarnAutodepositScheduledSweeps } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import { readEarnAutodepositPositionPause } from "@/lib/yield-optimization/earn-autodeposit-position-pause.server";
 import {
+  type CurrentEarnAutodepositState,
   findCurrentEarnAutodepositState,
   findPendingEarnAutodepositScheduledSweeps,
   markAutodepositTargetActiveFromArtifacts,
   markAutodepositTargetClosedFromChain,
   markAutodepositTargetPendingDelegation,
+  type PendingEarnAutodepositScheduledSweepRecord,
   reconcileStaleEarnAutodepositScheduledSweeps,
   scheduleBootstrapEarnAutodepositSweep,
-  type CurrentEarnAutodepositState,
-  type PendingEarnAutodepositScheduledSweepRecord,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "@/lib/yield-optimization/workers-v2-app-contract.server";
 
 // Read-only mobile autodeposit state, keyed by wallet address (no signature, no
 // provisioning) — mirrors `mobile/earn/state`. Drives the native Autodeposit
@@ -124,7 +125,7 @@ async function hasExpectedWalletTokenDelegate(args: {
   subscriptionAuthority: string | null | undefined;
   walletUsdcAta: string | null | undefined;
 }): Promise<boolean> {
-  if (!args.subscriptionAuthority || !args.walletUsdcAta) {
+  if (!(args.subscriptionAuthority && args.walletUsdcAta)) {
     return false;
   }
 
@@ -139,8 +140,7 @@ async function hasExpectedWalletTokenDelegate(args: {
     "confirmed"
   );
   if (
-    !account ||
-    !account.owner.equals(TOKEN_PROGRAM_ID) ||
+    !account?.owner.equals(TOKEN_PROGRAM_ID) ||
     account.data.length < AccountLayout.span
   ) {
     return false;
@@ -210,7 +210,7 @@ async function reconcileAutodepositArtifacts(args: {
 
   if (
     args.state.status !== "pending" &&
-    (!policyReady || !delegationReady || !tokenApprovalReady)
+    !(policyReady && delegationReady && tokenApprovalReady)
   ) {
     const lifecycleStatus =
       !policyReady && delegationReady ? "pending_policy" : "pending_delegation";
@@ -231,7 +231,7 @@ async function reconcileAutodepositArtifacts(args: {
     tokenApprovalReady
   ) {
     let target = args.state.target;
-    if (!hasRecordedPolicy || !hasRecordedDelegation) {
+    if (!(hasRecordedPolicy && hasRecordedDelegation)) {
       // A stage transaction can land while its confirm never reaches the DB;
       // retry flows skip already-existing stages, so the missing proof would
       // strand the row in pending forever. Backfill it from chain history
@@ -320,15 +320,19 @@ export async function GET(request: Request) {
     }
     const serverEnv = getServerEnv();
     const connection = getConnection(getConfiguredSolanaEnv());
-    let reconciledState = await reconcileAutodepositArtifacts({
-      connection,
-      settings: account.settingsPda,
-      smartAccountsProgramId: new PublicKey(
-        serverEnv.loyalSmartAccounts.programId
-      ),
-      state,
-      walletAddress,
-    });
+    const cluster = resolveLoyalClusterForSolanaEnv(getConfiguredSolanaEnv());
+    const readOnlyGets = isWorkersV2AppReadOnlyEarnGetsEnabled();
+    let reconciledState = readOnlyGets
+      ? state
+      : await reconcileAutodepositArtifacts({
+          connection,
+          settings: account.settingsPda,
+          smartAccountsProgramId: new PublicKey(
+            serverEnv.loyalSmartAccounts.programId
+          ),
+          state,
+          walletAddress,
+        });
     // Reconcile (or a concurrent close confirm surfaced by its write guards)
     // concluded the autodeposit is closed — render it exactly like no row.
     if (reconciledState.target.lifecycleStatus === "closed") {
@@ -339,21 +343,25 @@ export async function GET(request: Request) {
         smartAccountAddress: account.smartAccountAddress,
       });
     }
-    // Pause the autodeposit while the wallet has no Earn position to sweep
-    // into (and auto-resume once a deposit recreates the policy pair) —
-    // otherwise the worker perma-fails and the app shows an eternal
-    // "Execute now".
-    const positionPause = await reconcileEarnAutodepositPositionPause({
-      cluster: resolveLoyalClusterForSolanaEnv(getConfiguredSolanaEnv()),
-      settingsPda: account.settingsPda,
-      state: reconciledState,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress,
-    });
-    reconciledState = positionPause.state;
+    const {
+      state: positionState,
+      pauseReason,
+      resumed: resumedFromPause,
+    } = await readEarnAutodepositPositionPause(
+      {
+        cluster,
+        settingsPda: account.settingsPda,
+        state: reconciledState,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress,
+      },
+      readOnlyGets
+    );
+    reconciledState = positionState;
     const activatedFromPending =
-      (state.status === "pending" && reconciledState.status === "active") ||
-      positionPause.resumed;
+      !readOnlyGets &&
+      ((state.status === "pending" && reconciledState.status === "active") ||
+        resumedFromPause);
     if (activatedFromPending) {
       try {
         const snapshotResult =
@@ -393,7 +401,7 @@ export async function GET(request: Request) {
     // Clear stale scheduled sweeps the wallet can no longer back (surplus already
     // swept or spent) so the Activity row disappears instead of lingering as a
     // phantom "Execute now". Only runs when there's a sweep to evaluate.
-    if (scheduledSweeps.length > 0) {
+    if (!readOnlyGets && scheduledSweeps.length > 0) {
       try {
         const balanceSnapshot =
           await readEarnAutodepositBootstrapWalletBalanceSnapshot({
@@ -445,6 +453,7 @@ export async function GET(request: Request) {
         // (pending_policy/pending_delegation) must reuse the recorded seed,
         // nonce and window so the SDK returns the missing stage for the SAME
         // policy/delegation pair — mirrors the `setup/prepare` resume logic.
+        pauseReason,
         policySeed: reconciledState.target.policySeed.toString(),
         recurringDelegationNonce:
           reconciledState.target.recurringDelegationNonce?.toString() ?? null,

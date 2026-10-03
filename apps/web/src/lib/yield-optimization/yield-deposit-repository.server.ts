@@ -34,6 +34,10 @@ import {
   type YieldOptimizationClient,
   type YieldWithdrawalReserveMetadata,
 } from "./yield-neon-client.server";
+import {
+  hasCollateralUnitAmountSemantics,
+  resolveYieldVaultExposureLiquidityAmountRaw,
+} from "./yield-vault-exposure-units.shared";
 
 export type ConfirmedYieldDepositInput = {
   cluster: string;
@@ -134,6 +138,10 @@ export type ActiveYieldPositionForVaultLookupInput = Omit<
 > & { liquidityMint?: string };
 type ReconciledActiveYieldPositionForVaultLookupInput =
   ActiveYieldPositionForVaultLookupInput & {
+    // Workers-v2 read mode: report the position from persisted state and never
+    // synchronize holding events. Legacy reads (the default) may write the
+    // reconciliation the current reserve rows imply.
+    projectOnly?: boolean;
     skipCurrentRowsObservedAtOrAfterSlot?: bigint;
   };
 
@@ -305,19 +313,14 @@ const REDEEMABLE_LIQUIDITY_AMOUNT_SEMANTICS = new Set([
   "kamino_redeemable_liquidity",
 ]);
 
-const COLLATERAL_UNIT_AMOUNT_SEMANTICS = new Set([
-  "kamino_obligation_collateral_deposited_amount",
-]);
-
-function metadataStringValue(
-  metadata: Record<string, unknown> | null | undefined,
-  keys: string[]
+function getReserveAmountSemantics(
+  metadata: Record<string, unknown> | null | undefined
 ): string | null {
   if (!metadata) {
     return null;
   }
 
-  for (const key of keys) {
+  for (const key of ["amountSemantics", "amount_semantics"]) {
     const value = metadata[key];
     if (typeof value === "string" && value.length > 0) {
       return value;
@@ -325,12 +328,6 @@ function metadataStringValue(
   }
 
   return null;
-}
-
-function getReserveAmountSemantics(
-  metadata: Record<string, unknown> | null | undefined
-): string | null {
-  return metadataStringValue(metadata, ["amountSemantics", "amount_semantics"]);
 }
 
 export function isUserFacingReserveAmountMetadata(
@@ -342,15 +339,8 @@ export function isUserFacingReserveAmountMetadata(
   );
 }
 
-function hasCollateralUnitAmountSemantics(
-  metadata: Record<string, unknown> | null | undefined
-): boolean {
-  const semantics = getReserveAmountSemantics(metadata);
-  return semantics !== null && COLLATERAL_UNIT_AMOUNT_SEMANTICS.has(semantics);
-}
-
 export function filterUserFacingYieldVaultReservePositions<
-  T extends { planningMetadata: Record<string, unknown> }
+  T extends { planningMetadata: Record<string, unknown> },
 >(rows: T[]): T[] {
   return rows.filter((row) =>
     isUserFacingReserveAmountMetadata(row.planningMetadata)
@@ -589,8 +579,46 @@ function principalBackedPositionProjection(
 async function projectPositionForUserFacingRead(
   position: UserYieldPositionRecord,
   latestEvent: UserYieldPositionHoldingEventRecord | null,
-  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client">,
+  projectOnly = false
 ): Promise<UserYieldPositionRecord> {
+  if (projectOnly && latestEvent?.eventType === "snapshot_reconciled") {
+    const [snapshotPosition] = await dependencies.client.db
+      .select({
+        planningMetadata: vaultPositionSnapshotPositions.planningMetadata,
+      })
+      .from(vaultPositionSnapshotPositions)
+      .where(
+        and(
+          eq(
+            vaultPositionSnapshotPositions.snapshotId,
+            latestEvent.sourceSnapshotId ?? BigInt(-1)
+          ),
+          eq(vaultPositionSnapshotPositions.reserve, latestEvent.reserve),
+          eq(
+            vaultPositionSnapshotPositions.liquidityMint,
+            latestEvent.liquidityMint
+          ),
+          eq(vaultPositionSnapshotPositions.amountRaw, latestEvent.amountRaw)
+        )
+      )
+      .limit(1);
+    const amountRaw = resolveYieldVaultExposureLiquidityAmountRaw({
+      amountRaw: latestEvent.amountRaw,
+      planningMetadata: snapshotPosition?.planningMetadata,
+      reserve: latestEvent.reserve,
+      snapshotId: latestEvent.sourceSnapshotId,
+    });
+    return {
+      ...position,
+      currentAmountRaw: amountRaw,
+      currentLiquidityMint: latestEvent.liquidityMint,
+      currentMarket: latestEvent.market,
+      currentReserve: latestEvent.reserve,
+      currentObservedSlot: latestEvent.observedSlot,
+      currentObservedAt: latestEvent.observedAt,
+    };
+  }
   return (await holdingEventUsesCollateralUnitSnapshot(
     latestEvent,
     dependencies
@@ -1031,8 +1059,8 @@ function normalizeWithdrawalSource(input: ConfirmedYieldWithdrawalInput): {
   const sourceId =
     input.sourceId ??
     (sourceType === "idle"
-      ? input.sourceTokenAccount ?? input.liquidityMint
-      : input.accountingReserve ?? input.targetReserve);
+      ? (input.sourceTokenAccount ?? input.liquidityMint)
+      : (input.accountingReserve ?? input.targetReserve));
 
   return {
     sourceAmountRaw: input.sourceAmountRaw ?? null,
@@ -1367,19 +1395,19 @@ async function resolveWithdrawalSource(
   ).filter((row) => row.amountRaw > BigInt(0));
   const selectedCurrentReserveRow =
     source.sourceType === "reserve"
-      ? currentReserveRows.find((row) =>
+      ? (currentReserveRows.find((row) =>
           reserveRowMatchesWithdrawalSource(row, source, input)
-        ) ?? null
+        ) ?? null)
       : null;
   const selectedHistoricalReserveRow =
     source.sourceType === "reserve"
-      ? userFacingReserveRows.find((row) =>
+      ? (userFacingReserveRows.find((row) =>
           reserveRowMatchesWithdrawalSource(row, source, input)
         ) ??
         allReserveRows.find((row) =>
           reserveRowMatchesWithdrawalSource(row, source, input)
         ) ??
-        null
+        null)
       : null;
   const fallbackReserveAmountRaw =
     source.sourceType === "reserve"
@@ -1401,18 +1429,18 @@ async function resolveWithdrawalSource(
             ])
           )
         : selectedHistoricalReserveRow && fallbackReserveAmountRaw > BigInt(0)
-        ? asRedeemableLiquidityReserveRow(
-            selectedHistoricalReserveRow,
-            fallbackReserveAmountRaw
-          )
-        : fallbackReserveAmountRaw > BigInt(0)
-        ? buildFallbackRedeemableReserveRow({
-            amountRaw: fallbackReserveAmountRaw,
-            input,
-            observedAt: dependencies.now(),
-            vaultId: vault.id,
-          })
-        : null
+          ? asRedeemableLiquidityReserveRow(
+              selectedHistoricalReserveRow,
+              fallbackReserveAmountRaw
+            )
+          : fallbackReserveAmountRaw > BigInt(0)
+            ? buildFallbackRedeemableReserveRow({
+                amountRaw: fallbackReserveAmountRaw,
+                input,
+                observedAt: dependencies.now(),
+                vaultId: vault.id,
+              })
+            : null
       : null;
   const reserveRowsForResolution =
     source.sourceType === "reserve" && selectedReserveRow
@@ -1425,13 +1453,13 @@ async function resolveWithdrawalSource(
       : currentReserveRows;
   const selectedIdleRow =
     source.sourceType === "idle"
-      ? currentIdleRows.find(
+      ? (currentIdleRows.find(
           (row) =>
             row.tokenAccount === source.sourceId ||
             row.tokenAccount === source.sourceTokenAccount ||
             row.mint === source.sourceId ||
             row.mint === source.sourceMint
-        ) ?? null
+        ) ?? null)
       : null;
 
   if (source.sourceType === "reserve" && !selectedReserveRow) {
@@ -1645,8 +1673,8 @@ async function resolveIdempotentDepositAccounting(
         event.eventType === "deposit_initialized"
           ? input.principalAmountRaw
           : shouldIncrementPrincipal
-          ? sql`${userYieldPositions.principalAmountRaw} + ${input.principalAmountRaw}`
-          : undefined;
+            ? sql`${userYieldPositions.principalAmountRaw} + ${input.principalAmountRaw}`
+            : undefined;
       const repairedPosition = await applyHoldingEventToPosition({
         client: dependencies.client,
         event,
@@ -2107,7 +2135,7 @@ async function upsertEarnDepositOnboardingAttempt(args: {
     policySeed: input.policySeed,
     routePolicyConfirmedSlot:
       "policyConfirmedSlot" in input
-        ? input.policyConfirmedSlot ?? input.confirmedSlot
+        ? (input.policyConfirmedSlot ?? input.confirmedSlot)
         : input.confirmedSlot,
     routePolicyDbId: args.routePolicyDbId ?? null,
     routePolicySignature: input.policySignature,
@@ -2158,7 +2186,7 @@ async function upsertEarnDepositOnboardingAttempt(args: {
         policySeed: input.policySeed,
         routePolicyConfirmedSlot:
           "policyConfirmedSlot" in input
-            ? input.policyConfirmedSlot ?? input.confirmedSlot
+            ? (input.policyConfirmedSlot ?? input.confirmedSlot)
             : input.confirmedSlot,
         routePolicyDbId:
           args.routePolicyDbId ??
@@ -2606,7 +2634,7 @@ export async function recordConfirmedYieldDeposit(
   }
   const existingPosition =
     input.policyInitialization === "reuse"
-      ? activeVaultPosition ?? reservePosition
+      ? (activeVaultPosition ?? reservePosition)
       : reservePosition;
   const activeCreateConflict =
     input.policyInitialization === "create"
@@ -3014,6 +3042,7 @@ export async function findCompleteYieldVaultExposureSnapshots(
     .select({
       amountRaw: vaultPositionSnapshotPositions.amountRaw,
       liquidityMint: vaultPositionSnapshotPositions.liquidityMint,
+      planningMetadata: vaultPositionSnapshotPositions.planningMetadata,
       reserve: vaultPositionSnapshotPositions.reserve,
       snapshotId: vaultPositionSnapshotPositions.snapshotId,
     })
@@ -3049,7 +3078,12 @@ export async function findCompleteYieldVaultExposureSnapshots(
       ...(reserveRowsBySnapshotId.get(snapshot.id) ?? [])
         .filter((row) => row.amountRaw > BigInt(0))
         .map((row) => ({
-          amountRaw: row.amountRaw,
+          amountRaw: resolveYieldVaultExposureLiquidityAmountRaw({
+            amountRaw: row.amountRaw,
+            planningMetadata: row.planningMetadata,
+            reserve: row.reserve,
+            snapshotId: snapshot.id,
+          }),
           kind: "kamino" as const,
           liquidityMint: row.liquidityMint,
           reserve: row.reserve,
@@ -3104,8 +3138,12 @@ export async function findReconciledActiveYieldPositionForVault(
   const positionForRead = await projectPositionForUserFacingRead(
     position,
     latestEvent,
-    dependencies
+    dependencies,
+    input.projectOnly
   );
+  if (input.projectOnly) {
+    return positionForRead;
+  }
   const currentRows = await dependencies.client.db
     .select()
     .from(vaultReservePositionsCurrent)
@@ -3824,20 +3862,22 @@ export async function findYieldPositionEvents(
   ]);
 
   const sourceFilters = [];
-  if (deposits.length > 0)
+  if (deposits.length > 0) {
     sourceFilters.push(
       inArray(
         userYieldPositionHoldingEvents.sourceDepositId,
         deposits.map((event) => event.id)
       )
     );
-  if (withdrawals.length > 0)
+  }
+  if (withdrawals.length > 0) {
     sourceFilters.push(
       inArray(
         userYieldPositionHoldingEvents.sourceWithdrawalId,
         withdrawals.map((event) => event.id)
       )
     );
+  }
   const holdings =
     sourceFilters.length > 0
       ? await dependencies.client.db
@@ -3859,7 +3899,9 @@ export async function findYieldPositionEvents(
       [holding.sourceDepositId, depositsById],
       [holding.sourceWithdrawalId, withdrawalsById],
     ] as const) {
-      if (id !== null) index.set(id, [...(index.get(id) ?? []), holding]);
+      if (id !== null) {
+        index.set(id, [...(index.get(id) ?? []), holding]);
+      }
     }
   }
   const metadata = (
@@ -3867,7 +3909,9 @@ export async function findYieldPositionEvents(
     type: "deposit" | "withdrawal"
   ) => {
     // Missing links may be legacy data; duplicate links are contradictory evidence.
-    if (!matches) return {};
+    if (!matches) {
+      return {};
+    }
     if (matches.length !== 1) {
       throw new EarningsPrincipalHistoryError(
         "principal_history_position_ambiguous"
@@ -4052,11 +4096,11 @@ async function findYieldPositionHistoryEventsForPosition(
       event.eventType === "rebalance_confirmed"
         ? "rebalance"
         : event.eventType === "snapshot_reconciled"
-        ? "reconciliation"
-        : event.eventType === "withdrawal_partial" ||
-          event.eventType === "withdrawal_full"
-        ? "withdrawal"
-        : "deposit";
+          ? "reconciliation"
+          : event.eventType === "withdrawal_partial" ||
+              event.eventType === "withdrawal_full"
+            ? "withdrawal"
+            : "deposit";
 
     const sourceReserve =
       type === "rebalance" || type === "reconciliation"
@@ -4072,8 +4116,8 @@ async function findYieldPositionHistoryEventsForPosition(
       const principalDeltaRaw =
         event.sourceDepositId === null
           ? event.principalDeltaRaw
-          : depositAmountById.get(event.sourceDepositId) ??
-            event.principalDeltaRaw;
+          : (depositAmountById.get(event.sourceDepositId) ??
+            event.principalDeltaRaw);
       if (principalDeltaRaw && principalDeltaRaw > BigInt(0)) {
         principalAmountRaw += principalDeltaRaw;
       }
@@ -4081,7 +4125,7 @@ async function findYieldPositionHistoryEventsForPosition(
       const withdrawal =
         event.sourceWithdrawalId === null
           ? null
-          : withdrawalById.get(event.sourceWithdrawalId) ?? null;
+          : (withdrawalById.get(event.sourceWithdrawalId) ?? null);
       if (
         withdrawal?.mode === "full" ||
         event.eventType === "withdrawal_full"
@@ -4125,7 +4169,7 @@ async function findYieldPositionHistoryEventsForPosition(
       rebalanceAmountRaw:
         event.sourceRebalanceDecisionId === null
           ? null
-          : rebalanceAmountById.get(event.sourceRebalanceDecisionId) ?? null,
+          : (rebalanceAmountById.get(event.sourceRebalanceDecisionId) ?? null),
       positionId: position.id,
       reserve: event.reserve,
       signature:
@@ -4146,8 +4190,8 @@ async function findYieldPositionHistoryEventsForPosition(
       withdrawnAmountRaw:
         event.sourceWithdrawalId === null
           ? null
-          : withdrawalById.get(event.sourceWithdrawalId)?.withdrawnAmountRaw ??
-            null,
+          : (withdrawalById.get(event.sourceWithdrawalId)?.withdrawnAmountRaw ??
+            null),
     };
   });
 
@@ -4662,7 +4706,7 @@ function applyPrincipalEventForVerification(
       const withdrawal =
         event.sourceWithdrawalId === null
           ? null
-          : withdrawalById.get(event.sourceWithdrawalId) ?? null;
+          : (withdrawalById.get(event.sourceWithdrawalId) ?? null);
       if (withdrawal?.mode === "full") {
         return BigInt(0);
       }
@@ -4737,9 +4781,9 @@ export async function verifyUserYieldPositions(
     const currentEvent =
       position.lastHoldingEventId === null
         ? latestEvent
-        : sortedHoldingEvents.find(
+        : (sortedHoldingEvents.find(
             (event) => event.id === position.lastHoldingEventId
-          ) ?? null;
+          ) ?? null);
     const withdrawalById = new Map(
       withdrawals.map((withdrawal) => [withdrawal.id, withdrawal])
     );

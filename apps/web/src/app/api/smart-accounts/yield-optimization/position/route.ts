@@ -13,6 +13,7 @@ import {
 } from "@/lib/kamino/timescale-reserve-client.server";
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "@/lib/yield-optimization/workers-v2-app-contract.server";
 import {
   type CurrentYieldVaultIdleTokenBalanceRecord,
   type CurrentYieldVaultReservePositionRecord,
@@ -275,6 +276,9 @@ export async function GET(request: Request) {
   const cluster = resolveConfiguredCluster();
   const position = await findReconciledActiveYieldPositionForVault({
     cluster,
+    // Workers-v2 read mode projects the reconciled position without writing
+    // it back (docs/workers-v2/app-contract.md); legacy keeps repairing.
+    projectOnly: isWorkersV2AppReadOnlyEarnGetsEnabled(),
     settings: principal.settingsPda,
     vaultIndex: EARN_VAULT_INDEX,
     walletAddress: principal.walletAddress,

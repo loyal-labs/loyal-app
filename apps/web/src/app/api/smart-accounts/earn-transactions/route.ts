@@ -1,17 +1,18 @@
-import { NextResponse } from "next/server";
 import { LoyalCluster } from "@loyal-labs/actions";
+import { NextResponse } from "next/server";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "@/lib/yield-optimization/workers-v2-app-contract.server";
 import {
   findYieldPositionHistoryEventsForVault,
   syncConfirmedRebalanceHoldingEventsForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
   collapseDuplicateEarnRebalanceTransactions,
-  serializeEarnTransactionEvent,
   type SerializedEarnTransaction,
+  serializeEarnTransactionEvent,
 } from "./formatter";
 
 const EARN_VAULT_INDEX = 1;
@@ -61,12 +62,16 @@ export async function GET(request: Request) {
   const cluster = resolveConfiguredCluster();
 
   try {
-    await syncConfirmedRebalanceHoldingEventsForVault({
-      cluster,
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress: principal.walletAddress,
-    });
+    // Backfilling rebalance holding events is a projection write owned by the
+    // observer under workers-v2; legacy reads keep repairing on GET.
+    if (!isWorkersV2AppReadOnlyEarnGetsEnabled()) {
+      await syncConfirmedRebalanceHoldingEventsForVault({
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      });
+    }
 
     const [positionEvents, autodepositEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({
