@@ -11,6 +11,7 @@ import type {
   ConfirmedEarnAutodepositSetupInput,
   EarnAutodepositSetupStage,
 } from "./earn-autodeposit-prepare-contracts.shared";
+import { isWorkersV2AppReadOnlyEarnGetsEnabled } from "./workers-v2-app-contract.server";
 import {
   balanceSweepExecutions,
   balanceSweepLotClaimItems,
@@ -150,7 +151,8 @@ export type EarnAutodepositFloorRebaselineSweepResult =
   | {
       reason:
         | "wallet_balance_projection_missing"
-        | "wallet_balance_at_or_below_floor";
+        | "wallet_balance_at_or_below_floor"
+        | "worker_reconciliation_pending";
       status: "skipped";
     };
 
@@ -2295,6 +2297,36 @@ export async function updateAutodepositWalletBalanceFloor(
     throw new Error("Autodeposit recurring delegation does not match target.");
   }
 
+  if (isWorkersV2AppReadOnlyEarnGetsEnabled()) {
+    // The target trigger increments the desired revision and coalesces the
+    // engine request in this same statement. Referencing desired_revision also
+    // refuses mutation before the required worker schema has been installed.
+    const result = await client.db.execute(sql`
+      UPDATE ${balanceSweepTargets}
+      SET wallet_balance_floor_raw = ${input.walletBalanceFloorRaw}
+      WHERE ${balanceSweepTargets.id} = ${existing.id}
+        AND ${balanceSweepTargets.policyAccount} = ${input.policyAccount}
+        AND ${balanceSweepTargets.settings} = ${input.settings}
+        AND ${balanceSweepTargets.wallet} = ${input.walletAddress}
+        AND ${balanceSweepTargets.vaultIndex} = ${input.vaultIndex}
+        AND ${balanceSweepTargets.active} = true
+        AND ${balanceSweepTargets.lifecycleStatus} = 'active'
+        AND ${balanceSweepTargets.recurringDelegation} = ${input.recurringDelegation}
+        AND desired_revision > 0
+      RETURNING ${balanceSweepTargets.id}
+    `);
+    if (getExecuteRows(result).length !== 1) {
+      throw new Error("Autodeposit target changed before the floor update.");
+    }
+    return {
+      rebaselineSweep: {
+        reason: "worker_reconciliation_pending",
+        status: "skipped",
+      },
+      target: { ...existing, walletBalanceFloorRaw: input.walletBalanceFloorRaw },
+    };
+  }
+
   const rebaselineEligibleAfter = resolveEarnAutodepositSweepEligibleAfter(
     existing,
     addOneHour(now)
@@ -2605,6 +2637,26 @@ export async function updateAutodepositTargetActive(
     existing.recurringDelegation !== input.recurringDelegation
   ) {
     throw new Error("Autodeposit recurring delegation does not match target.");
+  }
+
+  if (isWorkersV2AppReadOnlyEarnGetsEnabled()) {
+    const result = await client.db.execute(sql`
+      UPDATE ${balanceSweepTargets}
+      SET desired_active = ${input.active}
+      WHERE ${balanceSweepTargets.id} = ${existing.id}
+        AND ${balanceSweepTargets.policyAccount} = ${input.policyAccount}
+        AND ${balanceSweepTargets.settings} = ${input.settings}
+        AND ${balanceSweepTargets.wallet} = ${input.walletAddress}
+        AND ${balanceSweepTargets.vaultIndex} = ${input.vaultIndex}
+        AND ${balanceSweepTargets.lifecycleStatus} = 'active'
+        AND ${balanceSweepTargets.recurringDelegation} = ${input.recurringDelegation}
+        AND desired_revision > 0
+      RETURNING ${balanceSweepTargets.id}
+    `);
+    if (getExecuteRows(result).length !== 1) {
+      throw new Error("Autodeposit target changed before the toggle update.");
+    }
+    return { ...existing, active: input.active };
   }
 
   const [target] = await client.db

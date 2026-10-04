@@ -1,4 +1,4 @@
-# Workers-v2 app contract (Earn reads)
+# Workers-v2 app contract (Earn reads and desired controls)
 
 Status: reviewed inactive implementation increment. The workers-v2 observer and
 retail-engine replacements for the writers listed below are NOT live; this file
@@ -8,7 +8,8 @@ opt-in gate is ever enabled in a deployment.
 Scope of this document: the Earn yield-optimization GET surfaces in `apps/web`
 (web session routes and the mobile wallet-keyed twins), the read-service and
 repository functions behind them, and the exact repair writers they stop
-performing under the opt-in gate.
+performing under the opt-in gate. The same gate also transfers floor-change and
+pause/resume scheduling to the retail engine, through desired-control revisions.
 
 ## Authority boundary
 
@@ -30,7 +31,8 @@ Per the routing branch contracts at `loyal-yield-routing/docs/workers-v2/contrac
 
 - unset / `""` / `0` / `false` → legacy repair ownership. This is the
   default; the unit and APY corrections below apply in both modes.
-- `1` / `true` → read-only GET mode for the Earn surfaces listed here.
+- `1` / `true` → read-only GET mode for the Earn surfaces listed here, plus
+  intent-only floor and enablement changes described below.
 - anything else → throws `invalid_workers_v2_app_read_only_gets` so a typo
   cannot silently pick an authority boundary.
 
@@ -47,11 +49,38 @@ Per the routing branch contracts at `loyal-yield-routing/docs/workers-v2/contrac
 | earnings snapshot cache repair (`saveSnapshot` via `readEarnEarningsRangeSet` default deps) | web `yield-optimization/earnings` GET; `mobile/earn/earnings` GET | earnings snapshot cache rows | observer owns scheduled projection/recording | `createEarnEarningsReadDependencies(true)` skips snapshot load/save; earnings recompute per request |
 
 Not gated (still legacy in both modes): the user-signed prepare/confirm flows
-(deposit, withdraw, autodeposit setup/toggle/close, sweeps execute,
+(deposit, withdraw, autodeposit setup/close, sweeps execute,
 `position/reconcile` POST, policy-refunds scan). These are desired controls and
 receipt verification, which remain app-owned; their internal writes are out of
 scope for this gate and must be re-owned per family contract before the engine
 takes them over.
+
+## Floor and enablement intents
+
+With the gate enabled, `updateAutodepositWalletBalanceFloor` and
+`updateAutodepositTargetActive` perform one authenticated, identity-bound
+target update. They do not create balance events, lots, scheduled slots or
+transaction attempts, or fetch a wallet balance from RPC. Yield migration
+`0091_autodeposit_desired_control_revisions.sql` atomically increments the desired
+revision and enqueues its reconciliation demand. Both updates reference
+`desired_revision`, so a missing migration fails before mutating the target.
+Repeating the same desired values does not create another revision.
+
+The floor response retains `status: "skipped"` and adds
+`reason: "worker_reconciliation_pending"`. This acknowledges the stored intent;
+it does not report successful scheduling. The engine must apply the captured
+revision against fresh account and eligibility evidence before admitting a new
+unsigned sweep. Existing signed work retains its recovery and custody rules.
+User setup, external receipt confirmation and withdrawal cleanup remain app-owned.
+
+The disposable PostgreSQL test
+`workers-v2-control-intents.server.test.ts` exercises the concrete Drizzle SQL
+adapter and actual trigger: changed floor, repeated floor, pause and wrong-wallet
+rejection pass with no financial/scheduling rows created (14 assertions). Its
+fixture applies the registered Yield schema and hash-pinned historical Apps
+0006 DDL. It excludes that old migration's historical data backfill; this is
+application SQL proof, not database migration acceptance. The legacy state suite
+also passes independently (34 tests, 78 assertions).
 
 ## Desired intent vs. effective eligibility
 
@@ -90,22 +119,43 @@ eligibility only.
 
 ## Honest remaining work (not done here)
 
-- The observer does not yet own any of the removed writers; enabling the gate
-  before those replacements are live only degrades freshness (no repair, no
-  lifecycle progression, no sweep scheduling). It is an opt-in for integrated
-  environments, not a migration step.
+- Replacement observer/engine owners are implemented on the separate routing
+  rewrite branch and are not deployed. Gate activation requires their reviewed
+  acceptance and migration writer handoff. This branch does not enable the gate.
 - Legacy `paused_missing_position` rows must be drained (via the legacy resume
   path or a deliberate migration) before read mode is enabled; read mode
   reports them as `legacy_pause_unrepaired` and never clears them.
-- Scheduled read-model work still owned by app crons: hourly Earn reserve
-  share-price recording, hourly fleet-allocation recording, public simulation
-  refresh (routing branch `docs/workers-v2/audit.md`, "Transfer scheduled read-model
-  work"). These writers keep running; transferring them to bounded observer
-  loops is a separate increment.
+- Scheduled read-model replacements are implemented in bounded observer loops
+  on the routing branch. Existing app crons continue running until the eventual
+  writer handoff; no cron retirement occurs in this implementation branch.
 - Routing telemetry is a later increment after the observer contract
   stabilizes; nothing here instruments routing.
 - `getEarningsCoverage` (the older path-event coverage variant in
   `earnings-read-service.server.ts`) is untouched; it is not on the live read
   path and should be deleted once its callers are gone.
 
-Review verification (2026-10-02): 51 financial/configuration tests and 16 repository tests pass in separate Bun processes (portfolio tests mock the repository module, so combining those suites pollutes it). The new unit/flag modules pass Biome 2.4.0; the locked Biome 2.3.2 cannot load the locked Ultracite configuration. Whole-web typechecking has the same 85 baseline diagnostics and no new diagnostics at the reviewed checkpoint; it is not a whole-web typecheck PASS. Frontend build and deployment were not run. Read-only position projection resolves collateral from the snapshot's recorded conversion and rejects missing evidence; it never substitutes principal for liquidity exposure. Two mobile Autodeposit GET tests execute the actual handler and pause derivation with Earn repair/RPC writers forbidden; both pass. Identity lookups are mocked in those tests: the existing smart-account lookup may still mark a stale account failed, so this is not proof of zero SQL writes across authentication. Other GET surfaces still need equivalent route coverage and replacement-writer acceptance before enabling the opt-in.
+Review verification (2026-10-02): 51 financial/configuration tests and 16 repository tests passed in separate Bun processes (portfolio tests mock the repository module, so combining those suites pollutes it). The new unit/flag modules passed Biome 2.4.0. Whole-web typechecking had 85 diagnostics at that checkpoint; it was not a whole-web PASS. Two mobile Autodeposit GET tests executed the actual handler and pause derivation with Earn repair/RPC writers forbidden.
+
+Additional review (2026-10-03): three new ownership suites cover seven GET
+handlers, with 18 tests and 132 assertions passing in isolated Bun processes.
+They execute actual JWT and mobile wallet authentication branches; actual
+position projection and composite Earn-state serialization; and the actual
+earnings read service, dependency factory and calculator. Financial repair
+writers, cache IO and financial RPC are counted or forbidden. Legacy negative
+controls demonstrate that these detectors reach the corresponding writer.
+History/provider and identity lookup IO remains a fixture boundary. These tests
+do not prove zero identity SQL writes, live provider behavior, or transfer of
+user-signed POST ownership. The actual smart-account lookup may mark a stale
+account failed.
+
+The source auth mapper rejects a signed mismatched wallet principal before
+financial reads, but existing web handlers resolve it outside their error
+catches. That baseline rejection lacks a handler HTTP error envelope; the
+rewrite does not change it. Whole-web typechecking currently reports 74
+diagnostics, with none in the new ownership/intent tests or changed intent
+repository. This is not baseline parity or a whole-web PASS. The installed
+Biome 2.3.2 cannot load the locked Ultracite configuration; all four new tests
+pass a standalone compatible configuration. Frontend builds and deployments
+were not run. After command-runner `os24` recovery, all three ownership suites
+were rerun successfully with automatic environment-file loading disabled.
+Replacement-writer acceptance and migration handoff still gate activation.
