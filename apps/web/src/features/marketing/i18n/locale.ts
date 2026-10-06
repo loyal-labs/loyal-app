@@ -1,6 +1,11 @@
 export const LOCALES = ["en", "ru"] as const;
 export type Locale = (typeof LOCALES)[number];
 
+/** Remembers a language the visitor picked explicitly in the switch. */
+export const LOCALE_COOKIE = "loyal_locale";
+/** Query parameter the language switch appends to record the choice. */
+export const LOCALE_PARAM = "lang";
+
 /** Marketing paths that exist in every locale. Everything else is English-only. */
 export const TRANSLATED_PATHS = [
   "/",

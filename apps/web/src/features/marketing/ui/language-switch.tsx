@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 
 import {
+  LOCALE_PARAM,
   LOCALES,
   type Locale,
   localizedHref,
@@ -124,7 +125,9 @@ export function LanguageSwitch({
                 className={`flex items-center justify-between gap-4 whitespace-nowrap rounded-[12px] px-3 py-2 transition-colors duration-150 ease-out hover:bg-black/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-black ${
                   isCurrent ? "font-medium" : "font-normal"
                 }`}
-                href={localizedHref(target, path)}
+                // ?lang= makes the middleware remember the choice, so the
+                // browser-language redirect stops overriding it.
+                href={`${localizedHref(target, path)}?${LOCALE_PARAM}=${target}`}
                 hrefLang={target}
                 lang={target}
                 onClick={() => setIsOpen(false)}
