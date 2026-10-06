@@ -71,8 +71,8 @@ export function EarnEmptyPane({
         ];
 
   return (
-    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-card max-[795px]:overflow-clip max-[795px]:rounded-none">
-      <header className="flex w-full items-center p-2">
+    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-card max-[795px]:overflow-x-hidden max-[795px]:overflow-y-auto max-[795px]:rounded-none">
+      <header className="flex w-full shrink-0 items-center p-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
           <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
             Earn
@@ -111,7 +111,7 @@ export function EarnEmptyPane({
         </button>
       </header>
 
-      <div className="flex w-full flex-1 flex-col items-center gap-9 pt-8">
+      <div className="flex w-full flex-1 flex-col items-center gap-9 pt-8 max-[795px]:flex-none max-[795px]:pb-6">
         <div className="w-full max-w-[400px] px-10">
           <p
             className="flex flex-wrap content-center items-center justify-center gap-x-1.5 gap-y-0.5 font-bold text-[40px] uppercase leading-none tracking-[-0.4px]"
@@ -198,17 +198,16 @@ export function EarnEmptyPane({
         })()}
       </div>
 
-      {/* On mobile the dog clips to the rounded bottom above the tab bar
-          (Figma 4693:69958); the white body makes the corners read clean.
-          On desktop it ignores the pane instead: unclipped and dropped by the
-          shell's 8px gap (p-2) so it sits flush with the viewport bottom. */}
-      <div className="-bottom-2 pointer-events-none absolute inset-x-0 flex justify-center max-[795px]:bottom-0 max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
+      {/* Mobile: give the dog only the space left below the controls, so it
+          cannot cover sign-in links in short wallet-browser viewports.
+          Desktop: keep it bottom-anchored across the shell's 8px gap. */}
+      <div className="-bottom-2 pointer-events-none absolute inset-x-0 flex justify-center max-[795px]:relative max-[795px]:bottom-0 max-[795px]:min-h-0 max-[795px]:w-full max-[795px]:flex-1 max-[795px]:items-end max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
         {/* Desktop: the dog is a bottom-anchored square, so capping width caps
             height. ~380px of header/headline/CTA sits above it, so shrink with
             viewport height below 800px (380 + 420) to keep the CTA clear. */}
-        <div className="relative w-full max-w-[420px] min-[796px]:max-w-[clamp(140px,100dvh_-_380px,420px)]">
+        <div className="relative w-full max-w-[420px] max-[795px]:flex max-[795px]:h-full max-[795px]:items-end max-[795px]:max-h-[420px] min-[796px]:max-w-[clamp(140px,100dvh_-_380px,420px)]">
           <DogLottie
-            className="aspect-square max-h-[420px] w-full"
+            className="aspect-square max-h-[420px] w-full max-[795px]:max-h-full"
             variant="playful"
           />
           {/* Hover hitbox over the dog's head — top quarter left out so the
