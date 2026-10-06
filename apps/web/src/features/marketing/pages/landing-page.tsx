@@ -60,9 +60,7 @@ export function LandingPage({
       <LandingScrollAnimations />
       <LandingHeader
         copy={common.header}
-        languageSwitchLabel={common.languageSwitch.ariaLabel}
         locale={locale}
-        path="/"
       />
       <LandingHero copy={dict.hero} />
       <LandingSupportedBy copy={dict.supportedBy} />

@@ -6,21 +6,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
-  isLoyalTokenTickerData,
-  LOYAL_TOKEN_MINT,
-  type LoyalTokenTickerData,
-} from "@/lib/market/loyal-token-ticker.shared";
-import {
   type CommonDict,
   enCommon,
 } from "@/features/marketing/i18n/en/common";
-import {
-  type Locale,
-  localizedHref,
-  type TranslatedPath,
-} from "@/features/marketing/i18n/locale";
-import { fillTemplate } from "@/features/marketing/i18n/template";
-import { LanguageSwitch } from "@/features/marketing/ui/language-switch";
+import { type Locale, localizedHref } from "@/features/marketing/i18n/locale";
 import {
   MARKETING_PAGE_SLUGS,
   type MarketingPage,
@@ -55,13 +44,6 @@ function buildFeaturePages(copy: HeaderCopy): MarketingPage[] {
   return MARKETING_PAGE_SLUGS.map((slug) => ({ slug, ...copy.features[slug] }));
 }
 
-const usdPriceFormatter = new Intl.NumberFormat("en-US", {
-  currency: "USD",
-  maximumFractionDigits: 2,
-  minimumFractionDigits: 2,
-  style: "currency",
-});
-const LOYAL_JUPITER_URL = `https://jup.ag/tokens/${LOYAL_TOKEN_MINT}`;
 const neutralPupilOffset = 49 - 61.3298;
 const randomBlinkDelay = () => 2600 + Math.random() * 5200;
 const stickyRevealOffset = 68;
@@ -69,52 +51,18 @@ const stickyRevealOffset = 68;
 export function LandingHeader({
   locale = "en",
   copy = enCommon.header,
-  path = "/",
-  languageSwitchLabel = enCommon.languageSwitch.ariaLabel,
 }: {
   locale?: Locale;
   copy?: HeaderCopy;
-  path?: TranslatedPath;
-  languageSwitchLabel?: string;
 } = {}) {
   const navLinks = buildNavLinks(locale, copy);
   const featurePages = buildFeaturePages(copy);
   const { loyalAppUrl } = usePublicEnv();
-  const [tokenTicker, setTokenTicker] = useState<LoyalTokenTickerData | null>(
-    null
-  );
   const [eyeOffset, setEyeOffset] = useState(0);
   const [isIntroEyeOpen, setIsIntroEyeOpen] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isStickyVisible, setIsStickyVisible] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadTokenTicker = async () => {
-      try {
-        const response = await fetch("/api/tokens/loyal-ticker", {
-          cache: "default",
-        });
-        if (!response.ok) {
-          return;
-        }
-        const data: unknown = await response.json();
-        if (!cancelled && isLoyalTokenTickerData(data)) {
-          setTokenTicker(data);
-        }
-      } catch {
-        // Hide the token price pill when the ticker feed fails.
-      }
-    };
-
-    void loadTokenTicker();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsIntroEyeOpen(true), 1350);
@@ -236,17 +184,14 @@ export function LandingHeader({
           isEyeOpen={isIntroEyeOpen}
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
-          languageSwitchLabel={languageSwitchLabel}
           locale={locale}
           loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-static"
           menuId="landing-mobile-menu-static"
           navLinks={navLinks}
-          path={path}
           featurePages={featurePages}
           onMenuOpenChange={setIsMenuOpen}
           shouldAnimateIn
-          tokenTicker={tokenTicker}
         />
       </header>
 
@@ -265,16 +210,13 @@ export function LandingHeader({
           isEyeOpen
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
-          languageSwitchLabel={languageSwitchLabel}
           locale={locale}
           loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-sticky"
           menuId="landing-mobile-menu-sticky"
           navLinks={navLinks}
-          path={path}
           featurePages={featurePages}
           onMenuOpenChange={setIsMenuOpen}
-          tokenTicker={tokenTicker}
         />
       </header>
     </>
@@ -289,16 +231,13 @@ function HeaderContent({
   isEyeOpen,
   isMenuOpen,
   isBlinking,
-  languageSwitchLabel,
   locale,
   loyalAppUrl,
   maskId,
   menuId,
   navLinks,
   onMenuOpenChange,
-  path,
   shouldAnimateIn = false,
-  tokenTicker = null,
 }: {
   copy: HeaderCopy;
   eyeOffset: number;
@@ -307,16 +246,13 @@ function HeaderContent({
   isEyeOpen: boolean;
   isMenuOpen: boolean;
   isBlinking: boolean;
-  languageSwitchLabel: string;
   locale: Locale;
   loyalAppUrl: string;
   maskId: string;
   menuId: string;
   navLinks: NavItem[];
   onMenuOpenChange: (isOpen: boolean) => void;
-  path: TranslatedPath;
   shouldAnimateIn?: boolean;
-  tokenTicker?: LoyalTokenTickerData | null;
 }) {
   const linkTabIndex = interactive ? undefined : -1;
   const closeMenu = () => onMenuOpenChange(false);
@@ -427,38 +363,6 @@ function HeaderContent({
       </svg>
 
       <div className="hidden items-center gap-4 lg:flex">
-        {tokenTicker === null ? null : (
-          <Link
-            aria-label={fillTemplate(copy.tokenAriaLabel, {
-              price: usdPriceFormatter.format(tokenTicker.usdPrice),
-            })}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-white px-5 py-3 text-[16px] font-normal leading-5 text-black transition duration-150 ease-out [&>span]:translate-y-px hover:-translate-y-0.5 hover:bg-[#ffe9ea] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-            href={LOYAL_JUPITER_URL}
-            rel="noopener noreferrer"
-            tabIndex={linkTabIndex}
-            target="_blank"
-          >
-            <span>$LOYAL</span>
-            <span className="font-semibold">
-              {usdPriceFormatter.format(tokenTicker.usdPrice)}
-            </span>
-            {tokenTicker.priceChange24hPct !== null &&
-            tokenTicker.priceChange24hPct > 0 ? (
-              <span className="text-[#01d112]">
-                {`+${tokenTicker.priceChange24hPct.toFixed(2)}%`}
-              </span>
-            ) : null}
-          </Link>
-        )}
-
-        <LanguageSwitch
-          ariaLabel={languageSwitchLabel}
-          className="text-white"
-          locale={locale}
-          path={path}
-          tabIndex={linkTabIndex}
-        />
-
         <Link
           className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
           href={loyalAppUrl}
@@ -538,13 +442,6 @@ function HeaderContent({
               </Link>
             );
           })}
-          <LanguageSwitch
-            ariaLabel={languageSwitchLabel}
-            className="px-3 py-2"
-            locale={locale}
-            path={path}
-            tabIndex={isMenuOpen && interactive ? undefined : -1}
-          />
         </nav>
       </div>
     </div>

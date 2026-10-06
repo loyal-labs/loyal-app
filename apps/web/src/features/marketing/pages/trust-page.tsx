@@ -58,9 +58,7 @@ export function TrustPage({
       <LandingScrollAnimations />
       <LandingHeader
         copy={common.header}
-        languageSwitchLabel={common.languageSwitch.ariaLabel}
         locale={locale}
-        path="/trust"
       />
 
       {/* Block 1 — Hero (light) */}

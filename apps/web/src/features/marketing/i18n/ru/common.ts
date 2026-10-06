@@ -7,8 +7,6 @@ export const ruCommon: CommonDict = {
     mobileNavAriaLabel: "Мобильная навигация",
     openMenuAriaLabel: "Открыть меню",
     closeMenuAriaLabel: "Закрыть меню",
-    // {price} is the formatted USD price.
-    tokenAriaLabel: "Открыть токен LOYAL на Jupiter: {price}",
     nav: {
       features: "Возможности",
       developers: "Разработчикам",

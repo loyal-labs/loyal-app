@@ -12,8 +12,6 @@ export const enCommon = {
     mobileNavAriaLabel: "Mobile navigation",
     openMenuAriaLabel: "Open menu",
     closeMenuAriaLabel: "Close menu",
-    // {price} is the formatted USD price.
-    tokenAriaLabel: "View LOYAL token on Jupiter: {price}",
     nav: {
       features: "Features",
       developers: "Developers",

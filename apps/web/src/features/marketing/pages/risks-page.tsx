@@ -55,9 +55,7 @@ export function RisksPage({
       <LandingScrollAnimations />
       <LandingHeader
         copy={common.header}
-        languageSwitchLabel={common.languageSwitch.ariaLabel}
         locale={locale}
-        path="/risks"
       />
 
       {/* Hero is light, so the notice sits directly under the header on white */}

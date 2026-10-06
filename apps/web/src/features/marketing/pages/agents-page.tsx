@@ -63,9 +63,7 @@ export function AgentsPage({
       <LandingScrollAnimations />
       <LandingHeader
         copy={common.header}
-        languageSwitchLabel={common.languageSwitch.ariaLabel}
         locale={locale}
-        path="/agents"
       />
 
       {/* Block 1 — Hero (dark) */}

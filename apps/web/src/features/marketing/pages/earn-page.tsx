@@ -57,9 +57,7 @@ export function EarnPage({
       <LandingScrollAnimations />
       <LandingHeader
         copy={common.header}
-        languageSwitchLabel={common.languageSwitch.ariaLabel}
         locale={locale}
-        path="/earn"
       />
 
       {/* Block 1 — Hero (dark) */}
