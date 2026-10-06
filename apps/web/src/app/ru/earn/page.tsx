@@ -1,15 +1,15 @@
-import { enCommon } from "@/features/marketing/i18n/en/common";
-import { enEarn } from "@/features/marketing/i18n/en/earn";
 import { buildPageMetadata } from "@/features/marketing/i18n/metadata";
+import { ruCommon } from "@/features/marketing/i18n/ru/common";
+import { ruEarn } from "@/features/marketing/i18n/ru/earn";
 import { EARN_OG_IMAGE, EarnPage } from "@/features/marketing/pages/earn-page";
 
 export const metadata = buildPageMetadata({
-  locale: "en",
+  locale: "ru",
   path: "/earn",
-  meta: enEarn.meta,
+  meta: ruEarn.meta,
   ogImage: EARN_OG_IMAGE,
 });
 
 export default function Page() {
-  return <EarnPage common={enCommon} dict={enEarn} locale="en" />;
+  return <EarnPage common={ruCommon} dict={ruEarn} locale="ru" />;
 }

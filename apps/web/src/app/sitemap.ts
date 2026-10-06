@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { getAllBlogPosts } from "@/features/blog";
+import { localizedHref } from "@/features/marketing/i18n/locale";
 import { siteUrl } from "@/lib/seo/site";
 
 /**
@@ -10,7 +11,8 @@ import { siteUrl } from "@/lib/seo/site";
  * had fallen behind the site: /trust was missing, and so were /blog and all 32
  * posts, because adding a post means adding a directory and nothing tied that
  * to the sitemap. Deriving the post list from the blog loader closes that gap
- * permanently.
+ * permanently. The translated marketing pages are also listed under /ru, each
+ * pair carrying language alternates.
  *
  * Static by design. It reads post markdown through the blog loader, and
  * next.config.ts only traces public/blog/**\/*.md into the /blog function, so a
@@ -31,23 +33,46 @@ import { siteUrl } from "@/lib/seo/site";
  * clone, so commit timestamps aren't dependable at build time, and a lastmod
  * that changes on every unrelated deploy teaches crawlers to ignore it. Update
  * the date here when you change a page's content.
+ *
+ * `ruLastModified` marks a route that also exists under /ru, with the date its
+ * Russian copy was last meaningfully edited. Update it when you change the
+ * Russian dictionary for that page.
  */
-const STATIC_ROUTES: ReadonlyArray<{ path: string; lastModified: string }> = [
-  { path: "/", lastModified: "2026-09-22" },
-  { path: "/earn", lastModified: "2026-09-22" },
-  { path: "/agents", lastModified: "2026-05-28" },
-  { path: "/trust", lastModified: "2026-09-22" },
-  { path: "/risks", lastModified: "2026-09-22" },
+const STATIC_ROUTES: ReadonlyArray<{
+  path: string;
+  lastModified: string;
+  ruLastModified?: string;
+}> = [
+  { path: "/", lastModified: "2026-09-22", ruLastModified: "2026-10-03" },
+  { path: "/earn", lastModified: "2026-09-22", ruLastModified: "2026-10-03" },
+  { path: "/agents", lastModified: "2026-05-28", ruLastModified: "2026-10-03" },
+  { path: "/trust", lastModified: "2026-09-22", ruLastModified: "2026-10-03" },
+  { path: "/risks", lastModified: "2026-09-22", ruLastModified: "2026-10-03" },
   { path: "/privacy-policy", lastModified: "2026-02-23" },
 ];
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const posts = await getAllBlogPosts();
 
-  const staticEntries = STATIC_ROUTES.map(({ path, lastModified }) => ({
-    url: siteUrl(path),
-    lastModified,
-  }));
+  const staticEntries = STATIC_ROUTES.flatMap(
+    ({ path, lastModified, ruLastModified }) => {
+      if (!ruLastModified) {
+        return [{ url: siteUrl(path), lastModified }];
+      }
+      const ruUrl = siteUrl(localizedHref("ru", path));
+      const alternates = {
+        languages: {
+          en: siteUrl(path),
+          ru: ruUrl,
+          "x-default": siteUrl(path),
+        },
+      };
+      return [
+        { url: siteUrl(path), lastModified, alternates },
+        { url: ruUrl, lastModified: ruLastModified, alternates },
+      ];
+    }
+  );
 
   // Posts come back newest first, so the head of the list dates the listing.
   const newest = posts.at(0);

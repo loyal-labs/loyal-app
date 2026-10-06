@@ -10,7 +10,7 @@ async function loadLottieLight() {
 
 /** Seeker Earn phone animation for the "Multiple wallets, one smart account"
  * landing section. Lazy-inits when scrolled into view, pauses off-screen. */
-export function LandingPhoneLottie() {
+export function LandingPhoneLottie({ ariaLabel }: { ariaLabel: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<AnimationItem | null>(null);
   const startedRef = useRef(false);
@@ -62,7 +62,7 @@ export function LandingPhoneLottie() {
 
   return (
     <div
-      aria-label="Loyal wallet on a phone showing total balance, Earn yield chart, and stablecoin and crypto holdings"
+      aria-label={ariaLabel}
       className="absolute inset-0 opacity-0 transition-opacity duration-500"
       ref={containerRef}
       role="img"

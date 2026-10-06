@@ -2,10 +2,15 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { formatBlogDate, getBlogPosts } from "@/features/blog";
+import type { LandingDict } from "@/features/marketing/i18n/en/landing";
 
 const LANDING_BLOG_POST_COUNT = 3;
 
-export async function LandingBlog() {
+export async function LandingBlog({
+  copy,
+}: {
+  copy: LandingDict["blog"];
+}) {
   const { posts } = await getBlogPosts({ perPage: LANDING_BLOG_POST_COUNT });
 
   if (posts.length === 0) {
@@ -20,7 +25,7 @@ export async function LandingBlog() {
       <div className="w-full max-w-[560px] lg:max-w-[1560px]">
         <div className="pb-12" data-reveal="left">
           <h2 className="text-[48px] font-semibold leading-[48px] text-black">
-            Latest from our team
+            {copy.title}
           </h2>
         </div>
 

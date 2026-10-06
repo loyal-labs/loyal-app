@@ -1,18 +1,18 @@
-import { enAgents } from "@/features/marketing/i18n/en/agents";
-import { enCommon } from "@/features/marketing/i18n/en/common";
 import { buildPageMetadata } from "@/features/marketing/i18n/metadata";
+import { ruAgents } from "@/features/marketing/i18n/ru/agents";
+import { ruCommon } from "@/features/marketing/i18n/ru/common";
 import {
   AGENTS_OG_IMAGE,
   AgentsPage,
 } from "@/features/marketing/pages/agents-page";
 
 export const metadata = buildPageMetadata({
-  locale: "en",
+  locale: "ru",
   path: "/agents",
-  meta: enAgents.meta,
+  meta: ruAgents.meta,
   ogImage: AGENTS_OG_IMAGE,
 });
 
 export default function Page() {
-  return <AgentsPage common={enCommon} dict={enAgents} locale="en" />;
+  return <AgentsPage common={ruCommon} dict={ruAgents} locale="ru" />;
 }

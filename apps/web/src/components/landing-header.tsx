@@ -6,76 +6,63 @@ import { useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
-  isLoyalTokenTickerData,
-  LOYAL_TOKEN_MINT,
-  type LoyalTokenTickerData,
-} from "@/lib/market/loyal-token-ticker.shared";
+  type CommonDict,
+  enCommon,
+} from "@/features/marketing/i18n/en/common";
+import { type Locale, localizedHref } from "@/features/marketing/i18n/locale";
 import {
-  MARKETING_PAGES,
+  MARKETING_PAGE_SLUGS,
   type MarketingPage,
 } from "@/features/marketing/registry";
 
-type FeaturesNavItem = { kind: "dropdown"; label: "Features" };
+type HeaderCopy = CommonDict["header"];
+
+type FeaturesNavItem = { kind: "dropdown"; label: string };
 type AnchorNavItem = { kind: "anchor"; label: string; href: string };
 type NavItem = FeaturesNavItem | AnchorNavItem;
 
-const navLinks: NavItem[] = [
-  { kind: "dropdown", label: "Features" },
-  { kind: "anchor", href: "/#developers", label: "Developers" },
-  // Roadmap temporarily hidden — restore by uncommenting
-  // { kind: "anchor", href: "/#roadmap", label: "Roadmap" },
-  { kind: "anchor", href: "/blog", label: "Blog" },
-  { kind: "anchor", href: "/#footer", label: "Links" },
-];
+function buildNavLinks(locale: Locale, copy: HeaderCopy): NavItem[] {
+  return [
+    { kind: "dropdown", label: copy.nav.features },
+    {
+      kind: "anchor",
+      href: localizedHref(locale, "/#developers"),
+      label: copy.nav.developers,
+    },
+    // Roadmap temporarily hidden — restore by uncommenting
+    // { kind: "anchor", href: "/#roadmap", label: "Roadmap" },
+    { kind: "anchor", href: "/blog", label: copy.nav.blog },
+    {
+      kind: "anchor",
+      href: localizedHref(locale, "/#footer"),
+      label: copy.nav.links,
+    },
+  ];
+}
 
-const usdPriceFormatter = new Intl.NumberFormat("en-US", {
-  currency: "USD",
-  maximumFractionDigits: 2,
-  minimumFractionDigits: 2,
-  style: "currency",
-});
-const LOYAL_JUPITER_URL = `https://jup.ag/tokens/${LOYAL_TOKEN_MINT}`;
+function buildFeaturePages(copy: HeaderCopy): MarketingPage[] {
+  return MARKETING_PAGE_SLUGS.map((slug) => ({ slug, ...copy.features[slug] }));
+}
+
 const neutralPupilOffset = 49 - 61.3298;
 const randomBlinkDelay = () => 2600 + Math.random() * 5200;
 const stickyRevealOffset = 68;
 
-export function LandingHeader() {
+export function LandingHeader({
+  locale = "en",
+  copy = enCommon.header,
+}: {
+  locale?: Locale;
+  copy?: HeaderCopy;
+} = {}) {
+  const navLinks = buildNavLinks(locale, copy);
+  const featurePages = buildFeaturePages(copy);
   const { loyalAppUrl } = usePublicEnv();
-  const [tokenTicker, setTokenTicker] = useState<LoyalTokenTickerData | null>(
-    null
-  );
   const [eyeOffset, setEyeOffset] = useState(0);
   const [isIntroEyeOpen, setIsIntroEyeOpen] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isStickyVisible, setIsStickyVisible] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadTokenTicker = async () => {
-      try {
-        const response = await fetch("/api/tokens/loyal-ticker", {
-          cache: "default",
-        });
-        if (!response.ok) {
-          return;
-        }
-        const data: unknown = await response.json();
-        if (!cancelled && isLoyalTokenTickerData(data)) {
-          setTokenTicker(data);
-        }
-      } catch {
-        // Hide the token price pill when the ticker feed fails.
-      }
-    };
-
-    void loadTokenTicker();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsIntroEyeOpen(true), 1350);
@@ -192,16 +179,19 @@ export function LandingHeader() {
     <>
       <header className="relative z-50 flex w-full justify-center bg-[#f9363c]">
         <HeaderContent
+          copy={copy}
           eyeOffset={eyeOffset}
           isEyeOpen={isIntroEyeOpen}
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
+          locale={locale}
           loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-static"
           menuId="landing-mobile-menu-static"
+          navLinks={navLinks}
+          featurePages={featurePages}
           onMenuOpenChange={setIsMenuOpen}
           shouldAnimateIn
-          tokenTicker={tokenTicker}
         />
       </header>
 
@@ -214,16 +204,19 @@ export function LandingHeader() {
         }`}
       >
         <HeaderContent
+          copy={copy}
           eyeOffset={eyeOffset}
           interactive={isStickyVisible}
           isEyeOpen
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
+          locale={locale}
           loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-sticky"
           menuId="landing-mobile-menu-sticky"
+          navLinks={navLinks}
+          featurePages={featurePages}
           onMenuOpenChange={setIsMenuOpen}
-          tokenTicker={tokenTicker}
         />
       </header>
     </>
@@ -231,29 +224,35 @@ export function LandingHeader() {
 }
 
 function HeaderContent({
+  copy,
   eyeOffset,
+  featurePages,
   interactive = true,
   isEyeOpen,
   isMenuOpen,
   isBlinking,
+  locale,
   loyalAppUrl,
   maskId,
   menuId,
+  navLinks,
   onMenuOpenChange,
   shouldAnimateIn = false,
-  tokenTicker = null,
 }: {
+  copy: HeaderCopy;
   eyeOffset: number;
+  featurePages: readonly MarketingPage[];
   interactive?: boolean;
   isEyeOpen: boolean;
   isMenuOpen: boolean;
   isBlinking: boolean;
+  locale: Locale;
   loyalAppUrl: string;
   maskId: string;
   menuId: string;
+  navLinks: NavItem[];
   onMenuOpenChange: (isOpen: boolean) => void;
   shouldAnimateIn?: boolean;
-  tokenTicker?: LoyalTokenTickerData | null;
 }) {
   const linkTabIndex = interactive ? undefined : -1;
   const closeMenu = () => onMenuOpenChange(false);
@@ -265,9 +264,9 @@ function HeaderContent({
     >
       <div className="flex items-center gap-6">
         <Link
-          aria-label="Loyal home"
+          aria-label={copy.homeAriaLabel}
           className="relative h-11 w-14 shrink-0"
-          href="/"
+          href={localizedHref(locale, "/")}
           tabIndex={linkTabIndex}
         >
           <Image
@@ -281,7 +280,7 @@ function HeaderContent({
         </Link>
 
         <nav
-          aria-label="Main navigation"
+          aria-label={copy.mainNavAriaLabel}
           className="hidden max-w-[800px] items-end p-1 lg:flex"
         >
           <div className="flex items-center">
@@ -289,9 +288,11 @@ function HeaderContent({
               if (link.kind === "dropdown") {
                 return (
                   <FeaturesDesktopMenu
+                    copy={copy}
                     interactive={interactive}
                     key={link.label}
-                    pages={MARKETING_PAGES}
+                    locale={locale}
+                    pages={featurePages}
                   />
                 );
               }
@@ -362,37 +363,13 @@ function HeaderContent({
       </svg>
 
       <div className="hidden items-center gap-4 lg:flex">
-        {tokenTicker === null ? null : (
-          <Link
-            aria-label={`View LOYAL token on Jupiter: ${usdPriceFormatter.format(
-              tokenTicker.usdPrice
-            )}`}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-white px-5 py-3 text-[16px] font-normal leading-5 text-black transition duration-150 ease-out [&>span]:translate-y-px hover:-translate-y-0.5 hover:bg-[#ffe9ea] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-            href={LOYAL_JUPITER_URL}
-            rel="noopener noreferrer"
-            tabIndex={linkTabIndex}
-            target="_blank"
-          >
-            <span>$LOYAL</span>
-            <span className="font-semibold">
-              {usdPriceFormatter.format(tokenTicker.usdPrice)}
-            </span>
-            {tokenTicker.priceChange24hPct !== null &&
-            tokenTicker.priceChange24hPct > 0 ? (
-              <span className="text-[#01d112]">
-                {`+${tokenTicker.priceChange24hPct.toFixed(2)}%`}
-              </span>
-            ) : null}
-          </Link>
-        )}
-
         <Link
           className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
           href={loyalAppUrl}
           rel="noopener noreferrer"
           tabIndex={linkTabIndex}
         >
-          Start earning
+          {copy.startEarning}
         </Link>
       </div>
 
@@ -404,13 +381,15 @@ function HeaderContent({
           rel="noopener noreferrer"
           tabIndex={linkTabIndex}
         >
-          Open app
+          {copy.openApp}
         </Link>
 
         <button
           aria-controls={menuId}
           aria-expanded={isMenuOpen}
-          aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+          aria-label={
+            isMenuOpen ? copy.closeMenuAriaLabel : copy.openMenuAriaLabel
+          }
           className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/15 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
           onClick={() => onMenuOpenChange(!isMenuOpen)}
           tabIndex={linkTabIndex}
@@ -437,15 +416,17 @@ function HeaderContent({
         }`}
         id={menuId}
       >
-        <nav aria-label="Mobile navigation" className="grid p-2">
+        <nav aria-label={copy.mobileNavAriaLabel} className="grid p-2">
           {navLinks.map((link) => {
             if (link.kind === "dropdown") {
               return (
                 <FeaturesMobileMenu
                   closeMenu={closeMenu}
+                  copy={copy}
                   isMenuOpen={isMenuOpen && interactive}
                   key={link.label}
-                  pages={MARKETING_PAGES}
+                  locale={locale}
+                  pages={featurePages}
                 />
               );
             }
@@ -468,10 +449,14 @@ function HeaderContent({
 }
 
 function FeaturesDesktopMenu({
+  copy,
   interactive,
+  locale,
   pages,
 }: {
+  copy: HeaderCopy;
   interactive: boolean;
+  locale: Locale;
   pages: readonly MarketingPage[];
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -532,7 +517,7 @@ function FeaturesDesktopMenu({
         tabIndex={interactive ? undefined : -1}
         type="button"
       >
-        Features
+        {copy.nav.features}
       </button>
       <div
         className={`absolute left-0 top-full z-50 mt-2 w-[320px] overflow-hidden rounded-3xl bg-white p-2 text-black shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition duration-150 ease-out ${
@@ -546,7 +531,7 @@ function FeaturesDesktopMenu({
           pages.map((page) => (
             <Link
               className="flex flex-col gap-1 rounded-[18px] px-4 py-3 transition duration-150 ease-out hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f9363c]"
-              href={`/${page.slug}`}
+              href={localizedHref(locale, `/${page.slug}`)}
               key={page.slug}
               onClick={() => setIsOpen(false)}
               role="menuitem"
@@ -564,7 +549,7 @@ function FeaturesDesktopMenu({
           ))
         ) : (
           <p className="px-4 py-3 text-[14px] leading-[1.3] text-black/60">
-            No marketing pages yet.
+            {copy.noPages}
           </p>
         )}
       </div>
@@ -575,10 +560,14 @@ function FeaturesDesktopMenu({
 function FeaturesMobileMenu({
   isMenuOpen,
   closeMenu,
+  copy,
+  locale,
   pages,
 }: {
   isMenuOpen: boolean;
   closeMenu: () => void;
+  copy: HeaderCopy;
+  locale: Locale;
   pages: readonly MarketingPage[];
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -600,7 +589,7 @@ function FeaturesMobileMenu({
         tabIndex={isMenuOpen ? undefined : -1}
         type="button"
       >
-        <span>Features</span>
+        <span>{copy.nav.features}</span>
         <span
           aria-hidden="true"
           className={`text-[20px] leading-none transition-transform duration-150 ${isExpanded ? "rotate-45" : "rotate-0"}`}
@@ -613,7 +602,7 @@ function FeaturesMobileMenu({
           {pages.map((page) => (
             <Link
               className="flex flex-col gap-1 rounded-[14px] px-3 py-2 text-[16px] font-normal leading-5 transition duration-150 ease-out hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              href={`/${page.slug}`}
+              href={localizedHref(locale, `/${page.slug}`)}
               key={page.slug}
               onClick={closeMenu}
               tabIndex={isMenuOpen ? undefined : -1}

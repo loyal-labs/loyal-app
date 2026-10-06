@@ -1,7 +1,16 @@
 import Image from "next/image";
 import Link from "next/link";
 
-export function LandingTrust() {
+import type { LandingDict } from "@/features/marketing/i18n/en/landing";
+import { type Locale, localizedHref } from "@/features/marketing/i18n/locale";
+
+export function LandingTrust({
+  locale,
+  copy,
+}: {
+  locale: Locale;
+  copy: LandingDict["trust"];
+}) {
   return (
     <section
       className="flex w-full justify-center bg-white px-4 py-12 lg:px-6 lg:py-24"
@@ -14,33 +23,29 @@ export function LandingTrust() {
         >
           <div className="flex w-full flex-col items-start gap-6 px-6 pb-8 pt-10 lg:gap-8 lg:px-16 lg:py-20 lg:pr-[420px]">
             <h2 className="max-w-[820px] text-[36px] font-semibold leading-none tracking-[-0.02em] text-black lg:text-[56px] lg:tracking-[-1.12px]">
-              Your funds are secured by Squads
+              {copy.title}
             </h2>
 
             <p className="max-w-[620px] text-[18px] leading-[1.2] tracking-[-0.02em] text-black/60 lg:text-[24px] lg:tracking-[-0.48px]">
-              The smart account standard on Solana, trusted by 450+ teams to
-              secure over $15 billion. Loyal never holds your keys.
+              {copy.standard}
             </p>
 
             <p className="max-w-[620px] text-[18px] leading-[1.2] tracking-[-0.02em] text-black/60 lg:text-[24px] lg:tracking-[-0.48px]">
-              Earn&apos;s automation can only withdraw from and deposit into
-              whitelisted Kamino reserves inside your own account. The worst it
-              can do is pick a lower rate. No user funds lost since October
-              2025.
+              {copy.automation}
             </p>
 
             <div className="flex flex-wrap items-start gap-2">
               <Link
                 className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
-                href="/trust"
+                href={localizedHref(locale, "/trust")}
               >
-                How your funds are secured
+                {copy.securedCta}
               </Link>
               <Link
                 className="inline-flex h-[52px] items-center justify-center rounded-full bg-black/[0.04] px-5 text-center text-[20px] font-normal leading-6 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/[0.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
-                href="/risks"
+                href={localizedHref(locale, "/risks")}
               >
-                Earn risks
+                {copy.risksCta}
               </Link>
             </div>
           </div>
