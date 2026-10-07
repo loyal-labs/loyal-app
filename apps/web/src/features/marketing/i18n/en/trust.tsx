@@ -58,6 +58,7 @@ export const enTrust = {
       </>
     ),
     cta: "What happens if Loyal disappears",
+    ctaHref: "https://docs.askloyal.com/faq",
     imageAlt:
       "Loyal SDK quick-start, showing the client libraries that talk to the on-chain programs",
   },

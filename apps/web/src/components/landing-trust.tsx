@@ -4,6 +4,30 @@ import Link from "next/link";
 import type { LandingDict } from "@/features/marketing/i18n/en/landing";
 import { type Locale, localizedHref } from "@/features/marketing/i18n/locale";
 
+const SQUADS_URL = "https://squads.so";
+
+// Links the first "Squads" mention so the copy can stay a plain string.
+function withSquadsLink(text: string) {
+  const index = text.indexOf("Squads");
+  if (index === -1) {
+    return text;
+  }
+  return (
+    <>
+      {text.slice(0, index)}
+      <a
+        className="underline underline-offset-2 hover:text-black"
+        href={SQUADS_URL}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        Squads
+      </a>
+      {text.slice(index + "Squads".length)}
+    </>
+  );
+}
+
 export function LandingTrust({
   locale,
   copy,
@@ -27,7 +51,7 @@ export function LandingTrust({
             </h2>
 
             <p className="max-w-[620px] text-[18px] leading-[1.2] tracking-[-0.02em] text-black/60 lg:text-[24px] lg:tracking-[-0.48px]">
-              {copy.standard}
+              {withSquadsLink(copy.standard)}
             </p>
 
             <p className="max-w-[620px] text-[18px] leading-[1.2] tracking-[-0.02em] text-black/60 lg:text-[24px] lg:tracking-[-0.48px]">

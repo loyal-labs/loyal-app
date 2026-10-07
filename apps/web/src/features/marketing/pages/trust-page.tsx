@@ -109,7 +109,7 @@ export function TrustPage({
         body={dict.noLockIn.body}
         cta={{
           label: dict.noLockIn.cta,
-          href: "https://docs.askloyal.com/faq",
+          href: dict.noLockIn.ctaHref,
         }}
         image={{
           src: "/marketing/agents/dev-sdk-card.53826a2b.png",

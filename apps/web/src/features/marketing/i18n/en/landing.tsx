@@ -61,6 +61,7 @@ export const enLanding = {
   },
   features: {
     automation: {
+      src: "/landing/figma/feature-automation-steps.png",
       alt: "Three steps: connect your wallet, set up Autodeposit, earn the best APY",
       text: "Discover powerful onchain automation without giving up ownership",
     },
@@ -69,6 +70,7 @@ export const enLanding = {
       text: "Always get the best low-risk Solana APY on your idle funds with Loyal automations",
     },
     actions: {
+      src: "/landing/figma/feature-actions-pills.png",
       alt: "Send, Receive, and Earn pills with a Privately toggle switched on",
       text: "Connect any wallet, enjoy one seamless experience",
     },
