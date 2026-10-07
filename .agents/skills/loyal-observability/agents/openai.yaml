@@ -8,6 +8,6 @@ dependencies:
       value: "clickstack"
       description: "Loyal production logs, traces, metrics, and observability queries"
       transport: "streamable_http"
-      url: "https://loyal-clickstack.onrender.com/api/mcp"
+      url: "https://observability.5.161.121.229.sslip.io/api/mcp"
 policy:
   allow_implicit_invocation: true

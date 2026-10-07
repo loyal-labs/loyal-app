@@ -1,6 +1,6 @@
 # ClickStack agent setup
 
-ClickStack URL: `https://loyal-clickstack.onrender.com`
+ClickStack URL: `https://observability.5.161.121.229.sslip.io`
 
 The shared personal key is stored as concealed variable `LOYAL_CLICKSTACK_API_KEY` in the 1Password Environment `loyal-noncritical-env`. Never commit or paste the value into MCP configuration.
 
@@ -11,7 +11,7 @@ The shared personal key is stored as concealed variable `LOYAL_CLICKSTACK_API_KE
 
 ```sh
 codex mcp add clickstack \
-  --url https://loyal-clickstack.onrender.com/api/mcp \
+  --url https://observability.5.161.121.229.sslip.io/api/mcp \
   --bearer-token-env-var LOYAL_CLICKSTACK_API_KEY
 ```
 
@@ -38,7 +38,7 @@ Current Codex uses `--url` and `--bearer-token-env-var`; the ClickStack-generate
 
 Use Streamable HTTP:
 
-- URL: `https://loyal-clickstack.onrender.com/api/mcp`
+- URL: `https://observability.5.161.121.229.sslip.io/api/mcp`
 - Header: `Authorization: Bearer <personal API access key>`
 
 Prefer the client's environment-variable or secret reference support. Obtain the value from the shared 1Password Environment instead of documentation or source control.

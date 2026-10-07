@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-endpoint="${LOYAL_CLICKSTACK_MCP_URL:-https://loyal-clickstack.onrender.com/api/mcp}"
+endpoint="${LOYAL_CLICKSTACK_MCP_URL:-https://observability.5.161.121.229.sslip.io/api/mcp}"
 
 pass() {
   printf 'PASS: %s\n' "$1"

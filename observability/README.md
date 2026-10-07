@@ -2,8 +2,8 @@
 
 Self-hosted ClickStack for investigating Loyal production issues.
 
-- Dashboard: <https://loyal-clickstack.onrender.com>
-- Health: <https://loyal-clickstack.onrender.com/api/health>
+- Dashboard: <https://observability.5.161.121.229.sslip.io>
+- Health: <https://observability.5.161.121.229.sslip.io/api/health>
 - Render services: `loyal-clickstack`, and `loyal-clickstack-telegram-relay`
   for alert delivery ([`telegram-relay/README.md`](./telegram-relay/README.md))
 - Blueprint: [`render.yaml`](./render.yaml)

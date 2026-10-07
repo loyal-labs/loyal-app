@@ -536,7 +536,7 @@ function toWebhookPayload(evaluation: Evaluation): ClickStackWebhookPayload {
       ...csv,
       "```",
     ].join("\n"),
-    link: `https://loyal-clickstack.onrender.com/search/6a5fb723dcc64beb0ded6cca?from=${evaluation.rangeStart}&to=${evaluation.rangeEnd}`,
+    link: `https://observability.5.161.121.229.sslip.io/search/6a5fb723dcc64beb0ded6cca?from=${evaluation.rangeStart}&to=${evaluation.rangeEnd}`,
     startTime: evaluation.rangeStart,
     endTime: evaluation.rangeEnd,
   };
