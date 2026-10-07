@@ -1,4 +1,4 @@
-# Workers-v2 app contract (Earn reads and desired controls)
+# Workers-v2 app contract (Earn reads)
 
 Status: reviewed inactive implementation increment. The workers-v2 observer and
 retail-engine replacements for the writers listed below are NOT live; this file
@@ -8,8 +8,7 @@ opt-in gate is ever enabled in a deployment.
 Scope of this document: the Earn yield-optimization GET surfaces in `apps/web`
 (web session routes and the mobile wallet-keyed twins), the read-service and
 repository functions behind them, and the exact repair writers they stop
-performing under the opt-in gate. The same gate also transfers floor-change and
-pause/resume scheduling to the retail engine, through desired-control revisions.
+performing under the opt-in gate.
 
 ## Authority boundary
 
@@ -31,8 +30,7 @@ Per the routing branch contracts at `loyal-yield-routing/docs/workers-v2/contrac
 
 - unset / `""` / `0` / `false` → legacy repair ownership. This is the
   default; the unit and APY corrections below apply in both modes.
-- `1` / `true` → read-only GET mode for the Earn surfaces listed here, plus
-  intent-only floor and enablement changes described below.
+- `1` / `true` → read-only GET mode for the Earn surfaces listed here.
 - anything else → throws `invalid_workers_v2_app_read_only_gets` so a typo
   cannot silently pick an authority boundary.
 
@@ -49,38 +47,20 @@ Per the routing branch contracts at `loyal-yield-routing/docs/workers-v2/contrac
 | earnings snapshot cache repair (`saveSnapshot` via `readEarnEarningsRangeSet` default deps) | web `yield-optimization/earnings` GET; `mobile/earn/earnings` GET | earnings snapshot cache rows | observer owns scheduled projection/recording | `createEarnEarningsReadDependencies(true)` skips snapshot load/save; earnings recompute per request |
 
 Not gated (still legacy in both modes): the user-signed prepare/confirm flows
-(deposit, withdraw, autodeposit setup/close, sweeps execute,
+(deposit, withdraw, autodeposit setup/toggle/close, floor change, sweeps execute,
 `position/reconcile` POST, policy-refunds scan). These are desired controls and
 receipt verification, which remain app-owned; their internal writes are out of
 scope for this gate and must be re-owned per family contract before the engine
 takes them over.
 
-## Floor and enablement intents
+## Floor and enablement writes
 
-With the gate enabled, `updateAutodepositWalletBalanceFloor` and
-`updateAutodepositTargetActive` perform one authenticated, identity-bound
-target update. They do not create balance events, lots, scheduled slots or
-transaction attempts, or fetch a wallet balance from RPC. Yield migration
-`0091_autodeposit_desired_control_revisions.sql` atomically increments the desired
-revision and enqueues its reconciliation demand. Both updates reference
-`desired_revision`, so a missing migration fails before mutating the target.
-Repeating the same desired values does not create another revision.
-
-The floor response retains `status: "skipped"` and adds
-`reason: "worker_reconciliation_pending"`. This acknowledges the stored intent;
-it does not report successful scheduling. The engine must apply the captured
-revision against fresh account and eligibility evidence before admitting a new
-unsigned sweep. Existing signed work retains its recovery and custody rules.
-User setup, external receipt confirmation and withdrawal cleanup remain app-owned.
-
-The disposable PostgreSQL test
-`workers-v2-control-intents.server.test.ts` exercises the concrete Drizzle SQL
-adapter and actual trigger: changed floor, repeated floor, pause and wrong-wallet
-rejection pass with no financial/scheduling rows created (14 assertions). Its
-fixture applies the registered Yield schema and hash-pinned historical Apps
-0006 DDL. It excludes that old migration's historical data backfill; this is
-application SQL proof, not database migration acceptance. The legacy state suite
-also passes independently (34 tests, 78 assertions).
+The Apps handlers keep writing `balance_sweep_targets.desired_active` and
+`wallet_balance_floor_raw`, including the floor rebaseline, in both modes.
+That is the row contract the Rust fleet runs on, and phase 1 of the Go
+go-live keeps it frozen: the engine reads those two columns directly and adds
+no desired-revision table or trigger (the branch-only Yield migration 0091 was
+reverted).
 
 ## Desired intent vs. effective eligibility
 
@@ -152,10 +132,9 @@ The source auth mapper rejects a signed mismatched wallet principal before
 financial reads, but existing web handlers resolve it outside their error
 catches. That baseline rejection lacks a handler HTTP error envelope; the
 rewrite does not change it. Whole-web typechecking currently reports 74
-diagnostics, with none in the new ownership/intent tests or changed intent
-repository. This is not baseline parity or a whole-web PASS. The installed
-Biome 2.3.2 cannot load the locked Ultracite configuration; all four new tests
-pass a standalone compatible configuration. Frontend builds and deployments
+diagnostics, with none in the new ownership tests. This is not baseline parity or a whole-web PASS. The installed
+Biome 2.3.2 cannot load the locked Ultracite configuration; the three new
+tests pass a standalone compatible configuration. Frontend builds and deployments
 were not run. After command-runner `os24` recovery, all three ownership suites
 were rerun successfully with automatic environment-file loading disabled.
 Replacement-writer acceptance and migration handoff still gate activation.
