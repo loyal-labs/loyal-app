@@ -30,7 +30,7 @@ export function LandingPage({
   const featureCards = [
     {
       image: {
-        src: "/landing/figma/feature-automation-steps.png",
+        src: dict.features.automation.src,
         alt: dict.features.automation.alt,
       },
       text: dict.features.automation.text,
@@ -46,7 +46,7 @@ export function LandingPage({
     },
     {
       image: {
-        src: "/landing/figma/feature-actions-pills.png",
+        src: dict.features.actions.src,
         alt: dict.features.actions.alt,
       },
       text: dict.features.actions.text,

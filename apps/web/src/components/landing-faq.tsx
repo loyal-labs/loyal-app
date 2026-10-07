@@ -8,6 +8,26 @@ import type { FaqItem } from "@/features/marketing/i18n/types";
 
 export type { FaqItem } from "@/features/marketing/i18n/types";
 
+// Answers stay plain strings because they also feed the FAQPage JSON-LD,
+// so on-site URLs inside them are turned into links only at render time.
+const SITE_URL_PATTERN = /(askloyal\.com\/[\w/-]*[\w-])/g;
+
+function linkifyAnswer(answer: string) {
+  return answer.split(SITE_URL_PATTERN).map((part, index) =>
+    index % 2 === 1 ? (
+      <a
+        className="underline underline-offset-2 hover:text-black"
+        href={`https://${part}`}
+        key={part}
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    )
+  );
+}
+
 export function LandingFaq({
   items = enCommon.faq.items,
   heading = enCommon.faq.heading,
@@ -100,7 +120,7 @@ export function LandingFaq({
                         isOpen ? "translate-y-0" : "-translate-y-1"
                       }`}
                     >
-                      {faq.answer}
+                      {linkifyAnswer(faq.answer)}
                     </p>
                   </div>
                 </div>
