@@ -1,6 +1,12 @@
 "use client";
 
-import { Infinity as InfinityIcon } from "lucide-react";
+import {
+  Infinity as InfinityIcon,
+  Landmark,
+  RefreshCw,
+  Vault,
+  Wallet,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
@@ -8,6 +14,10 @@ import {
   ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import {
+  FlowDiagram,
+  type FlowStep,
+} from "@/components/wallet-workspace/facelift/flow-explainer";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
@@ -70,20 +80,42 @@ export function EarnMaxDualIcon({
   );
 }
 
-/** Figma 5429:37666 — right-rail placeholder card until real copy lands. */
+const EARN_MAX_FLOW_STEPS: readonly FlowStep[] = [
+  {
+    Icon: Wallet,
+    title: "Your smart account",
+    body: "Deposit USDC through your smart account.",
+  },
+  {
+    Icon: Vault,
+    title: "Loyal-managed Voltr vault",
+    body: "Your deposit joins the shared RWA strategy.",
+  },
+  {
+    Icon: Landmark,
+    title: "RWA investments + borrowing",
+    body: "The vault buys tokenized real-world assets and borrows against them to invest more.",
+  },
+  {
+    Icon: RefreshCw,
+    title: "Monitor and adjust",
+    body: "Loyal manages positions and borrowing within onchain policy limits.",
+  },
+];
+
+/** Shared explainer for the Earn MAX workspace, deposit and withdrawal panes. */
 export function EarnMaxInfoFaqsCard({ className }: { className: string }) {
   return (
     <div className={`flex-col overflow-clip rounded-3xl bg-card ${className}`}>
       <header className="flex w-full items-center p-2">
         <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
-          Info &amp; FAQs
+          How Earn MAX works
         </h2>
       </header>
-      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
-        <p className="font-medium text-[20px] text-muted-foreground leading-6">
-          Content
-        </p>
-      </div>
+      <FlowDiagram
+        footnote="Returns vary. Leverage adds loss and liquidation risk. Withdrawals may take time."
+        steps={EARN_MAX_FLOW_STEPS}
+      />
     </div>
   );
 }
