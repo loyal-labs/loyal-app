@@ -53,6 +53,7 @@ import {
 } from "@/components/wallet-workspace/facelift/earned-chart";
 import { EarnMaxInvitePane } from "@/components/wallet-workspace/facelift/earn-max-invite-pane";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
+import { PendingWithdrawalTooltip } from "@/components/wallet-workspace/facelift/pending-withdrawal-tooltip";
 import { isEscapeGuardedTarget } from "@/components/wallet-workspace/facelift/keyboard";
 import {
   MiddlePaneSlide,
@@ -511,6 +512,19 @@ function EarnMaxActivityCard({
   }, [moveUnderlineToActiveTab]);
 
   const withdrawal = view.withdrawal;
+  const needsAttention = withdrawal?.health?.status === "operator_attention";
+  const healthUnavailable = withdrawal?.health?.status === "unavailable";
+  const showWithdrawalStatus =
+    !!withdrawal?.claimBlockedReason || needsAttention || healthUnavailable;
+  const withdrawalStatusText = needsAttention
+    ? "Vault withdrawals need operator attention. Your request is still pending and may take longer than usual. You do not need to submit it again."
+    : healthUnavailable
+    ? withdrawal?.health?.lastKnownAttention
+      ? "The last vault status required operator attention. An updated status is unavailable. Your request remains pending."
+      : "An updated vault status is unavailable. Your request remains pending. Check status again before claiming."
+    : withdrawal?.claimBlockedReason === "insufficient_liquidity"
+    ? "The vault does not have enough available USDC to pay this withdrawal yet. Check again later."
+    : "Vault liquidity could not be verified. Check status before claiming.";
   // Recent-N card like the Earn activity card — the full feed lives on the
   // Activity page.
   const groups: { items: EarnMaxActivityItem[]; label: string }[] = [];
@@ -593,12 +607,15 @@ function EarnMaxActivityCard({
                   {/* Reveal rides a short delay so quick pointer passes don't
                       flash the pill; un-hover drops the delay and hides at
                       once. */}
-                  <div className="pointer-events-none flex pl-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
-                    <SmallPill
-                      label="Withdraw"
-                      onClick={onWithdraw}
-                      variant="light"
-                    />
+                  <div className="pointer-events-none flex pl-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                    <PendingWithdrawalTooltip pending={!!withdrawal && withdrawal.status !== "claimed"}>
+                      <SmallPill
+                        disabled={view.isBusy || (!!withdrawal && withdrawal.status !== "claimed")}
+                        label="Withdraw"
+                        onClick={onWithdraw}
+                        variant="light"
+                      />
+                    </PendingWithdrawalTooltip>
                   </div>
                 </div>
               </StaggerLine>
@@ -654,13 +671,17 @@ function EarnMaxActivityCard({
                   !withdrawal.canClaim &&
                   withdrawal.status !== "claimed" ? (
                     <StaggerLine index={lineIndex++}>
-                      <GroupHeaderWithIcon icon="clock" label="Pending" />
+                      <GroupHeaderWithIcon icon="clock" label={needsAttention ? "Withdrawal delayed" : "Pending"} />
                       <div className="flex w-full flex-col rounded-2xl">
                         <OperationRow
                           amountLabel={usdcRawLabel(withdrawal.amountRaw)}
                           isWithdraw
                           subtitle={
-                            withdrawal.claimBlockedReason ===
+                            needsAttention
+                              ? "Waiting for operator review"
+                              : healthUnavailable
+                              ? "Withdrawal status unavailable"
+                              : withdrawal.claimBlockedReason ===
                             "insufficient_liquidity"
                               ? "Waiting for vault liquidity"
                               : withdrawal.claimBlockedReason ===
@@ -670,13 +691,10 @@ function EarnMaxActivityCard({
                           }
                           title="Withdraw"
                         />
-                        {withdrawal.claimBlockedReason ? (
+                        {showWithdrawalStatus ? (
                           <div className="flex flex-col items-start gap-2 px-4 pt-1 pb-2">
                             <p className="text-[13px] text-muted-foreground leading-4">
-                              {withdrawal.claimBlockedReason ===
-                              "insufficient_liquidity"
-                                ? "The vault does not have enough available USDC to pay this withdrawal yet. Check again later."
-                                : "Vault liquidity could not be verified. Check status before claiming."}
+                              {withdrawalStatusText}
                             </p>
                             <SmallPill
                               disabled={view.isBusy}
@@ -809,7 +827,9 @@ function EarnMaxMainPane({
           maximumFractionDigits: 2,
           minimumFractionDigits: 2,
         })}`;
-  const canWithdraw = view.balanceUsd > 0;
+  const hasPendingWithdrawal =
+    view.withdrawal !== null && view.withdrawal.status !== "claimed";
+  const canWithdraw = view.balanceUsd > 0 && !hasPendingWithdrawal && !view.isBusy;
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-y-auto">
@@ -860,7 +880,8 @@ function EarnMaxMainPane({
             />
           </span>
           <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
-            <button
+            <PendingWithdrawalTooltip pending={hasPendingWithdrawal}>
+<button
               className="t-hover flex items-center justify-center gap-2 rounded-full bg-accent p-2.5 enabled:hover:-translate-y-0.5 enabled:hover:bg-accent-active enabled:active:translate-y-0 disabled:opacity-40"
               disabled={!canWithdraw}
               onClick={onWithdraw}
@@ -874,6 +895,7 @@ function EarnMaxMainPane({
                 Withdraw
               </span>
             </button>
+</PendingWithdrawalTooltip>
             <button
               className="t-hover flex items-center justify-center gap-2 rounded-full bg-foreground p-2.5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
               onClick={onDeposit}
@@ -981,13 +1003,15 @@ function EarnMaxMainPane({
                   </span>
                 ) : null}
               </div>
-              <div className="pointer-events-none absolute right-0 flex items-center gap-2 rounded-[40px] bg-secondary opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
-                <SmallPill
-                  disabled={!canWithdraw}
-                  label="Withdraw"
-                  onClick={onWithdraw}
-                  variant="light"
-                />
+              <div className="pointer-events-none absolute right-0 flex items-center gap-2 rounded-[40px] bg-secondary opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                <PendingWithdrawalTooltip pending={hasPendingWithdrawal}>
+                  <SmallPill
+                    disabled={!canWithdraw}
+                    label="Withdraw"
+                    onClick={onWithdraw}
+                    variant="light"
+                  />
+                </PendingWithdrawalTooltip>
                 <SmallPill label="Deposit" onClick={onDeposit} variant="dark" />
               </div>
             </div>
@@ -1067,8 +1091,9 @@ function EarnMaxMainPane({
               Deposit
             </span>
           </button>
-          <button
-            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-accent enabled:hover:bg-accent-active disabled:opacity-40"
+          <PendingWithdrawalTooltip pending={hasPendingWithdrawal} className="min-w-0 flex-1">
+<button
+            className="t-hover flex h-12 w-full min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-accent enabled:hover:bg-accent-active disabled:opacity-40"
             disabled={!canWithdraw}
             onClick={onWithdraw}
             type="button"
@@ -1081,6 +1106,7 @@ function EarnMaxMainPane({
               Withdraw
             </span>
           </button>
+</PendingWithdrawalTooltip>
         </div>
       </div>
     </section>
@@ -1251,7 +1277,11 @@ export function EarnMaxWorkspace({
                 )
               }
               onViewAllActivity={onViewAllActivity}
-              onWithdraw={() => setScreen("withdraw")}
+              onWithdraw={() => {
+                if (!view.isBusy && (!view.withdrawal || view.withdrawal.status === "claimed")) {
+                  setScreen("withdraw");
+                }
+              }}
               selectedTransactionId={selectedTransaction?.id ?? null}
               view={view}
             />

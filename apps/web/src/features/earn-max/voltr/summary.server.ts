@@ -17,6 +17,8 @@ import {
   voltrUserAccounts,
 } from "./program";
 
+import { readEarnMaxWithdrawalHealth } from "./withdrawal-health.server";
+
 let connection: Connection | null = null;
 
 function getConnection(): Connection {
@@ -67,6 +69,7 @@ export async function readEarnMaxVoltrSummary(
   const pending = position.withdrawal;
   const blocked = voltrClaimBlockReason(position);
   const canClaim = blocked === null;
+  const health = pending && !canClaim ? await readEarnMaxWithdrawalHealth() : undefined;
   return {
     balanceUsd: Number(position.valueRaw) / 1_000_000,
     claimAmountRaw: pending ? pending.payoutRaw.toString() : "0",
@@ -89,6 +92,7 @@ export async function readEarnMaxVoltrSummary(
           amountRaw: pending.payoutRaw.toString(),
           canCancel: false,
           canClaim,
+          ...(health ? { health } : {}),
           ...(blocked && blocked !== "not_ready"
             ? { claimBlockedReason: blocked }
             : {}),

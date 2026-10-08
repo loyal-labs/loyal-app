@@ -489,6 +489,7 @@ export function EarnMaxWithdrawPane({
     }
   };
   const handleSubmit = async () => {
+    if (!isValidAmount || view.isBusy) return;
     // A cent-floored full fill means "everything" — send max so dust and
     // accrued yield unwind too.
     const useMax = amountUsd >= maxFillUsd && maxFillUsd > 0;
@@ -514,7 +515,7 @@ export function EarnMaxWithdrawPane({
             onSubmit={() => void handleSubmit()}
           />
           <CaptionNote
-            text="Withdrawals are ready to claim 10 minutes after you request them. Then claim your funds from the transaction list."
+            text="Withdrawals have a 10-minute cooldown. Claim from the transaction list once the vault has enough available USDC. Some withdrawals may take longer."
             tone="warn"
           />
         </div>

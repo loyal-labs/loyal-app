@@ -23,12 +23,19 @@ export type EarnMaxPerformancePoint = {
   timestamp: string;
 };
 
+export type EarnMaxWithdrawalHealth = {
+  lastKnownAttention: boolean;
+  observedAt: string | null;
+  status: "waiting" | "operator_attention" | "unavailable";
+};
+
 export type EarnMaxWithdrawalView = {
   amountRaw: string;
   canCancel: boolean;
   canClaim: boolean;
   /** Mature but awaiting verified pooled liquidity; no completion ETA. */
   claimBlockedReason?: "insufficient_liquidity" | "liquidity_unavailable";
+  health?: EarnMaxWithdrawalHealth;
   readyBy: string;
   requestId: string;
   status: "requested" | "unwinding" | "claimable" | "claimed";
