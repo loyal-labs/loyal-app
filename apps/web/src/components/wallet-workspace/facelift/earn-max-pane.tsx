@@ -1251,18 +1251,18 @@ export function EarnMaxWorkspace({
           />
         ) : null}
       </SheetReveal>
-      {screen !== "main" ? null : (isHydrated && !isSignedIn) ||
+      {screen !== "main" ? null : !isHydrated ||
+        !isSignedIn ||
         invite.redeemed !== true ||
         isVirgin ? (
-        // Figma 5429:36915 — logged out, not invited yet, or no position:
-        // Strategies + the shared live Loyal Stats card, never a personal
-        // (empty) Earned chart.
+        // Explain Earn MAX before invite access; show strategies to invited
+        // wallets without a position. Keep the shared Loyal Stats below both.
         <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-          <EarnMaxStrategiesCard
-            apy={
-              isHydrated && isSignedIn && invite.redeemed === true ? view : null
-            }
-          />
+          {isHydrated && isSignedIn && invite.redeemed === true ? (
+            <EarnMaxStrategiesCard apy={view} />
+          ) : (
+            <EarnMaxInfoFaqsCard className="flex shrink-0" />
+          )}
           <EarnStatsPanel />
         </aside>
       ) : selectedTransaction && transactionDetail ? (
