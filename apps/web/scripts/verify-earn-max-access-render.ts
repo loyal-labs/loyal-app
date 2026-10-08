@@ -69,6 +69,8 @@ const context = {
   SheetReveal: Empty,
   EarnEmptyPane: Empty,
   EarnMaxInvitePane: Empty,
+  EarnMaxInfoFaqsCard: () =>
+    React.createElement("section", { "data-panel": "earn-max-explainer" }),
   EarnStatsPanel: Empty,
   formatEarnMaxApyLabel: (bps: number) => `${bps / 100}%`,
 };
@@ -107,12 +109,17 @@ for (const [hydrated, signedIn, redeemed] of [
   [true, true, false],
 ] as const) {
   const html = render(hydrated, signedIn, redeemed);
-  assert.match(html, /RWA Loop/);
+  assert.match(html, /data-panel="earn-max-explainer"/);
+  assert.doesNotMatch(html, /Strategies|RWA Loop/);
   assert.doesNotMatch(html, /Average Net APY|10\.79%|Vault share-price growth/);
 }
+assert.match(render(true, true, true), /Strategies/);
+assert.doesNotMatch(render(true, true, true), /data-panel="earn-max-explainer"/);
 assert.match(render(true, true, true), /Average Net APY/);
 assert.match(render(true, true, true), /10\.79%/);
 assert.match(render(true, true, true), /over the 3 days since launch/);
+view.balanceUsd = 100;
+assert.match(render(false, true, true), /data-panel="earn-max-explainer"/);
 console.log(
-  "PASS: APY label, value and tooltip hidden unless hydrated, signed in and invited"
+  "PASS: explainer before invite access; Strategies and APY only after confirmed access"
 );
