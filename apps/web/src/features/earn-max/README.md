@@ -28,6 +28,27 @@ existing payout estimate. The existing estimate still ignores unrealised
 management-fee LP and assumes those fees remain disabled. Changes in fees,
 NAV or time between prepare and execution can still affect the claim.
 
+## Pending requests and operator attention
+
+Only one withdrawal receipt can be open for an Earn MAX smart-account vault.
+The header, RWA Loop, Positions tab and mobile Withdraw controls are disabled
+while it is pending. A hover, keyboard-focus or touch tooltip explains why.
+Claim and Check status remain available. The form and fresh plan preparation
+also reject duplicate requests, including requests from a stale open form.
+
+The authenticated Voltr summary may include display-only withdrawal health
+from the configured Backyard route in Yield Neon. The reader checks version,
+route, vault, program, cluster and observation freshness (at most 120 seconds;
+future timestamps are rejected). Missing, mismatched or stale evidence is
+unavailable, never proof of recovery. Known previous attention is retained when
+the stored observation becomes stale. No raw worker error or route state is
+sent to the browser. Health does not grant claim or debt-repayment authority.
+
+An operator-attention status shows that vault withdrawals are delayed and the
+existing request remains pending. It does not promise an ETA or notification
+delivery. Chain-confirmed claim readiness takes priority over worker health.
+Automatic full-debt clearing is not enabled by this display change.
+
 Offline money-movement contract checks (no RPC or wallet calls):
 
 ```sh

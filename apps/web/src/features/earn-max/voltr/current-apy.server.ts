@@ -5,7 +5,8 @@ import { sql } from "drizzle-orm";
 import { getYieldOptimizationClient } from "@/lib/yield-optimization/yield-neon-client.server";
 
 // The Backyard RWA worker route that manages the Voltr vault's strategy.
-const ROUTE_KEY = "rwa-multiply:ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh";
+export const EARN_MAX_BACKYARD_ROUTE_KEY =
+  "rwa-multiply:ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh";
 const MAX_AGE_MS = 30 * 60 * 1000;
 const CACHE_MS = 60 * 1000;
 
@@ -23,7 +24,7 @@ export async function readEarnMaxCurrentApyBps(): Promise<number | null> {
     const result = await getYieldOptimizationClient().db.execute(sql`
       SELECT state->'currentApy' AS current_apy
       FROM loyal_yield.multiply_route_states
-      WHERE route_key = ${ROUTE_KEY}
+      WHERE route_key = ${EARN_MAX_BACKYARD_ROUTE_KEY}
     `);
     // postgres-js returns an array, neon-http a { rows } object.
     const list: unknown[] = Array.isArray(result)
