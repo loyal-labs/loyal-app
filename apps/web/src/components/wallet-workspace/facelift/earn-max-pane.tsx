@@ -127,24 +127,11 @@ function PanelHeader({ title }: { title: string }) {
 
 // Figma 5429:36915 — Earn MAX empty/logged-out rail: the Strategies card on
 // top of the shared Loyal Stats card (same live /api/earn/stats as Earn).
-export function EarnMaxStrategiesCard() {
-  // Public figure, so it also shows before the invite unlocks the account.
-  const [{ apyBps, apyWindowDays }, setApy] = useState<{
-    apyBps: number | null;
-    apyWindowDays: number | null;
-  }>({ apyBps: null, apyWindowDays: null });
-  useEffect(() => {
-    let isCurrent = true;
-    fetch("/api/earn-max/apy")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((value) => {
-        if (isCurrent && value) setApy(value);
-      })
-      .catch(() => undefined);
-    return () => {
-      isCurrent = false;
-    };
-  }, []);
+export function EarnMaxStrategiesCard({
+  apy,
+}: {
+  apy: Pick<EarnMaxViewModel, "forecastApyBps" | "apyWindowDays"> | null;
+}) {
   return (
     <div className="flex shrink-0 flex-col rounded-3xl bg-card">
       <PanelHeader title="Strategies" />
@@ -162,23 +149,27 @@ export function EarnMaxStrategiesCard() {
               text="A leveraged loop over tokenized real-world asset yield"
             />
           </div>
-          <div className="flex flex-col gap-0.5 px-4 pt-2 pb-4">
-            <span className="flex items-center gap-1">
-              <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
-                Average Net APY
+          {apy !== null && (
+            <div className="flex flex-col gap-0.5 px-4 pt-2 pb-4">
+              <span className="flex items-center gap-1">
+                <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
+                  Average Net APY
+                </span>
+                <InfoTooltip
+                  text={
+                    apy.apyWindowDays !== null && apy.apyWindowDays < 7
+                      ? `Vault share-price growth over the ${apy.apyWindowDays} day${apy.apyWindowDays === 1 ? "" : "s"} since launch, annualized, after all costs`
+                      : "Vault share-price growth over the last 7 days, annualized, after all costs"
+                  }
+                />
               </span>
-              <InfoTooltip
-                text={
-                  apyWindowDays !== null && apyWindowDays < 7
-                    ? `Vault share-price growth over the ${apyWindowDays} day${apyWindowDays === 1 ? "" : "s"} since launch, annualized, after all costs`
-                    : "Vault share-price growth over the last 7 days, annualized, after all costs"
-                }
-              />
-            </span>
-            <span className="font-semibold text-[28px] text-foreground leading-8">
-              {apyBps === null ? "—" : `${(apyBps / 100).toFixed(2)}%`}
-            </span>
-          </div>
+              <span className="font-semibold text-[28px] text-foreground leading-8">
+                {apy.forecastApyBps === null
+                  ? "—"
+                  : `${(apy.forecastApyBps / 100).toFixed(2)}%`}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center rounded-2xl bg-accent px-4 opacity-40">
           <span className="flex items-center py-2">
@@ -1072,8 +1063,8 @@ function EarnMaxMainPane({
   );
 }
 
-// The Earn MAX section: connect teaser + mock rail when signed out; the live
-// position workspace (main / deposit / withdraw screens) when signed in.
+// The Earn MAX section: connect teaser + strategy rail when signed out;
+// invite-gated APY and position workspace (main / deposit / withdraw screens).
 export function EarnMaxWorkspace({
   earnData,
   earnMax,
@@ -1200,7 +1191,7 @@ export function EarnMaxWorkspace({
         ) : !invite.redeemed ? (
           <PaneReveal>
             <EarnMaxInvitePane
-              apyBadgeLabel={formatEarnMaxApyLabel(view.forecastApyBps)}
+              key={earnData.walletAddress}
               onBack={onBack}
               onRedeem={invite.redeem}
               tooltipText={EARN_MAX_TOOLTIP_TEXT}
@@ -1267,7 +1258,11 @@ export function EarnMaxWorkspace({
         // Strategies + the shared live Loyal Stats card, never a personal
         // (empty) Earned chart.
         <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-          <EarnMaxStrategiesCard />
+          <EarnMaxStrategiesCard
+            apy={
+              isHydrated && isSignedIn && invite.redeemed === true ? view : null
+            }
+          />
           <EarnStatsPanel />
         </aside>
       ) : selectedTransaction && transactionDetail ? (

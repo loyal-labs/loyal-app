@@ -1,0 +1,63 @@
+.field {
+  --digit-dur: 180ms;
+  --digit-distance: 3px;
+  --digit-blur: 1px;
+  --shake-distance: 4px;
+  --shake-overshoot: 2px;
+  --shake-dur-a: 80ms;
+  --shake-dur-b: 60ms;
+  --shake-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cell {
+  transition: border-color 150ms ease-out;
+}
+
+.message {
+  opacity: 0;
+  transition: opacity var(--text-swap-dur) var(--text-swap-ease);
+}
+
+.message[data-visible="true"] {
+  opacity: 1;
+}
+
+/* transitions.dev error-state-shake. Error text stays until the code changes. */
+.shaking {
+  animation: invite-shake calc(var(--shake-dur-a) * 2 + var(--shake-dur-b) * 2)
+    linear;
+}
+
+@keyframes invite-shake {
+  0% {
+    transform: translateX(0);
+    animation-timing-function: var(--shake-ease);
+  }
+  28.57% {
+    transform: translateX(var(--shake-distance));
+    animation-timing-function: var(--shake-ease);
+  }
+  57.14% {
+    transform: translateX(calc(var(--shake-distance) * -1));
+    animation-timing-function: var(--shake-ease);
+  }
+  78.57% {
+    transform: translateX(var(--shake-overshoot));
+    animation-timing-function: var(--shake-ease);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shaking {
+    animation: none;
+    transform: none;
+  }
+
+  .cell,
+  .message {
+    transition: none;
+  }
+}

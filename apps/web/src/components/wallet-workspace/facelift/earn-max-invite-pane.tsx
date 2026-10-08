@@ -1,60 +1,80 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 
+import styles from "./earn-max-invite-pane.module.css";
+
 const ASSET_BASE = "/wallet-workspace/facelift";
 const CODE_LENGTH = 6;
 
-type Status = "idle" | "checking" | "invalid" | "error";
+type InviteError = "invalid" | "error";
 
 // Figma 6015:74177 (empty) / 74280 (typing) / 74388 (checking) / 74497
 // (invalid) / 74658 (mobile). Six cells, auto-submit on the sixth
 // character; no button and no success screen — a valid code reveals the
 // normal Earn MAX view.
 export function EarnMaxInvitePane({
-  apyBadgeLabel,
   onBack,
   onRedeem,
   tooltipText,
 }: {
-  apyBadgeLabel: string;
   onBack: () => void;
   onRedeem: (code: string) => Promise<"redeemed" | "invalid" | "error">;
   tooltipText: string;
 }) {
   const [code, setCode] = useState("");
-  const [status, setStatus] = useState<Status>("idle");
+  const [error, setError] = useState<InviteError | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+  const [caret, setCaret] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLSpanElement>(null);
+  const submittingRef = useRef(false);
+  const errorId = useId();
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const submit = async (value: string) => {
-    setStatus("checking");
-    const result = await onRedeem(value);
-    if (result === "redeemed") return;
-    setStatus(result === "invalid" ? "invalid" : "error");
-    inputRef.current?.focus();
+    if (submittingRef.current || value.length !== CODE_LENGTH) return;
+    submittingRef.current = true;
+    setIsChecking(true);
+    try {
+      const result = await onRedeem(value);
+      if (result === "redeemed") return;
+      setError(result);
+      if (result === "invalid" && rowRef.current) {
+        rowRef.current.classList.remove(styles.shaking);
+        void rowRef.current.offsetWidth;
+        rowRef.current.classList.add(styles.shaking);
+      }
+    } catch {
+      setError("error");
+    } finally {
+      submittingRef.current = false;
+      setIsChecking(false);
+    }
   };
 
   const handleChange = (raw: string) => {
-    if (status === "checking") return;
+    if (submittingRef.current) return;
     const next = raw
       .toUpperCase()
       .replace(/[^A-Z0-9]/g, "")
       .slice(0, CODE_LENGTH);
+    if (next === code) return;
     setCode(next);
-    setStatus("idle");
+    setError(null);
+    rowRef.current?.classList.remove(styles.shaking);
     if (next.length === CODE_LENGTH) void submit(next);
   };
 
-  const isError = status === "invalid" || status === "error";
-  const focusIndex =
-    status === "idle" ? Math.min(code.length, CODE_LENGTH - 1) : -1;
+  const isInvalid = error === "invalid";
+  const focusIndex = isFocused ? Math.min(caret, CODE_LENGTH - 1) : -1;
 
   return (
     <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-card max-[795px]:rounded-none">
@@ -83,14 +103,13 @@ export function EarnMaxInvitePane({
               />
             </span>
           </div>
-          <span className="hidden items-center rounded-md bg-positive/[0.14] px-1 py-px max-[795px]:inline-flex">
-            <span className="whitespace-nowrap pt-px font-medium text-[11px] text-positive leading-[13px] tracking-[0.06px]">
-              {apyBadgeLabel}
-            </span>
-          </span>
         </div>
         <span className="hidden size-11 shrink-0 items-center justify-center max-[795px]:flex">
-          <InfoTooltip iconClassName="size-6" placement="bottom" text={tooltipText} />
+          <InfoTooltip
+            iconClassName="size-6"
+            placement="bottom"
+            text={tooltipText}
+          />
         </span>
       </header>
 
@@ -106,44 +125,85 @@ export function EarnMaxInvitePane({
 
         {/* One real input under six drawn cells: keeps paste, mobile
             keyboards and autofill working without per-cell focus juggling. */}
-        <label className="relative flex w-full flex-col items-center">
+        <label
+          className={`${styles.field} relative flex w-full flex-col items-center`}
+        >
           <input
-            aria-invalid={isError}
+            aria-busy={isChecking}
+            aria-describedby={error ? errorId : undefined}
+            aria-invalid={isInvalid}
             aria-label="Invite code"
             autoCapitalize="characters"
             autoComplete="one-time-code"
             autoCorrect="off"
-            className="absolute inset-0 h-[60px] w-full cursor-text opacity-0"
-            disabled={status === "checking"}
-            maxLength={CODE_LENGTH}
+            className="absolute top-0 h-[60px] w-[284px] cursor-text text-[20px] opacity-0"
+            enterKeyHint="go"
+            onBlur={() => setIsFocused(false)}
             onChange={(event) => handleChange(event.target.value)}
+            onFocus={() => setIsFocused(true)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                void submit(code);
+              }
+            }}
+            onSelect={(event) =>
+              setCaret(event.currentTarget.selectionStart ?? code.length)
+            }
+            readOnly={isChecking}
             ref={inputRef}
             spellCheck={false}
             value={code}
           />
-          <span aria-hidden="true" className="flex justify-center gap-1">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none flex justify-center gap-1"
+            onAnimationEnd={(event) => {
+              if (event.target === event.currentTarget) {
+                event.currentTarget.classList.remove(styles.shaking);
+              }
+            }}
+            ref={rowRef}
+          >
             {Array.from({ length: CODE_LENGTH }, (_, index) => (
               <span
-                className={`flex h-[60px] w-11 items-center justify-center rounded-3xl font-semibold text-[20px] uppercase leading-5 tracking-[-0.2px] ${
-                  isError
+                className={`${
+                  styles.cell
+                } flex h-[60px] w-11 items-center justify-center rounded-3xl border font-semibold text-[20px] uppercase leading-5 tracking-[-0.2px] ${
+                  isInvalid
                     ? "bg-destructive/[0.14] text-destructive"
-                    : status === "checking"
+                    : isChecking
                     ? "bg-foreground/[0.04] text-muted-foreground"
                     : "bg-foreground/[0.04] text-foreground"
-                } ${index === focusIndex ? "border border-foreground" : ""}`}
+                } ${
+                  index === focusIndex
+                    ? "border-foreground"
+                    : "border-transparent"
+                }`}
                 key={index}
               >
-                {code[index] ?? ""}
+                <span className="t-digit-group is-animating">
+                  <span className="t-digit" key={code[index] ?? ""}>
+                    {code[index] ?? ""}
+                  </span>
+                </span>
               </span>
             ))}
           </span>
           <span
-            className={`flex w-full justify-center px-6 pt-4 text-[16px] text-destructive leading-5 tracking-[-0.16px] ${
-              isError ? "" : "opacity-0"
-            }`}
-            role={isError ? "alert" : undefined}
+            className={`${styles.message} flex min-h-9 w-full justify-center px-6 pt-4 text-[16px] text-destructive leading-5 tracking-[-0.16px]`}
+            data-visible={error !== null}
+            id={errorId}
+            role="alert"
           >
-            {status === "error" ? "Something went wrong. Try again" : "Invalid code"}
+            {error === "error"
+              ? "Could not check code. Press Enter to retry"
+              : error === "invalid"
+              ? "Invalid code"
+              : ""}
+          </span>
+          <span className="sr-only" role="status">
+            {isChecking ? "Checking code" : ""}
           </span>
         </label>
       </div>
