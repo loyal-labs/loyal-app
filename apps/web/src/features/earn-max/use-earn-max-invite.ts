@@ -13,19 +13,28 @@ export type EarnMaxInviteState = {
 };
 
 export function useEarnMaxInvite(walletAddress: string | null): EarnMaxInviteState {
-  const [redeemed, setRedeemed] = useState<boolean | null>(null);
+  const [access, setAccess] = useState<{
+    walletAddress: string;
+    redeemed: boolean;
+  } | null>(null);
+  const redeemed =
+    walletAddress && access?.walletAddress === walletAddress
+      ? access.redeemed
+      : null;
 
   useEffect(() => {
-    setRedeemed(null);
+    setAccess(null);
     if (!walletAddress) return;
     let cancelled = false;
     void fetch(INVITE_PATH, { cache: "no-store", credentials: "include" })
       .then((response) => (response.ok ? response.json() : null))
       .then((body: { redeemed?: boolean } | null) => {
-        if (!cancelled) setRedeemed(body?.redeemed === true);
+        if (!cancelled) {
+          setAccess({ walletAddress, redeemed: body?.redeemed === true });
+        }
       })
       .catch(() => {
-        if (!cancelled) setRedeemed(false);
+        if (!cancelled) setAccess({ walletAddress, redeemed: false });
       });
     return () => {
       cancelled = true;
@@ -48,7 +57,11 @@ export function useEarnMaxInvite(walletAddress: string | null): EarnMaxInviteSta
       });
       if (response.ok) {
         tracker.complete("redeem", { httpStatus: response.status });
-        setRedeemed(true);
+        setAccess((current) =>
+          current?.walletAddress === walletAddress
+            ? { ...current, redeemed: true }
+            : current
+        );
         return "redeemed" as const;
       }
       // 400 invalid, 409 already used by another wallet: both read as
@@ -66,7 +79,7 @@ export function useEarnMaxInvite(walletAddress: string | null): EarnMaxInviteSta
       tracker.fail("redeem", { errorCode: "request_failed" });
       return "error" as const;
     }
-  }, []);
+  }, [walletAddress]);
 
   return { redeem, redeemed };
 }
