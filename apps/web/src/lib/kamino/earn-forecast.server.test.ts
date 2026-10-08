@@ -50,7 +50,6 @@ const realizedDeps = {
 
 describe("realized Earn forecast", () => {
   beforeEach(async () => {
-    delete process.env.TIMESCALEDB_URL;
     const { resetEarnForecastCacheForTests } = await import(
       "./earn-forecast.server"
     );
@@ -154,15 +153,5 @@ describe("realized Earn forecast", () => {
     });
     expect(allocationReads).toBe(0);
     expect(forecast.summary.availability).toBe("unavailable");
-  });
-
-  test("the daily simulation cron no longer overwrites the served value", async () => {
-    const {
-      getMediumFeeAwareEarnForecast,
-      refreshMediumFeeAwareEarnForecastSnapshot,
-    } = await import("./earn-forecast.server");
-    await refreshMediumFeeAwareEarnForecastSnapshot(NOW);
-    const forecast = await getMediumFeeAwareEarnForecast(NOW, realizedDeps);
-    expect(forecast.summary.strategy).toBe("realized_7d_share_price");
   });
 });

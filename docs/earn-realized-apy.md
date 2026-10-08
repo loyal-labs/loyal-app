@@ -7,7 +7,10 @@ recorded allocation at that time, including zero-return idle capital. The
 historical chart uses the same measured returns; it never substitutes a
 forecast line.
 
-The hourly share-price cron also records the fleet allocation in
+The Go observer in loyal-yield-routing
+(`go/workers/internal/observer/maintenance.go`, enabled by
+`OBSERVER_READ_MODELS_ENABLED`) is the only writer of the hourly share prices
+in `loyal_yield.earn_reserve_share_prices` and the fleet allocation in
 `loyal_yield.earn_fleet_allocations_hourly`: redeemable liquidity per reserve
 and idle capital, summed from each active Earn vault's latest
 `complete_product_vault` snapshot. The APY reader loads those rows, one per
@@ -18,7 +21,7 @@ transaction-exact accounting return. Reserve and idle balances are compared as
 nominal raw units because the supported Earn stablecoins all have six
 decimals. This calculation does not infer FX rates or depegs.
 
-The cron records forward and never reconstructs a missed hour. History from
+The recorder writes forward and never reconstructs a missed hour. History from
 2026-08-25 14:00 UTC to 2026-10-02 17:00 UTC was backfilled once, on
 2026-10-02, from the stored snapshot history: allocations from each vault's
 latest sweep-written complete snapshot as of five minutes past each hour, and
@@ -49,12 +52,8 @@ which includes interest accrued up to the snapshot. This keeps a fresh price
 for reserves that hold Earn capital but are refreshed on chain only every few
 hours.
 
-This serving path depends on the share-price recorder (PR #794, routing
-migration 0084) and the fleet allocation recorder (routing migration 0086).
-The allocation recorder reads one latest complete snapshot per vault through
-the partial index on `(vault_id, observed_at DESC, observed_slot DESC, id
-DESC)` for `complete_product_vault` snapshots (routing migration 0085), under
-a database-enforced 30-second limit: the read takes under 100 ms on cached
-pages and several seconds on a cold cache. A failed allocation sample is
-logged and leaves that hour without a row; it does not stop the hour's share
-prices.
+This app only reads those tables. The Apps cron writers
+(`/api/cron/earn-reserve-share-prices` and `/api/cron/earn-forecast-snapshot`)
+were removed so each table has one writer. Table shapes come from routing
+migrations 0084 (share prices), 0085 (complete-snapshot history index) and 0086
+(fleet allocations).
