@@ -10,9 +10,11 @@ import {
   boolean,
   check,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
+  numeric,
   pgSchema,
   primaryKey,
   smallint,
@@ -659,6 +661,69 @@ export const earnApyHourlySnapshots = loyalYieldSchema.table(
   ]
 );
 
+// Hourly Kamino reserve share prices (liquidity per collateral token).
+// Migration owned by loyal-yield-routing (0084_earn_reserve_share_prices).
+export const earnReserveSharePrices = loyalYieldSchema.table(
+  "earn_reserve_share_prices",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    cluster: text("cluster").notNull(),
+    reserve: text("reserve").notNull(),
+    market: text("market").notNull(),
+    liquidityMint: text("liquidity_mint").notNull(),
+    observedHour: timestamp("observed_hour", { withTimezone: true }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    slot: bigint("slot", { mode: "bigint" }).notNull(),
+    sharePrice: doublePrecision("share_price").notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_reserve_share_prices_hour_uidx").on(
+      table.cluster,
+      table.reserve,
+      table.observedHour
+    ),
+    index("earn_reserve_share_prices_observed_idx").on(
+      table.cluster,
+      table.observedAt
+    ),
+  ]
+);
+
+// Migration owned by loyal-yield-routing (0086_earn_fleet_allocations_hourly).
+export const earnFleetAllocationsHourly = loyalYieldSchema.table(
+  "earn_fleet_allocations_hourly",
+  {
+    cluster: text("cluster").notNull(),
+    observedHour: timestamp("observed_hour", { withTimezone: true }).notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    reserveAmounts: jsonb("reserve_amounts")
+      .$type<Record<string, string>>()
+      .notNull(),
+    idleAmountRaw: numeric("idle_amount_raw", {
+      precision: 39,
+      scale: 0,
+    }).notNull(),
+    vaultsTotal: integer("vaults_total").notNull(),
+    vaultsIncluded: integer("vaults_included").notNull(),
+    vaultsMissing: integer("vaults_missing").notNull(),
+    vaultsInvalid: integer("vaults_invalid").notNull(),
+    vaultsStale: integer("vaults_stale").notNull(),
+    excludedAmountRaw: numeric("excluded_amount_raw", {
+      precision: 39,
+      scale: 0,
+    }).notNull(),
+    oldestSourceAt: timestamp("oldest_source_at", { withTimezone: true }),
+    newestSourceAt: timestamp("newest_source_at", { withTimezone: true }),
+    calcVersion: smallint("calc_version").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.cluster, table.observedHour],
+      name: "earn_fleet_allocations_hourly_pkey",
+    }),
+  ]
+);
+
 export const balanceSweepPolicies = loyalYieldSchema.table(
   "balance_sweep_policies",
   {
@@ -1261,6 +1326,8 @@ export const yieldOptimizationSchema = {
   earnDepositOnboardingAttempts,
   earnEarningsSnapshots,
   earnApyHourlySnapshots,
+  earnFleetAllocationsHourly,
+  earnReserveSharePrices,
   earnForecastSnapshots,
   managedVaults,
   pushCampaignSends,
@@ -1302,6 +1369,8 @@ export type YieldOptimizationClientTables = {
   earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
   earnEarningsSnapshots: typeof earnEarningsSnapshots;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
+  earnFleetAllocationsHourly: typeof earnFleetAllocationsHourly;
+  earnReserveSharePrices: typeof earnReserveSharePrices;
   earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
   rebalanceDecisions: typeof rebalanceDecisions;
@@ -1336,6 +1405,8 @@ export class YieldOptimizationClient {
     earnDepositOnboardingAttempts,
     earnEarningsSnapshots,
     earnApyHourlySnapshots,
+    earnFleetAllocationsHourly,
+    earnReserveSharePrices,
     earnForecastSnapshots,
     managedVaults,
     realtimeEvents,

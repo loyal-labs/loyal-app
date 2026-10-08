@@ -1,6 +1,8 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
 
+import type { LandingDict } from "@/features/marketing/i18n/en/landing";
+
 const supporters = [
   "Solana",
   "Superteam",
@@ -135,7 +137,11 @@ function SupporterSet({ duplicate = false }: { duplicate?: boolean }) {
   );
 }
 
-export function LandingSupportedBy() {
+export function LandingSupportedBy({
+  copy,
+}: {
+  copy: LandingDict["supportedBy"];
+}) {
   return (
     <section
       aria-labelledby="supported-by-title"
@@ -145,7 +151,7 @@ export function LandingSupportedBy() {
         className="w-full text-center text-[#8a8a8e] text-[20px] leading-[1.2] tracking-[-0.4px] lg:text-[24px] lg:tracking-[-0.48px]"
         id="supported-by-title"
       >
-        Supported by
+        {copy.title}
       </h2>
       <div className="supporters-marquee-viewport scrollbar-hide w-full px-4 pb-4 pt-2 lg:pb-6 lg:pl-12 lg:pr-6 lg:pt-4">
         <div className="supporters-marquee-track flex w-max items-center">

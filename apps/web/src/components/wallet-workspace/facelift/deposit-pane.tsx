@@ -251,7 +251,7 @@ export function DepositPane({
   const handleSubmit = async () => {
     const didDeposit = await actions.submitDeposit({
       amountLabel: amount,
-      forecastApyBps: apy.apyBps,
+      forecastApyBps: apy.availability === "unavailable" ? 0 : apy.apyBps,
       mint: selectedSource.mint,
       symbol: selectedSource.symbol,
     });
@@ -544,11 +544,21 @@ export function DepositPane({
                         {isApyLoaded ? (
                           <PopDigits
                             segments={[
-                              { text: formatEarnApyLabel(apy.apyBps) },
+                              {
+                                text: formatEarnApyLabel(
+                                  apy.apyBps,
+                                  apy.availability,
+                                  apy.source
+                                ),
+                              },
                             ]}
                           />
                         ) : (
-                          formatEarnApyLabel(apy.apyBps)
+                          formatEarnApyLabel(
+                            apy.apyBps,
+                            apy.availability,
+                            apy.source
+                          )
                         )}
                       </span>
                     </span>

@@ -97,6 +97,13 @@ that describe the same rows share one window and produce one message.
 A delivery with no readable row block falls back to keying on `eventId`, which
 is exactly the previous behavior.
 
+A delivery whose row block holds a latch (a quoted field equal to `latched` or
+ending in `.latched`, such as stage `latched` or body `backyard_rwa.latched`)
+is the exception. A latched worker stops until a human clears it, so the relay
+keys it on its own ClickStack evaluation range instead. Every latch therefore
+posts a 🚨, even inside a window that earlier noise or an earlier latch opened.
+Repeat deliveries of the same evaluation still post once.
+
 ## State is in-process, so this runs one instance
 
 Window and idempotency state lives in memory (`src/relay.ts`). There is no

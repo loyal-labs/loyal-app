@@ -200,7 +200,15 @@ export function EarnPositionPane({
                   <span className="text-positive">
                     <ApyRevealText
                       isRevealed={isApyLoaded}
-                      segments={[{ text: formatEarnApyLabel(apy.apyBps) }]}
+                      segments={[
+                        {
+                          text: formatEarnApyLabel(
+                            apy.apyBps,
+                            apy.availability,
+                            apy.source
+                          ),
+                        },
+                      ]}
                     />
                   </span>
                 </p>

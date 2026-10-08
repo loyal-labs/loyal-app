@@ -2,7 +2,14 @@ const FALLBACK_UPDATED_AT = "2026-06-01T00:00:00.000Z";
 const DEFAULT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type EarnForecastResponse = {
-  strategy: "safe_no_fees" | "safe_fee_aware_1bps" | "medium_fee_aware_1bps";
+  strategy:
+    | "safe_no_fees"
+    | "safe_fee_aware_1bps"
+    | "medium_fee_aware_1bps"
+    | "realized_7d_share_price";
+  // Which measurement won for the realized strategy; absent otherwise.
+  source?: "realized_7d" | "live";
+  availability?: "available" | "stale" | "unavailable";
   apyBps: number;
   rangeLowBps: number;
   rangeHighBps: number;
@@ -12,7 +19,7 @@ export type EarnForecastResponse = {
 
 export type EarnForecastApy = Pick<
   EarnForecastResponse,
-  "apyBps" | "rangeHighBps" | "rangeLowBps"
+  "apyBps" | "availability" | "rangeHighBps" | "rangeLowBps" | "source"
 >;
 
 export type EarnForecastApyHistorySample = {
@@ -41,10 +48,14 @@ export type EarnForecastSummaryResponse = {
   history: EarnForecastApyHistoryResponse;
 };
 
+// Shown only when no realized measurement has ever loaded. Deliberately
+// below the measured realized APY (6.44%, 2026-09-22) so an outage cannot
+// overpromise.
 export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
-  apyBps: 1197,
-  rangeHighBps: 1325,
-  rangeLowBps: 856,
+  availability: "unavailable",
+  apyBps: 600,
+  rangeHighBps: 600,
+  rangeLowBps: 600,
   strategy: "safe_no_fees",
   updatedAt: FALLBACK_UPDATED_AT,
   window: {
@@ -55,7 +66,21 @@ export const FALLBACK_EARN_FORECAST: EarnForecastResponse = {
   },
 };
 
-export function formatEarnApyLabel(apyBps: number): string {
+export function formatEarnApyLabel(
+  apyBps: number,
+  availability: EarnForecastResponse["availability"] = "available",
+  source?: EarnForecastResponse["source"]
+): string {
+  if (availability === "unavailable") {
+    return "APY unavailable";
+  }
+  const qualifiers = [
+    ...(source === "live" ? ["6–24h live"] : []),
+    ...(availability === "stale" ? ["stale"] : []),
+  ];
+  if (qualifiers.length > 0) {
+    return `${(apyBps / 100).toFixed(2)}% APY (${qualifiers.join(", ")})`;
+  }
   return `${(apyBps / 100).toFixed(2)}% APY`;
 }
 

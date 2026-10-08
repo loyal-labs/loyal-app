@@ -79,16 +79,30 @@ function ChartBody({
           axisTickCount={isExpanded && !isNarrowViewport ? 8 : 2}
           rangeId="30D"
         />
+      ) : apy.availability === "unavailable" ? (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground"
+          role="status"
+        >
+          APY forecast unavailable
+        </div>
       ) : (
-        <ForecastChart
-          apy={apy}
-          apyDataRevealed={isApyLoaded}
-          isBalanceHidden={isBalanceHidden && earnData.hasPosition}
-          key={forecastPrincipal}
-          mainUsdcReserveApyBps={mainUsdcReserveApyBps}
-          principal={forecastPrincipal}
-          scrambleHiddenValues
-        />
+        <>
+          {apy.availability === "stale" ? (
+            <span className="text-xs text-muted-foreground">
+              APY data is stale
+            </span>
+          ) : null}
+          <ForecastChart
+            apy={apy}
+            apyDataRevealed={isApyLoaded}
+            isBalanceHidden={isBalanceHidden && earnData.hasPosition}
+            key={forecastPrincipal}
+            mainUsdcReserveApyBps={mainUsdcReserveApyBps}
+            principal={forecastPrincipal}
+            scrambleHiddenValues
+          />
+        </>
       )}
     </div>
   );
