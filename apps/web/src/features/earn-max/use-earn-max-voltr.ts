@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import { readJson, viewModel, walletBridge } from "./use-earn-max";
 import {
+  VoltrClaimLiquidityError,
   voltrClaimPlan,
   voltrDepositPlan,
   type VoltrPlan,
@@ -75,6 +76,9 @@ export function useEarnMaxVoltr(input: {
       setActivity(nextActivity);
       setError(null);
     } catch (nextError) {
+      if (accountRef.current !== account) return;
+      // A failed status read must not leave a stale "Ready to claim" state.
+      setSummary(null);
       setError(
         nextError instanceof Error
           ? nextError.message
@@ -176,7 +180,13 @@ export function useEarnMaxVoltr(input: {
         return true;
       } catch (nextError) {
         // The tracker ignores this after a terminal fail above.
-        if (
+        if (nextError instanceof VoltrClaimLiquidityError) {
+          tracker.fail("prepare", {
+            chainState: "not_submitted",
+            errorCode: "earn_max_liquidity_unavailable",
+          });
+          await refresh();
+        } else if (
           stage === "wallet_submit_confirm" &&
           isWalletCancellation(nextError)
         ) {

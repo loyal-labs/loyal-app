@@ -27,6 +27,8 @@ export type EarnMaxWithdrawalView = {
   amountRaw: string;
   canCancel: boolean;
   canClaim: boolean;
+  /** Mature but awaiting verified pooled liquidity; no completion ETA. */
+  claimBlockedReason?: "insufficient_liquidity" | "liquidity_unavailable";
   readyBy: string;
   requestId: string;
   status: "requested" | "unwinding" | "claimable" | "claimed";

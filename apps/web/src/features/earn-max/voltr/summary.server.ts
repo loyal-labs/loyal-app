@@ -13,6 +13,7 @@ import { readEarnMaxCurrentApyBps } from "./current-apy.server";
 import {
   deriveEarnMaxVoltrAuthority,
   readVoltrPosition,
+  voltrClaimBlockReason,
   voltrUserAccounts,
 } from "./program";
 
@@ -64,8 +65,8 @@ export async function readEarnMaxVoltrSummary(
   ]);
   const { earnedRaw } = voltrActivity(history, position);
   const pending = position.withdrawal;
-  const canClaim =
-    pending !== null && Date.now() / 1000 >= pending.withdrawableFromTs;
+  const blocked = voltrClaimBlockReason(position);
+  const canClaim = blocked === null;
   return {
     balanceUsd: Number(position.valueRaw) / 1_000_000,
     claimAmountRaw: pending ? pending.payoutRaw.toString() : "0",
@@ -88,9 +89,16 @@ export async function readEarnMaxVoltrSummary(
           amountRaw: pending.payoutRaw.toString(),
           canCancel: false,
           canClaim,
+          ...(blocked && blocked !== "not_ready"
+            ? { claimBlockedReason: blocked }
+            : {}),
           readyBy: new Date(pending.withdrawableFromTs * 1000).toISOString(),
           requestId: voltrUserAccounts(authority).receipt.toBase58(),
-          status: canClaim ? "claimable" : "requested",
+          status: canClaim
+            ? "claimable"
+            : blocked === "not_ready"
+            ? "requested"
+            : "unwinding",
         }
       : null,
   };

@@ -200,6 +200,7 @@ export const LIFECYCLE_ERROR_CODES = [
   "invalid_source",
   "insufficient_usdc",
   "insufficient_native_sol",
+  "earn_max_liquidity_unavailable",
   "instruction_fetch_failed",
   "instruction_validation_failed",
   "transaction_too_large",
