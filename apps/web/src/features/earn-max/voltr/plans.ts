@@ -17,6 +17,8 @@ import {
   VOLTR_ASSET_DECIMALS,
   VOLTR_ASSET_MINT,
   VOLTR_LP_MINT,
+  voltrClaimBlockReason,
+  type VoltrClaimBlockReason,
   voltrUserAccounts,
   withdrawVaultInstruction,
 } from "./program";
@@ -125,6 +127,17 @@ export async function voltrRequestWithdrawalPlan(
   };
 }
 
+export class VoltrClaimLiquidityError extends Error {
+  constructor(reason: Exclude<VoltrClaimBlockReason, "not_ready">) {
+    super(
+      reason === "insufficient_liquidity"
+        ? "The vault does not have enough available USDC to pay this withdrawal yet. Check again later."
+        : "Vault liquidity could not be verified. Check status before claiming."
+    );
+    this.name = "VoltrClaimLiquidityError";
+  }
+}
+
 /** Claim into the vault PDA's USDC account, then sweep it to the wallet. */
 export async function voltrClaimPlan(
   connection: Connection,
@@ -132,9 +145,11 @@ export async function voltrClaimPlan(
 ): Promise<VoltrPlan> {
   const position = await readVoltrPosition(connection, authority);
   const pending = position.withdrawal;
-  if (!pending || Date.now() / 1000 < pending.withdrawableFromTs) {
+  const blocked = voltrClaimBlockReason(position);
+  if (!pending || blocked === "not_ready") {
     throw new Error("Earn MAX withdrawal is not claimable yet.");
   }
+  if (blocked) throw new VoltrClaimLiquidityError(blocked);
   const walletAta = getAssociatedTokenAddressSync(VOLTR_ASSET_MINT, owner);
   // One raw unit of headroom absorbs program-side fixed-point rounding; any
   // dust stays in the vault account and rides the next sweep.

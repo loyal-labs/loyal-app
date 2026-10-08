@@ -659,9 +659,33 @@ function EarnMaxActivityCard({
                         <OperationRow
                           amountLabel={usdcRawLabel(withdrawal.amountRaw)}
                           isWithdraw
-                          subtitle={minutesLeftLabel(withdrawal.readyBy)}
+                          subtitle={
+                            withdrawal.claimBlockedReason ===
+                            "insufficient_liquidity"
+                              ? "Waiting for vault liquidity"
+                              : withdrawal.claimBlockedReason ===
+                                "liquidity_unavailable"
+                              ? "Liquidity not verified"
+                              : minutesLeftLabel(withdrawal.readyBy)
+                          }
                           title="Withdraw"
                         />
+                        {withdrawal.claimBlockedReason ? (
+                          <div className="flex flex-col items-start gap-2 px-4 pt-1 pb-2">
+                            <p className="text-[13px] text-muted-foreground leading-4">
+                              {withdrawal.claimBlockedReason ===
+                              "insufficient_liquidity"
+                                ? "The vault does not have enough available USDC to pay this withdrawal yet. Check again later."
+                                : "Vault liquidity could not be verified. Check status before claiming."}
+                            </p>
+                            <SmallPill
+                              disabled={view.isBusy}
+                              label="Check status"
+                              onClick={() => void actions.refresh()}
+                              variant="light"
+                            />
+                          </div>
+                        ) : null}
                         {withdrawal.canCancel ? (
                           <div className="flex w-full items-start gap-2 px-4 pt-1 pb-2">
                             <SmallPill

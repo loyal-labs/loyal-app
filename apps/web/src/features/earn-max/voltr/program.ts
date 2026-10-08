@@ -1,7 +1,11 @@
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import {
+  ACCOUNT_SIZE,
+  AccountLayout,
+  AccountState,
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
+  unpackAccount,
 } from "@solana/spl-token";
 import {
   type Connection,
@@ -192,6 +196,8 @@ export type VoltrPosition = {
   /** Smart-account vault lamports (rent payer for withdrawal requests). */
   authorityLamports: number;
   escrowLpAtaExists: boolean;
+  /** Validated pooled idle USDC, or null when unavailable. Not a reservation. */
+  idleAssetRaw: bigint | null;
   /** Free LP in the smart-account vault's LP ATA. */
   lpRaw: bigint;
   /** USDC raw the free LP redeems for right now. */
@@ -206,13 +212,33 @@ export type VoltrPosition = {
   assetsToLp: (assetRaw: bigint) => bigint;
 };
 
+export type VoltrClaimBlockReason =
+  | "not_ready"
+  | "insufficient_liquidity"
+  | "liquidity_unavailable";
+
+/** Cooldown alone does not make invested vault assets available to claim. */
+export function voltrClaimBlockReason(
+  position: VoltrPosition,
+  nowSec = Date.now() / 1000
+): VoltrClaimBlockReason | null {
+  const pending = position.withdrawal;
+  if (!pending || nowSec < pending.withdrawableFromTs) return "not_ready";
+  if (position.idleAssetRaw === null) return "liquidity_unavailable";
+  // SDK withdrawals.ts uses min(request quote, redemption-fee-adjusted value).
+  // Cover the full payout, not the smaller wallet sweep or existing user dust.
+  return position.idleAssetRaw < pending.payoutRaw
+    ? "insufficient_liquidity"
+    : null;
+}
+
 /** One getMultipleAccountsInfo snapshot of an authority's Voltr position. */
 export async function readVoltrPosition(
   connection: Connection,
   authority: PublicKey
 ): Promise<VoltrPosition> {
   const user = voltrUserAccounts(authority);
-  const [vault, lpMint, assetAta, lpAta, receipt, escrow, authorityAccount] =
+  const [vault, lpMint, assetAta, lpAta, receipt, escrow, authorityAccount, idle] =
     await connection.getMultipleAccountsInfo([
       VOLTR_VAULT,
       VOLTR_LP_MINT,
@@ -221,9 +247,27 @@ export async function readVoltrPosition(
       user.receipt,
       user.escrowLpAta,
       authority,
+      VOLTR_IDLE_ATA,
     ]);
   if (!(vault && lpMint)) {
     throw new Error("Voltr vault is not available on this cluster.");
+  }
+  let idleAssetRaw: bigint | null = null;
+  // This vault uses classic SPL USDC. Reject malformed, frozen or unrelated
+  // accounts instead of presenting unverifiable liquidity as claimable.
+  if (idle && !idle.executable && idle.data.length === ACCOUNT_SIZE) {
+    try {
+      const account = unpackAccount(VOLTR_IDLE_ATA, idle, TOKEN_PROGRAM_ID);
+      if (
+        account.mint.equals(VOLTR_ASSET_MINT) &&
+        account.owner.equals(VOLTR_IDLE_AUTH) &&
+        AccountLayout.decode(idle.data).state === AccountState.Initialized
+      ) {
+        idleAssetRaw = account.amount;
+      }
+    } catch {
+      // Unknown liquidity blocks claims but need not hide the position.
+    }
   }
   const v = vault.data;
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
@@ -274,6 +318,7 @@ export async function readVoltrPosition(
         : (assetRaw * totalLp * BPS) / (unlockedValue * redemptionKeepBps),
     authorityLamports: authorityAccount?.lamports ?? 0,
     escrowLpAtaExists: escrow !== null,
+    idleAssetRaw,
     lpRaw,
     valueRaw: lpToAssets(lpRaw),
     withdrawal,
