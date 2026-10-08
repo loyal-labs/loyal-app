@@ -44,6 +44,9 @@ Open [http://localhost:3000](http://localhost:3000) to view the app.
 
 Create a `.env.local` file with required API keys (see `.env.example`).
 
+`EARN_MAX_INVITE_CODE_HASHES` (server-only) holds the comma-separated SHA-256
+hashes of the Earn MAX invite codes; unset means nobody can open Earn MAX.
+
 Wallet auth and wallet session refresh are fully owned by this frontend. The
 local auth surface is:
 

@@ -4528,7 +4528,7 @@ function DepositSourceRow({
   );
 }
 
-type HistoricalApySample = {
+export type HistoricalApySample = {
   apyPercent: number;
   observedAtMs: number;
 };
@@ -4610,10 +4610,20 @@ function smoothChartLinePath(
     const current = points[index];
     const next = points[index + 1];
     const afterNext = points[index + 2] ?? next;
-    const control1X = current.x + (next.x - previous.x) / 6;
-    const control1Y = current.y + (next.y - previous.y) / 6;
-    const control2X = next.x - (afterNext.x - current.x) / 6;
-    const control2Y = next.y - (afterNext.y - current.y) / 6;
+    // Uneven x spacing (a long flat pad next to short daily steps) makes the
+    // raw tangents reach past the neighbouring point and loop backwards.
+    // Shorten each tangent so its control point stays inside this segment;
+    // the direction is kept, and evenly spaced data is unchanged.
+    const span = next.x - current.x;
+    const out1 = Math.min(1, span / Math.max((next.x - previous.x) / 6, 1e-9));
+    const out2 = Math.min(
+      1,
+      span / Math.max((afterNext.x - current.x) / 6, 1e-9)
+    );
+    const control1X = current.x + ((next.x - previous.x) / 6) * out1;
+    const control1Y = current.y + ((next.y - previous.y) / 6) * out1;
+    const control2X = next.x - ((afterNext.x - current.x) / 6) * out2;
+    const control2Y = next.y - ((afterNext.y - current.y) / 6) * out2;
     path.push(
       `C${control1X.toFixed(2)},${control1Y.toFixed(2)} ${control2X.toFixed(
         2
@@ -4702,6 +4712,10 @@ type HistoricalApyChartProps = {
   // (undefined keeps the legacy render byte-identical).
   apyDataRevealed?: boolean;
   axisTickCount?: number;
+  // Earn MAX variant: swaps the fetched Loyal series for a supplied one and
+  // renames the primary legend entry; the benchmark lines stay as-is.
+  primaryLabel?: string;
+  primarySamples?: HistoricalApySample[];
   rangeId: EarningsRangeId;
 };
 
@@ -4721,16 +4735,21 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
   const rangeStartMs =
     Date.now() -
     HISTORICAL_RANGE_CONFIG[props.rangeId].spanDays * 24 * 60 * 60 * 1000;
-  const visibleSamples = toHistoricalApySamples(history).filter(
-    (sample) => sample.observedAtMs >= rangeStartMs
-  );
-  if (forecast.availability === "unavailable" || visibleSamples.length === 0) {
+  const visibleSamples =
+    props.primarySamples ??
+    toHistoricalApySamples(history).filter(
+      (sample) => sample.observedAtMs >= rangeStartMs
+    );
+  if (
+    (props.primarySamples === undefined && forecast.availability === "unavailable") ||
+    visibleSamples.length === 0
+  ) {
     return (
       <div
         className="flex min-h-0 w-full flex-1 items-center justify-center text-muted-foreground"
         role="status"
       >
-        {forecast.source === "live"
+        {props.primarySamples === undefined && forecast.source === "live"
           ? "Historical 7-day APY unavailable; live APY uses 6–24h"
           : "Historical APY unavailable"}
       </div>
@@ -4748,7 +4767,7 @@ export function HistoricalApyChart(props: HistoricalApyChartProps) {
 
   return (
     <>
-      {forecast.availability === "stale" ? (
+      {props.primarySamples === undefined && forecast.availability === "stale" ? (
         <span className="text-xs text-muted-foreground">APY data is stale</span>
       ) : null}
       {visibleSamples[0].observedAtMs > rangeStartMs + 2 * 60 * 60 * 1000 ? (
@@ -4769,6 +4788,7 @@ function HydratedHistoricalApyChart({
   apyDataRevealed,
   apyHistory,
   axisTickCount = 2,
+  primaryLabel,
   rangeId,
   samples,
 }: HistoricalApyChartProps & {
@@ -4868,7 +4888,7 @@ function HydratedHistoricalApyChart({
       apyPercent: focusSample.apyPercent,
       color: EARN_SERIES_DISPLAY.loyal.color,
       key: "loyal" as EarnComparisonSeriesKey,
-      label: EARN_SERIES_DISPLAY.loyal.label,
+      label: primaryLabel ?? EARN_SERIES_DISPLAY.loyal.label,
     },
     ...benchmarks.map((benchmark) => ({
       apyPercent: benchmark.apyPercentAt(focusSample.observedAtMs),

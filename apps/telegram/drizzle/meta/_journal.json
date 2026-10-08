@@ -218,6 +218,13 @@
       "when": 1788427297930,
       "tag": "0030_evm_deposit_address",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790353528832,
+      "tag": "0031_earn_max_invite_redemptions",
+      "breakpoints": true
     }
   ]
 }
