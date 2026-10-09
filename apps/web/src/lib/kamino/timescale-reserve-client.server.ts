@@ -115,8 +115,6 @@ export type TimescaleReserveClientTables = {
 
 export type TimescaleReserveUpdateRow =
   typeof timescaleReserveUpdates.$inferSelect;
-export type TimescaleSupportedReserveRow =
-  typeof timescaleSupportedReserves.$inferSelect;
 export type TimescaleReservePresenceRow = Pick<
   TimescaleReserveUpdateRow,
   "observedAt" | "reserve" | "totalSupplyUsdEstimate"
@@ -300,84 +298,6 @@ export class TimescaleReserveClient {
       .orderBy(desc(table.observedAt));
   }
 
-  async getMediumStableSupportedReserves(): Promise<
-    TimescaleSupportedReserveRow[]
-  > {
-    const table = this.tables.supportedReserves;
-    const marketAddresses = RISK_BASKET_MARKETS[RiskBasket.Medium].map(
-      (market) => market.toBase58()
-    );
-    const stablecoinLiquidityMints = STABLECOINS.map((stablecoin) =>
-      STABLECOIN_MINTS[stablecoin].toBase58()
-    );
-
-    return this.db
-      .select()
-      .from(table)
-      .where(
-        and(
-          eq(table.active, true),
-          inArray(table.market, marketAddresses),
-          inArray(table.liquidityMint, stablecoinLiquidityMints)
-        )
-      )
-      .orderBy(asc(table.market), asc(table.liquidityMint), asc(table.reserve));
-  }
-
-  async getReserveUpdatesWithSeedRows(args: {
-    end: Date;
-    reserves: readonly string[];
-    start: Date;
-  }): Promise<TimescaleReserveUpdateRow[]> {
-    if (args.reserves.length === 0) {
-      return [];
-    }
-
-    const table = this.tables.reserveUpdates;
-    const previousRows = await Promise.all(
-      args.reserves.map((reserve) =>
-        this.db
-          .select()
-          .from(table)
-          .where(
-            and(
-              eq(table.reserve, reserve),
-              eq(table.reserveLastUpdateStale, false),
-              gte(table.supplyApy, 0),
-              lt(table.supplyApy, DEFAULT_MAX_SUPPLY_APY),
-              lt(table.observedAt, args.start)
-            )
-          )
-          .orderBy(desc(table.observedAt))
-          .limit(1)
-      )
-    );
-    const rangeRows = await this.db
-      .select()
-      .from(table)
-      .where(
-        and(
-          inArray(table.reserve, [...args.reserves]),
-          eq(table.reserveLastUpdateStale, false),
-          gt(
-            table.totalSupplyUsdEstimate,
-            DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE
-          ),
-          gte(table.supplyApy, 0),
-          lt(table.supplyApy, DEFAULT_MAX_SUPPLY_APY),
-          gte(table.observedAt, args.start),
-          lte(table.observedAt, args.end)
-        )
-      )
-      .orderBy(asc(table.observedAt), asc(table.reserve));
-
-    return [...previousRows.flat(), ...rangeRows].sort(
-      (a, b) =>
-        a.observedAt.getTime() - b.observedAt.getTime() ||
-        a.reserve.localeCompare(b.reserve)
-    );
-  }
-
   async getReserveApyHistory(args: {
     end: Date;
     reserve: string;
@@ -411,86 +331,6 @@ export class TimescaleReserveClient {
     return [...previousRows, ...rangeRows].sort(
       (a, b) => a.observedAt.getTime() - b.observedAt.getTime()
     );
-  }
-
-  async getReserveApyHistorySamples(args: {
-    end: Date;
-    reserve: string;
-    sampleIntervalSeconds?: number;
-    start: Date;
-  }): Promise<TimescaleReserveApySample[]> {
-    const sampleIntervalSeconds = args.sampleIntervalSeconds ?? 24 * 60 * 60;
-    const endIso = args.end.toISOString();
-    const startIso = args.start.toISOString();
-    const rows = await this.sqlClient<
-      { observed_at: Date | string; supply_apy: number | string }[]
-    >`
-      WITH previous_sample AS (
-        SELECT observed_at, supply_apy
-        FROM kamino.reserve_updates
-        WHERE reserve = ${args.reserve}
-          AND reserve_last_update_stale = false
-          AND supply_apy >= 0
-          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-          AND observed_at < ${startIso}::timestamptz
-        ORDER BY observed_at DESC
-        LIMIT 1
-      ),
-      latest_sample AS (
-        SELECT observed_at, supply_apy
-        FROM kamino.reserve_updates
-        WHERE reserve = ${args.reserve}
-          AND reserve_last_update_stale = false
-          AND supply_apy >= 0
-          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-          AND observed_at <= ${endIso}::timestamptz
-        ORDER BY observed_at DESC
-        LIMIT 1
-      ),
-      range_candidates AS (
-        SELECT
-          date_bin(
-            make_interval(secs => ${sampleIntervalSeconds}),
-            observed_at,
-            ${startIso}::timestamptz
-          ) AS sample_bucket,
-          observed_at,
-          supply_apy
-        FROM kamino.reserve_updates
-        WHERE reserve = ${args.reserve}
-          AND reserve_last_update_stale = false
-          AND supply_apy >= 0
-          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-          AND observed_at >= ${startIso}::timestamptz
-          AND observed_at <= ${endIso}::timestamptz
-      ),
-      range_samples AS (
-        SELECT DISTINCT ON (sample_bucket)
-          observed_at,
-          supply_apy
-        FROM range_candidates
-        ORDER BY
-          sample_bucket,
-          observed_at DESC
-      )
-      SELECT observed_at, supply_apy
-      FROM (
-        SELECT observed_at, supply_apy FROM previous_sample
-        UNION
-        SELECT observed_at, supply_apy FROM range_samples
-        UNION
-        SELECT observed_at, supply_apy FROM latest_sample
-      ) samples
-      ORDER BY observed_at ASC
-    `;
-
-    return rows.map((row) => ({
-      observedAt:
-        row.observed_at instanceof Date
-          ? row.observed_at
-          : new Date(row.observed_at),
-      supplyApy: Number(row.supply_apy),
-    }));
   }
 
   async getReserveApyHistorySamplesForReserves(args: {
