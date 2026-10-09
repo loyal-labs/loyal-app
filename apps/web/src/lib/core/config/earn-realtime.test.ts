@@ -17,7 +17,7 @@ describe("Earn realtime events URL", () => {
           { VERCEL_ENV: vercelEnvironment },
           "local"
         )
-      ).toBe("https://loyal-yield-realtime.onrender.com/events");
+      ).toBe("https://realtime.askloyal.com/events");
     }
   );
 

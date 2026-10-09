@@ -5,8 +5,7 @@ import {
 } from "./shared";
 
 const REALTIME_EVENTS_URL_ENV_NAME = "REALTIME_EVENTS_URL";
-const DEFAULT_REALTIME_EVENTS_URL =
-  "https://loyal-yield-realtime.onrender.com/events";
+const DEFAULT_REALTIME_EVENTS_URL = "https://realtime.askloyal.com/events";
 const DEFAULT_LOCAL_REALTIME_EVENTS_URL = "http://127.0.0.1:10000/events";
 
 export function resolveEarnRealtimeEventsUrl(
