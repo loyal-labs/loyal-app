@@ -5,8 +5,6 @@ import { unstable_cache } from "next/cache";
 import { serverEnv } from "@/lib/core/config/server";
 import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 
-const DEFAULT_CLICKSTACK_API_URL =
-  "https://loyal-clickstack.onrender.com/api/api/v2";
 const DEFAULT_METRICS_SOURCE_ID = "6a58601284f8f1d4ff4d12ab";
 const RANGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const RESPONSE_SIZE_LIMIT = 5 * 1_024 * 1_024;
@@ -170,7 +168,10 @@ function normalizeRow(
 }
 
 function getSeriesUrl(): string {
-  const apiUrl = serverEnv.clickStackApiUrl ?? DEFAULT_CLICKSTACK_API_URL;
+  const apiUrl = serverEnv.clickStackApiUrl;
+  if (!apiUrl) {
+    throw new Error("ClickStack API URL is not configured");
+  }
   return `${apiUrl.replace(/\/$/, "")}/charts/series`;
 }
 
