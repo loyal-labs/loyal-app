@@ -24,7 +24,9 @@ function isTranslatedPath(path: string): boolean {
 /**
  * The supported locale the browser ranks highest in Accept-Language, or null
  * when it ranks none of them. "ru-RU,ru;q=0.9,en;q=0.8" → "ru";
- * "en-US,ru;q=0.5" → "en".
+ * "zh-CN,zh;q=0.9" → "zh"; "en-US,ru;q=0.5" → "en". Only the primary
+ * subtag counts, so zh-TW and zh-HK readers are offered the Simplified
+ * Chinese pages too; they can switch back to English in the footer.
  */
 function preferredLocale(acceptLanguage: string | null): Locale | null {
   if (!acceptLanguage) {
@@ -55,9 +57,10 @@ function preferredLocale(acceptLanguage: string | null): Locale | null {
  *
  * 1. `?lang=<locale>` (added by the language switch) stores the choice in a
  *    cookie and redirects to the same URL without the parameter.
- * 2. A visitor without a stored choice whose browser prefers Russian is sent
- *    from an English translated page to its /ru twin. Crawlers are left
- *    alone so they index both versions through hreflang.
+ * 2. A visitor without a stored choice whose browser prefers a translated
+ *    language (Russian, Chinese) is sent from an English translated page to
+ *    its localized twin. Crawlers are left alone so they index every version
+ *    through hreflang.
  *
  * Returns null when the request should continue unchanged.
  */
@@ -93,12 +96,13 @@ export function handleLocaleRedirect(
   if (BOT_USER_AGENT_RE.test(request.headers.get("user-agent") ?? "")) {
     return null;
   }
-  if (preferredLocale(request.headers.get("accept-language")) !== "ru") {
+  const preferred = preferredLocale(request.headers.get("accept-language"));
+  if (preferred === null || preferred === "en") {
     return null;
   }
 
   const target = url.clone();
-  target.pathname = localizedHref("ru", url.pathname);
+  target.pathname = localizedHref(preferred, url.pathname);
   const response = NextResponse.redirect(target, 307);
   response.headers.set("Cache-Control", "private, no-store");
   response.headers.set("Vary", "Accept-Language, Cookie");
