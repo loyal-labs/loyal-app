@@ -55,7 +55,7 @@ export const zhLanding: LandingDict = {
   },
   features: {
     automation: {
-      src: "/landing/figma/feature-automation-steps.png",
+      src: "/landing/figma/feature-automation-steps-zh.png",
       alt: "三个步骤：连接钱包、设置 Autodeposit、赚取最优 APY",
       text: "体验强大的链上自动化，同时资金所有权始终归你",
     },
@@ -64,7 +64,7 @@ export const zhLanding: LandingDict = {
       text: "借助 Loyal 的自动化程序，让闲置资金始终拿到 Solana 上最优的低风险 APY",
     },
     actions: {
-      src: "/landing/figma/feature-actions-pills.png",
+      src: "/landing/figma/feature-actions-pills-zh.png",
       alt: "发送、接收和 Earn 按钮，以及一个已开启的“私密”开关",
       text: "连接任意钱包，在一个顺手的界面里完成所有操作",
     },
