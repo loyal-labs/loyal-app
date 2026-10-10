@@ -5,13 +5,18 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import {
   LOCALE_PARAM,
+  LOCALE_TAGS,
   LOCALES,
   type Locale,
   localizedHref,
   type TranslatedPath,
 } from "@/features/marketing/i18n/locale";
 
-const LOCALE_NAMES: Record<Locale, string> = { en: "English", ru: "Русский" };
+const LOCALE_NAMES: Record<Locale, string> = {
+  en: "English",
+  ru: "Русский",
+  zh: "简体中文",
+};
 
 /**
  * Language dropdown. The button shows the current locale; the menu links to
@@ -93,7 +98,7 @@ export function LanguageSwitch({
           <circle cx="12" cy="12" r="9" />
           <path d="M3 12h18M12 3c2.5 2.5 3.8 5.5 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.5-3.8-9S9.5 5.5 12 3z" />
         </svg>
-        <span lang={locale}>{LOCALE_NAMES[locale]}</span>
+        <span lang={LOCALE_TAGS[locale]}>{LOCALE_NAMES[locale]}</span>
         <svg
           aria-hidden="true"
           className={`h-3 w-3 transition-transform duration-200 ease-out ${
@@ -128,8 +133,8 @@ export function LanguageSwitch({
                 // ?lang= makes the middleware remember the choice, so the
                 // browser-language redirect stops overriding it.
                 href={`${localizedHref(target, path)}?${LOCALE_PARAM}=${target}`}
-                hrefLang={target}
-                lang={target}
+                hrefLang={LOCALE_TAGS[target]}
+                lang={LOCALE_TAGS[target]}
                 onClick={() => setIsOpen(false)}
               >
                 {LOCALE_NAMES[target]}
