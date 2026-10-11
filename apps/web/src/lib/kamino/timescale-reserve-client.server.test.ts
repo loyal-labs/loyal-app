@@ -1,12 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
-import { getTableName } from "drizzle-orm";
 
 mock.module("server-only", () => ({}));
 
 const {
   selectCurrentBestApyReserveByStablecoin,
   selectCurrentEligibleSafeReserves,
-  timescaleLatestVerifiedReserveUpdates,
 } = await import("./timescale-reserve-client.server");
 
 function reserveRow(overrides: Record<string, unknown> = {}) {
@@ -32,13 +30,7 @@ function reserveRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("verified Earn reserve selection", () => {
-  test("uses the verified current-state relation", () => {
-    expect(getTableName(timescaleLatestVerifiedReserveUpdates)).toBe(
-      "latest_verified_reserve_updates"
-    );
-  });
-
+describe("confirmed Earn reserve selection", () => {
   test("does not treat the transaction-refresh stale bit as venue eligibility", () => {
     expect(selectCurrentEligibleSafeReserves([reserveRow()])).toHaveLength(1);
   });

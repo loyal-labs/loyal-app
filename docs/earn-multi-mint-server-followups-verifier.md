@@ -6,12 +6,21 @@ does not authorize changing flags, database state, or onchain policies.
 
 ## Required checks
 
-1. Reserve selection reads the verified current-state reserve relation directly,
-   rejects a future or more-than-240-second-old verification watermark (the
-   routing worker's hard-expiry contract), and does not exclude a reserve merely
-   because its latest Kamino `reserve_last_update_stale` bit is true.
-   Safe-market, supported-mint, liquidity, and APY bounds remain enforced. The
-   eligible-reserve and existing-position presence paths do not expand the
+1. Reserve selection joins `kamino.reserve_current_states` to its exact
+   `reserve_updates` row and an active catalog entry with the same reserve,
+   market and mint. Only confirmed `laserstream_grpc`, `http_snapshot` or
+   transitional `http_confirmed_refresh` observations qualify. The old
+   `latest_verified_reserve_updates` view is no longer read: routing PR #342
+   retired its verification writer, and #350 maintains current pointers from
+   the stream instead. Both new-deposit selection and existing-position
+   presence reject a future or more-than-240-second-old stream frontier (the
+   highest-slot qualifying current row). The frontier is computed before
+   narrowing to a requested reserve or mint, so a quiet venue can remain
+   current while other watched reserves change. Individual future-dated rows
+   are excluded. The transaction-refresh stale bit remains allowed, and the
+   SDK still validates the selected reserve's on-chain owner/mint/program
+   before building a deposit. Safe-market, supported-mint, liquidity and APY
+   filters remain enforced. Neither deposit path expands or sorts the
    unbounded `latest_reserve_updates` history view.
 2. Withdrawal confirmation treats `idle` and `reserve` as different source
    contracts. An idle withdrawal requires a null market and the exact vault ATA
@@ -35,14 +44,31 @@ does not authorize changing flags, database state, or onchain policies.
    migration, onchain policy update, database migration, autodeposit change, or
    stablecoin-visibility change. Incompatible legacy policy generations still
    produce the existing update-required path.
-6. The focused behavioral suite and type/build boundaries pass:
+6. The focused behavioral suite, SQL verifier and scoped type/lint checks pass:
 
    ```sh
    bun run --cwd apps/web verify:earn-multi-mint-server-followups
    bun test packages/smart-account-vaults/src/client.test.ts -t "multi-program Earn cleanup"
-   bun run build:packages
-   bun run --cwd apps/web build
    ```
+
+   For the reserve SQL contract, install PGlite outside the repository and run
+   the real queries against its disposable in-memory PostgreSQL database:
+
+   ```sh
+   reserve_verify_dir=$(mktemp -d)
+   bun add --cwd "$reserve_verify_dir" --exact @electric-sql/pglite@0.5.8
+   cd apps/web
+   bun --conditions=react-server scripts/verify-earn-reserve-selection.ts \
+     "$reserve_verify_dir/node_modules/@electric-sql/pglite/dist/index.js"
+   ```
+
+   This requires no database credentials and performs no RPC requests. It
+   covers the absent legacy view, first-deposit ranking, quiet-reserve top-ups,
+   identity/commitment/catalog exclusions, liquidity/APY/mint/market filters,
+   startup snapshots, stalled-stream rejection and recovery, future timestamps,
+   and JSON-safe API rows. Production query latency and actual transaction
+   simulation remain separate live checks. Frontend builds run on Vercel;
+   do not run a local frontend build for this verification.
 
 7. Simplicity audit: there is one reserve current-state query contract, one
    finalized-deposit accounting entrypoint, one source-discriminated withdrawal
