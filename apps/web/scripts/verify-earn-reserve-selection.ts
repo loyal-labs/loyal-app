@@ -30,13 +30,36 @@ const { PGlite } = (await import(
   process.argv[2] ?? "@electric-sql/pglite"
 )) as { PGlite: new () => LocalPostgres };
 const database = new PGlite();
+const blockTimes = new Map<number, number | null | Error>();
+const requestedSlots: number[] = [];
+let beforeBlockTime: (() => Promise<void>) | null = null;
 const client = new TimescaleReserveClient({
   databaseUrl: "postgres://unused:unused@127.0.0.1:1/unused",
+  getBlockTime: async (slot) => {
+    requestedSlots.push(slot);
+    if (beforeBlockTime) {
+      const action = beforeBlockTime;
+      beforeBlockTime = null;
+      await action();
+    }
+    const value = blockTimes.get(slot);
+    assert.notEqual(value, undefined, `unexpected frontier slot ${slot}`);
+    if (value instanceof Error) {
+      throw value;
+    }
+    return value ?? null;
+  },
 });
 // Only the transport is replaced. Query construction, predicates, decoding,
 // ranking and public return values all execute through the production methods.
+let beforeQuery: (() => Promise<void>) | null = null;
 Object.defineProperty(client, "db", {
   value: drizzle(async (sql, params) => {
+    if (beforeQuery) {
+      const action = beforeQuery;
+      beforeQuery = null;
+      await action();
+    }
     const result = await database.query(sql, params);
     return {
       rows: result.rows.map((row) =>
@@ -63,6 +86,7 @@ async function seed(
   reserve: string,
   overrides: Partial<{
     ageSeconds: number;
+    chainAgeSeconds: number;
     slot: number;
     source: string;
     commitment: string;
@@ -94,6 +118,11 @@ async function seed(
   const observedAt = new Date(
     now.getTime() - row.ageSeconds * 1000
   ).toISOString();
+  blockTimes.set(
+    row.slot,
+    Math.floor(now.getTime() / 1000) -
+      (overrides.chainAgeSeconds ?? row.ageSeconds)
+  );
   const hash = sequence.toString(16).padStart(64, "0");
   await database.query(
     `INSERT INTO kamino.reserve_updates
@@ -177,6 +206,7 @@ try {
     async () => {
       assert.deepEqual(await eligible(), []);
       assert.deepEqual(await presence(["missing"]), []);
+      assert.equal(requestedSlots.length, 0);
     }
   );
 
@@ -224,10 +254,10 @@ try {
   await verify(
     "liquidity, APY, Safe-market and supported-mint filters remain enforced",
     async () => {
-      assert.deepEqual(
-        (await eligible()).map((row) => row.reserve).sort(),
-        ["fresh-usdt", "quiet-usdc"]
-      );
+      assert.deepEqual((await eligible()).map((row) => row.reserve).sort(), [
+        "fresh-usdt",
+        "quiet-usdc",
+      ]);
     }
   );
 
@@ -246,10 +276,10 @@ try {
   await verify(
     "unconfirmed, backfilled, inactive and identity-mismatched observations cannot become targets",
     async () => {
-      assert.deepEqual(
-        (await eligible()).map((row) => row.reserve).sort(),
-        ["fresh-usdt", "quiet-usdc"]
-      );
+      assert.deepEqual((await eligible()).map((row) => row.reserve).sort(), [
+        "fresh-usdt",
+        "quiet-usdc",
+      ]);
       assert.deepEqual(
         await presence([
           "processed",
@@ -313,13 +343,86 @@ try {
     }
   );
 
+  await seed("replayed-stream", {
+    mint: usdt,
+    slot: 2500,
+    ageSeconds: 0,
+    chainAgeSeconds: 3600,
+  });
+  await verify(
+    "a freshly received replay cannot restore hour-old reserve eligibility",
+    async () => {
+      assert.deepEqual(await eligible(), []);
+      assert.deepEqual(await presence(["quiet-usdc"]), []);
+      assert.equal(requestedSlots.at(-1), 2500);
+    }
+  );
+
   await seed("recovered-stream", { mint: usdt, slot: 3000 });
   await verify(
     "confirmed stream recovery restores quiet same-mint targets",
     async () => {
-      assert.ok(
-        (await eligible()).some((row) => row.reserve === "quiet-usdc")
-      );
+      assert.ok((await eligible()).some((row) => row.reserve === "quiet-usdc"));
+      assert.equal((await presence(["quiet-usdc"])).length, 1);
+    }
+  );
+
+  await verify(
+    "an update during query connection does not block another mint's deposits or top-ups",
+    async () => {
+      const updateWhileConnecting = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        const observedAt = new Date().toISOString();
+        await database.query(
+          "UPDATE kamino.reserve_updates SET observed_at=$1 WHERE reserve='recovered-stream'",
+          [observedAt]
+        );
+        await database.query(
+          "UPDATE kamino.reserve_current_states SET state_observed_at=$1 WHERE reserve='recovered-stream'",
+          [observedAt]
+        );
+      };
+      beforeQuery = updateWhileConnecting;
+      assert.ok((await eligible()).some((row) => row.reserve === "quiet-usdc"));
+      beforeQuery = updateWhileConnecting;
+      const rows = await presence(["quiet-usdc"]);
+      assert.equal(rows.length, 1);
+      assert.equal("frontierSlot" in rows[0], false);
+      assert.doesNotThrow(() => JSON.stringify(rows));
+    }
+  );
+
+  for (const [name, value] of [
+    ["unknown", null],
+    ["invalid", Number.NaN],
+    ["future", Math.floor(Date.now() / 1000) + 60],
+    ["unavailable", new Error("RPC unavailable")],
+  ] as const) {
+    blockTimes.set(3000, value);
+    await verify(
+      `${name} frontier chain time blocks deposits and top-ups`,
+      async () => {
+        assert.deepEqual(await eligible(), []);
+        assert.deepEqual(await presence(["quiet-usdc"]), []);
+        assert.equal(requestedSlots.at(-1), 3000);
+      }
+    );
+  }
+
+  blockTimes.set(3000, Math.floor(Date.now() / 1000) - 239);
+  beforeBlockTime = () => new Promise((resolve) => setTimeout(resolve, 2100));
+  await verify(
+    "chain evidence expiring during RPC remains expired",
+    async () => {
+      assert.deepEqual(await eligible(), []);
+      assert.deepEqual(await presence(["quiet-usdc"]), []);
+    }
+  );
+  blockTimes.set(3000, Math.floor(Date.now() / 1000) - 10);
+  await verify(
+    "RPC recovery restores eligibility without a cached rejection",
+    async () => {
+      assert.ok((await eligible()).some((row) => row.reserve === "quiet-usdc"));
       assert.equal((await presence(["quiet-usdc"])).length, 1);
     }
   );

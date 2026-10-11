@@ -14,7 +14,17 @@ does not authorize changing flags, database state, or onchain policies.
    retired its verification writer, and #350 maintains current pointers from
    the stream instead. Both new-deposit selection and existing-position
    presence reject a future or more-than-240-second-old stream frontier (the
-   highest-slot qualifying current row). The frontier is computed before
+   highest-slot qualifying current row). Receipt timestamps are compared to
+   PostgreSQL [`statement_timestamp()`](https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT), so updates arriving while a connection
+   opens are not incorrectly rejected as future data. Before returning rows,
+   both paths look up that exact frontier slot's mainnet RPC [`getBlockTime`](https://solana.com/docs/rpc/http/getblocktime)
+   and also require its chain age to be within 240 seconds at RPC completion.
+   This prevents recently received historical replays from renewing eligibility;
+   null, invalid, future, expired or unavailable block times fail closed without
+   falling back to an older frontier. No eligibility verdict is cached. The
+   block-time request uses the existing server mainnet RPC configuration and
+   rate limiter, with a five-second fetch timeout. This adds one read-only RPC
+   call when a selection query returns candidates. The frontier is computed before
    narrowing to a requested reserve or mint, so a quiet venue can remain
    current while other watched reserves change. Individual future-dated rows
    are excluded. The transaction-refresh stale bit remains allowed, and the
@@ -62,11 +72,14 @@ does not authorize changing flags, database state, or onchain policies.
      "$reserve_verify_dir/node_modules/@electric-sql/pglite/dist/index.js"
    ```
 
-   This requires no database credentials and performs no RPC requests. It
+   This requires no database credentials and uses injected RPC block-time
+   responses without contacting a network. It
    covers the absent legacy view, first-deposit ranking, quiet-reserve top-ups,
    identity/commitment/catalog exclusions, liquidity/APY/mint/market filters,
    startup snapshots, stalled-stream rejection and recovery, future timestamps,
-   and JSON-safe API rows. Production query latency and actual transaction
+   updates during query connection, backlogged replay, unavailable or invalid
+   RPC evidence, expiry during RPC, and JSON-safe API rows. Production query/RPC
+   latency and actual transaction
    simulation remain separate live checks. Frontend builds run on Vercel;
    do not run a local frontend build for this verification.
 
