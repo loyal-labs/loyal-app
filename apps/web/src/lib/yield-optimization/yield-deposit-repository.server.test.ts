@@ -728,14 +728,21 @@ describe("reconciled vault snapshot concurrency", () => {
   function createSnapshotWriterDependencies() {
     const dialect = new PgDialect();
     const executedSql: string[] = [];
+    const stagedValues: Record<string, unknown>[] = [];
     let batched: unknown[] = [];
 
     function chain(kind: string) {
       const node: Record<string, unknown> = { kind };
       node.onConflictDoUpdate = () => node;
       node.returning = async () => [{ id: BigInt(42) }];
-      node.set = () => node;
-      node.values = () => node;
+      node.set = (values: unknown) => {
+        node.values = values;
+        return node;
+      };
+      node.values = (values: Record<string, unknown>) => {
+        stagedValues.push(values);
+        return node;
+      };
       node.where = () => node;
       return node;
     }
@@ -762,6 +769,7 @@ describe("reconciled vault snapshot concurrency", () => {
         now: () => new Date("2026-07-27T23:35:26.000Z"),
       },
       executedSql,
+      stagedValues,
     };
   }
 
@@ -821,6 +829,39 @@ describe("reconciled vault snapshot concurrency", () => {
     );
     expect(secondKey).toContain(
       "loyal_yield.vault_position_snapshots.is_current:78"
+    );
+  });
+
+  test("publishes complete APY evidence only with the positions and exact idle total", async () => {
+    const { dependencies, stagedValues, batchedStatements } =
+      createSnapshotWriterDependencies();
+    const input = createSnapshotInput(BigInt(77));
+    await recordReconciledYieldVaultSnapshot(
+      {
+        ...input,
+        context: {
+          publication_scope: "complete_product_vault",
+          idle_vault_liquidity_amount_raw: "999",
+        },
+        idleTokenBalances: [
+          { ...input.idleTokenBalance, amountRaw: BigInt("9007199254740993") },
+          { ...input.idleTokenBalance, mint: "pyusd", amountRaw: BigInt(7) },
+        ],
+      },
+      dependencies as never
+    );
+
+    expect(stagedValues[0].context).not.toHaveProperty("publication_scope");
+    const published = batchedStatements().find(
+      (statement) =>
+        (statement as { values?: { isCurrent?: boolean } }).values
+          ?.isCurrent === true
+    ) as { values: { context: Record<string, unknown> } };
+    expect(published.values.context.publication_scope).toBe(
+      "complete_product_vault"
+    );
+    expect(published.values.context.idle_vault_liquidity_amount_raw).toBe(
+      "9007199254741000"
     );
   });
 });

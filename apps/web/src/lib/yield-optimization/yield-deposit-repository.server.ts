@@ -3653,12 +3653,22 @@ export async function recordReconciledYieldVaultSnapshot(
   if (idleTokenBalances.length === 0) {
     throw new Error("A complete Earn snapshot requires idle token balances.");
   }
+  // Keep the idle amount with its source snapshot: current balance rows can
+  // advance independently before the hourly APY recorder reads this history.
+  const snapshotContext: Record<string, unknown> = {
+    ...input.context,
+    idle_vault_liquidity_amount_raw: idleTokenBalances
+      .reduce((total, balance) => total + balance.amountRaw, BigInt(0))
+      .toString(),
+  };
+  const pendingContext = { ...snapshotContext };
+  delete pendingContext.publication_scope;
 
   const [snapshot] = await dependencies.client.db
     .insert(vaultPositionSnapshots)
     .values({
       chainSlot: input.chainSlot ?? null,
-      context: input.context,
+      context: pendingContext,
       isCurrent: false,
       observedAt,
       observedSlot: input.observedSlot,
@@ -3753,7 +3763,9 @@ export async function recordReconciledYieldVaultSnapshot(
   statements.push(
     dependencies.client.db
       .update(vaultPositionSnapshots)
-      .set({ isCurrent: true })
+      // Publish completeness only with the positions and idle balances in
+      // this batch; the recorder must never see the staged empty snapshot.
+      .set({ context: snapshotContext, isCurrent: true })
       .where(eq(vaultPositionSnapshots.id, snapshot.id)) as never
   );
   statements.push(

@@ -43,6 +43,11 @@ for the hours involved. A recent measurement may be displayed as stale for at
 most three hours after its source timestamp. After that, the UI shows an
 unavailable state rather than a simulated percentage.
 
+App RPC reconciliation also persists the total idle amount in the snapshot
+context, as an integer string. It publishes `complete_product_vault` only in
+the transaction that saves the reserve positions and idle balances, so the
+recorder cannot consume a staged snapshot or depend on mutable idle rows.
+
 Share prices come from two sources, and for one reserve and hour the row with
 the newer slot is kept. The on-chain probe reads each reserve account and
 skips one that was last refreshed more than three hours ago. The allocation
