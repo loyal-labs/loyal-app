@@ -10,7 +10,10 @@ import {
 } from "./locale";
 import type { BreadcrumbCopy, PageMeta } from "./types";
 
-const OG_LOCALE: Partial<Record<Locale, string>> = { ru: "ru_RU" };
+const OG_LOCALE: Partial<Record<Locale, string>> = {
+  ru: "ru_RU",
+  zh: "zh_CN",
+};
 
 type OgImage = { url: string; width: number; height: number };
 

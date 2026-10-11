@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { enCommon } from "@/features/marketing/i18n/en/common";
-import type { Locale } from "@/features/marketing/i18n/locale";
+import { LOCALE_TAGS, type Locale } from "@/features/marketing/i18n/locale";
 import type { FaqItem } from "@/features/marketing/i18n/types";
 
 export type { FaqItem } from "@/features/marketing/i18n/types";
@@ -44,7 +44,7 @@ export function LandingFaq({
     "@context": "https://schema.org",
     "@type": "FAQPage",
     // English output is unchanged: the key is only present for other locales.
-    ...(locale === "en" ? {} : { inLanguage: locale }),
+    ...(locale === "en" ? {} : { inLanguage: LOCALE_TAGS[locale] }),
     mainEntity: faqs.map((faq) => ({
       "@type": "Question",
       name: faq.question,

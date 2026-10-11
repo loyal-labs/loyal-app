@@ -1,4 +1,4 @@
-export const LOCALES = ["en", "ru"] as const;
+export const LOCALES = ["en", "ru", "zh"] as const;
 export type Locale = (typeof LOCALES)[number];
 
 /** Remembers a language the visitor picked explicitly in the switch. */
@@ -16,7 +16,18 @@ export const TRANSLATED_PATHS = [
 ] as const;
 export type TranslatedPath = (typeof TRANSLATED_PATHS)[number];
 
-const LOCALE_PREFIX: Record<Locale, string> = { en: "", ru: "/ru" };
+const LOCALE_PREFIX: Record<Locale, string> = { en: "", ru: "/ru", zh: "/zh" };
+
+/**
+ * BCP 47 tag for each locale, used in hreflang, `lang` attributes and
+ * schema.org `inLanguage`. Chinese is served in Simplified script only, so
+ * it's tagged zh-Hans rather than the bare "zh".
+ */
+export const LOCALE_TAGS: Record<Locale, string> = {
+  en: "en",
+  ru: "ru",
+  zh: "zh-Hans",
+};
 
 function isTranslatedPath(path: string): path is TranslatedPath {
   return (TRANSLATED_PATHS as readonly string[]).includes(path);
@@ -42,10 +53,14 @@ export function localizedHref(locale: Locale, href: string): string {
 }
 
 /** hreflang map for a translated path. English is the x-default. */
-export function alternateLanguages(path: TranslatedPath) {
-  return {
-    en: path,
-    ru: localizedHref("ru", path),
-    "x-default": path,
-  };
+export function alternateLanguages(
+  path: TranslatedPath,
+  toUrl: (href: string) => string = (href) => href
+): Record<string, string> {
+  const languages: Record<string, string> = {};
+  for (const locale of LOCALES) {
+    languages[LOCALE_TAGS[locale]] = toUrl(localizedHref(locale, path));
+  }
+  languages["x-default"] = toUrl(path);
+  return languages;
 }

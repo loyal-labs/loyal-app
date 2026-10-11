@@ -12,8 +12,9 @@
  * 2. Add copy under header.features in every i18n/<locale>/common.ts.
  * 3. Create src/app/<slug>/page.tsx.
  * 4. If it is translated: add the path to TRANSLATED_PATHS in i18n/locale.ts,
- *    create src/app/ru/<slug>/page.tsx, and add the route (with
- *    ruLastModified) to STATIC_ROUTES in src/app/sitemap.ts.
+ *    create src/app/<locale>/<slug>/page.tsx for every locale in LOCALES,
+ *    and add the route (with `translations` dates) to STATIC_ROUTES in
+ *    src/app/sitemap.ts.
  */
 export const MARKETING_PAGE_SLUGS = ["earn", "agents"] as const;
 export type MarketingPageSlug = (typeof MARKETING_PAGE_SLUGS)[number];
