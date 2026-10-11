@@ -174,8 +174,9 @@ function getMainnetReserveBlockTime(slot: number): Promise<number | null> {
     {
       commitment: "confirmed",
       disableRetryOnRateLimit: true,
-      fetch: (input, init) =>
-        getFrontendSolanaRpcFetch(globalThis.fetch)(input, {
+      fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+      fetchMiddleware: (input, init, next) =>
+        next(input, {
           ...init,
           signal: AbortSignal.timeout(5000),
         }),

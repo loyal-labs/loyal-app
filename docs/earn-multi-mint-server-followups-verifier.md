@@ -70,6 +70,7 @@ does not authorize changing flags, database state, or onchain policies.
    cd apps/web
    bun --conditions=react-server scripts/verify-earn-reserve-selection.ts \
      "$reserve_verify_dir/node_modules/@electric-sql/pglite/dist/index.js"
+   bun x --no-install tsc --project scripts/tsconfig.earn-reserve-selection.json --noEmit
    ```
 
    This requires no database credentials and uses injected RPC block-time
@@ -82,6 +83,9 @@ does not authorize changing flags, database state, or onchain policies.
    latency and actual transaction
    simulation remain separate live checks. Frontend builds run on Vercel;
    do not run a local frontend build for this verification.
+
+   The scoped TypeScript configuration inherits the app's ambient types,
+   including Bun's `fetch` extensions; do not narrow it to Node-only types.
 
 7. Simplicity audit: there is one reserve current-state query contract, one
    finalized-deposit accounting entrypoint, one source-discriminated withdrawal
