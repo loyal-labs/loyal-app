@@ -40,28 +40,8 @@ for (const testFile of requiredTests) {
   );
 }
 
-const reserveSource = source(
-  "apps/web/src/lib/kamino/timescale-reserve-client.server.ts"
-);
-const eligibleReserveMethod = reserveSource.slice(
-  reserveSource.lastIndexOf("async getCurrentEligibleSafeReserves")
-);
-check(
-  "reserve picker consumes verified current state",
-  reserveSource.includes("latestVerifiedReserveUpdates") &&
-    reserveSource.includes("verifiedAt")
-);
-check(
-  "reserve freshness matches the routing hard-expiry contract",
-  reserveSource.includes("VERIFIED_RESERVE_MAX_AGE_MS = 240 * 1000") &&
-    eligibleReserveMethod.includes(
-      "lte(latestVerifiedReserveUpdates.verifiedAt, now)"
-    )
-);
-check(
-  "reserve picker no longer gates on transient stale bit",
-  !eligibleReserveMethod.includes("reserveLastUpdateStale")
-);
+// Reserve SQL behavior is exercised against PostgreSQL by the standalone
+// verify-earn-reserve-selection.ts verifier, not inferred from source strings.
 
 const withdrawSource = source(
   "apps/web/src/lib/yield-optimization/earn-withdraw-confirm.server.ts"

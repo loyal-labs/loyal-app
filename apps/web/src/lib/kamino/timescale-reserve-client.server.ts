@@ -6,8 +6,21 @@ import {
   STABLECOINS,
 } from "@loyal-labs/actions/constants";
 import { RiskBasket, type Stablecoin } from "@loyal-labs/actions/types";
+import { Connection } from "@solana/web3.js";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { and, asc, desc, eq, gt, gte, inArray, lt, lte, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -18,6 +31,9 @@ import {
 } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
 
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+
 const DEFAULT_MAX_CONNECTIONS = 5;
 const DEFAULT_CONNECT_TIMEOUT_SECONDS = 5;
 
@@ -26,6 +42,9 @@ const kaminoTimescaleSchema = pgSchema("kamino");
 export const timescaleReserveUpdates = kaminoTimescaleSchema.table(
   "reserve_updates",
   {
+    eventId: bigint("event_id", { mode: "bigint" }).notNull(),
+    accountDataHash: text("account_data_hash").notNull(),
+    sourceCommitment: text("source_commitment").notNull(),
     observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
     slot: bigint("slot", { mode: "number" }).notNull(),
     source: text("source").notNull(),
@@ -59,31 +78,19 @@ export const timescaleLatestReserveUpdates = kaminoTimescaleSchema.table(
   }
 );
 
-export const timescaleLatestVerifiedReserveUpdates =
-  kaminoTimescaleSchema.table("latest_verified_reserve_updates", {
-    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
-    slot: bigint("slot", { mode: "number" }).notNull(),
-    source: text("source").notNull(),
+export const timescaleReserveCurrentStates = kaminoTimescaleSchema.table(
+  "reserve_current_states",
+  {
     reserve: text("reserve").notNull(),
-    market: text("market"),
-    marketName: text("market_name"),
-    symbol: text("symbol"),
-    liquidityMint: text("liquidity_mint").notNull(),
-    supplyApy: doublePrecision("supply_apy").notNull(),
-    borrowApy: doublePrecision("borrow_apy").notNull(),
-    utilization: doublePrecision("utilization").notNull(),
-    totalSupplyUsdEstimate: doublePrecision(
-      "total_supply_usd_estimate"
-    ).notNull(),
-    totalBorrowUsdEstimate: doublePrecision(
-      "total_borrow_usd_estimate"
-    ).notNull(),
-    reserveLastUpdateStale: boolean("reserve_last_update_stale").notNull(),
-    diffChanged: boolean("diff_changed").notNull(),
-    changedFields: text("changed_fields").array().notNull(),
-    diffSummary: text("diff_summary").notNull(),
-    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
-  });
+    stateEventId: bigint("state_event_id", { mode: "bigint" }).notNull(),
+    accountDataHash: text("account_data_hash").notNull(),
+    stateSlot: bigint("state_slot", { mode: "number" }).notNull(),
+    stateObservedAt: timestamp("state_observed_at", {
+      withTimezone: true,
+    }).notNull(),
+    stateSource: text("state_source").notNull(),
+  }
+);
 
 export const timescaleSupportedReserves = kaminoTimescaleSchema.table(
   "supported_reserves",
@@ -104,17 +111,41 @@ export type TimescaleReserveClientConfig = {
   databaseUrl: string;
   maxConnections?: number;
   connectTimeoutSeconds?: number;
+  getBlockTime?: (slot: number) => Promise<number | null>;
 };
 
 export type TimescaleReserveClientTables = {
   latestReserveUpdates: typeof timescaleLatestReserveUpdates;
-  latestVerifiedReserveUpdates: typeof timescaleLatestVerifiedReserveUpdates;
+  reserveCurrentStates: typeof timescaleReserveCurrentStates;
   reserveUpdates: typeof timescaleReserveUpdates;
   supportedReserves: typeof timescaleSupportedReserves;
 };
 
-export type TimescaleReserveUpdateRow =
-  typeof timescaleReserveUpdates.$inferSelect;
+// Keep the public row/JSON contract unchanged. Capture identities are only
+// needed to join the current pointer to its exact confirmed observation.
+const reserveUpdateColumns = {
+  observedAt: timescaleReserveUpdates.observedAt,
+  slot: timescaleReserveUpdates.slot,
+  source: timescaleReserveUpdates.source,
+  reserve: timescaleReserveUpdates.reserve,
+  market: timescaleReserveUpdates.market,
+  marketName: timescaleReserveUpdates.marketName,
+  symbol: timescaleReserveUpdates.symbol,
+  liquidityMint: timescaleReserveUpdates.liquidityMint,
+  supplyApy: timescaleReserveUpdates.supplyApy,
+  borrowApy: timescaleReserveUpdates.borrowApy,
+  utilization: timescaleReserveUpdates.utilization,
+  totalSupplyUsdEstimate: timescaleReserveUpdates.totalSupplyUsdEstimate,
+  totalBorrowUsdEstimate: timescaleReserveUpdates.totalBorrowUsdEstimate,
+  reserveLastUpdateStale: timescaleReserveUpdates.reserveLastUpdateStale,
+  diffChanged: timescaleReserveUpdates.diffChanged,
+  changedFields: timescaleReserveUpdates.changedFields,
+  diffSummary: timescaleReserveUpdates.diffSummary,
+};
+export type TimescaleReserveUpdateRow = Omit<
+  typeof timescaleReserveUpdates.$inferSelect,
+  "eventId" | "accountDataHash" | "sourceCommitment"
+>;
 export type TimescaleReservePresenceRow = Pick<
   TimescaleReserveUpdateRow,
   "observedAt" | "reserve" | "totalSupplyUsdEstimate"
@@ -131,10 +162,28 @@ export type CurrentEligibleSafeReserve = CurrentBestApyReserveByStablecoin;
 
 const DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE = 100_000;
 const DEFAULT_MAX_SUPPLY_APY = 0.5;
-// Keep this boundary aligned with the routing worker's confirmed-verification
-// hard expiry. A shorter app-only window would make otherwise routeable
-// reserves flap out of deposit eligibility.
-const VERIFIED_RESERVE_MAX_AGE_MS = 240 * 1000;
+// Bound both receipt age and the frontier's actual chain age. The observer
+// timestamps replays when received, so receipt alone cannot prove catch-up.
+const RESERVE_STREAM_MAX_AGE_MS = 240 * 1000;
+
+let reserveBlockTimeConnection: Connection | undefined;
+
+function getMainnetReserveBlockTime(slot: number): Promise<number | null> {
+  reserveBlockTimeConnection ??= new Connection(
+    getServerSolanaEndpoints("mainnet").rpcEndpoint,
+    {
+      commitment: "confirmed",
+      disableRetryOnRateLimit: true,
+      fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+      fetchMiddleware: (input, init, next) =>
+        next(input, {
+          ...init,
+          signal: AbortSignal.timeout(5000),
+        }),
+    }
+  );
+  return reserveBlockTimeConnection.getBlockTime(slot);
+}
 
 const stablecoinByLiquidityMint = new Map<string, Stablecoin>(
   STABLECOINS.map((stablecoin) => [
@@ -250,14 +299,16 @@ export class TimescaleReserveClient {
   readonly db: PostgresJsDatabase;
   readonly tables: TimescaleReserveClientTables = {
     latestReserveUpdates: timescaleLatestReserveUpdates,
-    latestVerifiedReserveUpdates: timescaleLatestVerifiedReserveUpdates,
+    reserveCurrentStates: timescaleReserveCurrentStates,
     reserveUpdates: timescaleReserveUpdates,
     supportedReserves: timescaleSupportedReserves,
   };
 
   private readonly sqlClient: Sql;
+  private readonly getBlockTime: (slot: number) => Promise<number | null>;
 
   constructor(config: TimescaleReserveClientConfig) {
+    this.getBlockTime = config.getBlockTime ?? getMainnetReserveBlockTime;
     this.sqlClient = postgres(config.databaseUrl, {
       connect_timeout:
         config.connectTimeoutSeconds ?? DEFAULT_CONNECT_TIMEOUT_SECONDS,
@@ -271,6 +322,102 @@ export class TimescaleReserveClient {
     await this.sqlClient.end();
   }
 
+  private async isRecentChainFrontier(
+    slot: number | undefined
+  ): Promise<boolean> {
+    if (slot === undefined || !Number.isSafeInteger(slot) || slot <= 0) {
+      return false;
+    }
+    try {
+      const blockTime = await this.getBlockTime(slot);
+      if (
+        blockTime === null ||
+        !Number.isSafeInteger(blockTime) ||
+        blockTime <= 0
+      ) {
+        return false;
+      }
+      // Evaluate after the RPC completes so a delayed response cannot renew
+      // evidence that expired in flight. No cached eligibility verdicts.
+      const ageMs = Date.now() - blockTime * 1000;
+      return ageMs >= 0 && ageMs <= RESERVE_STREAM_MAX_AGE_MS;
+    } catch {
+      console.error(
+        "[kamino-reserves] stream frontier block time unavailable",
+        { slot }
+      );
+      return false;
+    }
+  }
+
+  private currentConfirmedReserves() {
+    const { reserveUpdates, reserveCurrentStates, supportedReserves } =
+      this.tables;
+    // Join by the complete observation identity, including observed_at for
+    // Timescale chunk pruning, instead of expanding latest_reserve_updates.
+    const current = this.db.$with("confirmed_current_reserves").as(
+      this.db
+        .select(reserveUpdateColumns)
+        .from(reserveCurrentStates)
+        .innerJoin(
+          reserveUpdates,
+          and(
+            eq(reserveUpdates.reserve, reserveCurrentStates.reserve),
+            eq(reserveUpdates.observedAt, reserveCurrentStates.stateObservedAt),
+            eq(reserveUpdates.eventId, reserveCurrentStates.stateEventId),
+            eq(reserveUpdates.slot, reserveCurrentStates.stateSlot),
+            eq(
+              reserveUpdates.accountDataHash,
+              reserveCurrentStates.accountDataHash
+            ),
+            eq(reserveUpdates.source, reserveCurrentStates.stateSource)
+          )
+        )
+        .innerJoin(
+          supportedReserves,
+          and(
+            eq(supportedReserves.reserve, reserveUpdates.reserve),
+            eq(supportedReserves.market, reserveUpdates.market),
+            eq(supportedReserves.liquidityMint, reserveUpdates.liquidityMint),
+            eq(supportedReserves.active, true)
+          )
+        )
+        .where(
+          and(
+            eq(reserveUpdates.sourceCommitment, "confirmed"),
+            inArray(reserveUpdates.source, [
+              "laserstream_grpc",
+              "http_snapshot",
+              "http_confirmed_refresh",
+            ])
+          )
+        )
+    );
+    // Compute progress before narrowing to a requested mint/reserve: a quiet
+    // venue is still current while the observer receives other reserve updates.
+    const frontier = this.db
+      .$with("reserve_stream_frontier")
+      .as(
+        this.db
+          .select({ observedAt: current.observedAt, slot: current.slot })
+          .from(current)
+          .orderBy(desc(current.slot), desc(current.observedAt))
+          .limit(1)
+      );
+    // Use the database statement clock: rows committed while the connection
+    // opens are not future observations relative to this query's snapshot.
+    const now = sql`statement_timestamp()`;
+    const freshness = and(
+      gte(
+        frontier.observedAt,
+        sql`${now} - ${RESERVE_STREAM_MAX_AGE_MS} * interval '1 millisecond'`
+      ),
+      lte(frontier.observedAt, now),
+      lte(current.observedAt, now)
+    );
+    return { current, frontier, freshness };
+  }
+
   async getSafeNoFeeReserveUpdates(args: {
     marketNames: readonly string[];
     stableSymbols: readonly string[];
@@ -279,7 +426,7 @@ export class TimescaleReserveClient {
     const table = this.tables.reserveUpdates;
 
     return this.db
-      .select()
+      .select(reserveUpdateColumns)
       .from(table)
       .where(
         and(
@@ -311,13 +458,13 @@ export class TimescaleReserveClient {
       lt(table.supplyApy, DEFAULT_MAX_SUPPLY_APY)
     );
     const previousRows = await this.db
-      .select()
+      .select(reserveUpdateColumns)
       .from(table)
       .where(and(validReserveFilter, lt(table.observedAt, args.start)))
       .orderBy(desc(table.observedAt))
       .limit(1);
     const rangeRows = await this.db
-      .select()
+      .select(reserveUpdateColumns)
       .from(table)
       .where(
         and(
@@ -514,7 +661,7 @@ export class TimescaleReserveClient {
     const latestReserveUpdates = this.tables.latestReserveUpdates;
 
     const rows = await this.db
-      .select()
+      .select(reserveUpdateColumns)
       .from(reserveUpdates)
       .innerJoin(
         latestReserveUpdates,
@@ -534,7 +681,7 @@ export class TimescaleReserveClient {
       )
       .orderBy(asc(reserveUpdates.reserve));
 
-    return rows.map((row) => row.reserve_updates);
+    return rows;
   }
 
   async getLatestReserveObservationsByReserve(args: {
@@ -544,38 +691,32 @@ export class TimescaleReserveClient {
       return [];
     }
 
-    const latestVerifiedReserveUpdates =
-      this.tables.latestVerifiedReserveUpdates;
-    const now = new Date();
+    const { current, frontier, freshness } = this.currentConfirmedReserves();
 
     // Deliberately no stale-flag or APY-bounds filters: presence in the
-    // indexer's latest view is the eligibility signal (a hidden reserve is
-    // never sampled at all), and a transiently stale row must not fail
+    // observer's active current state is the eligibility signal (a hidden
+    // reserve is never sampled at all), and a transiently stale row must not fail
     // deposits — that flakiness is why #381 removed the old APY-ranked
     // picker.
     const rows = await this.db
+      .with(current, frontier)
       .select({
-        observedAt: latestVerifiedReserveUpdates.observedAt,
-        reserve: latestVerifiedReserveUpdates.reserve,
-        totalSupplyUsdEstimate:
-          latestVerifiedReserveUpdates.totalSupplyUsdEstimate,
+        observation: {
+          observedAt: current.observedAt,
+          reserve: current.reserve,
+          totalSupplyUsdEstimate: current.totalSupplyUsdEstimate,
+        },
+        frontierSlot: frontier.slot,
       })
-      .from(latestVerifiedReserveUpdates)
-      .where(
-        and(
-          inArray(latestVerifiedReserveUpdates.reserve, [
-            ...new Set(args.reserves),
-          ]),
-          gte(
-            latestVerifiedReserveUpdates.verifiedAt,
-            new Date(now.getTime() - VERIFIED_RESERVE_MAX_AGE_MS)
-          ),
-          lte(latestVerifiedReserveUpdates.verifiedAt, now)
-        )
-      )
-      .orderBy(asc(latestVerifiedReserveUpdates.reserve));
+      .from(current)
+      .innerJoin(frontier, freshness)
+      .where(inArray(current.reserve, [...new Set(args.reserves)]))
+      .orderBy(asc(current.reserve));
 
-    return rows;
+    if (!(await this.isRecentChainFrontier(rows[0]?.frontierSlot))) {
+      return [];
+    }
+    return rows.map((row) => row.observation);
   }
 
   async getCurrentBestApyReserveByStablecoin(args: {
@@ -601,9 +742,7 @@ export class TimescaleReserveClient {
       throw new Error(`unsupported risk profile: ${String(args.riskProfile)}`);
     }
 
-    const latestVerifiedReserveUpdates =
-      this.tables.latestVerifiedReserveUpdates;
-    const now = new Date();
+    const { current, frontier, freshness } = this.currentConfirmedReserves();
     const marketAddresses = RISK_BASKET_MARKETS[args.riskProfile].map(
       (market) => market.toBase58()
     );
@@ -612,34 +751,32 @@ export class TimescaleReserveClient {
     );
 
     const rows = await this.db
+      .with(current, frontier)
       .select()
-      .from(latestVerifiedReserveUpdates)
+      .from(current)
+      .innerJoin(frontier, freshness)
       .where(
         and(
           gt(
-            latestVerifiedReserveUpdates.totalSupplyUsdEstimate,
+            current.totalSupplyUsdEstimate,
             args.minTotalSupplyUsdEstimate ??
               DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE
           ),
-          gte(latestVerifiedReserveUpdates.supplyApy, 0),
-          lt(
-            latestVerifiedReserveUpdates.supplyApy,
-            args.maxSupplyApy ?? DEFAULT_MAX_SUPPLY_APY
-          ),
-          gte(
-            latestVerifiedReserveUpdates.verifiedAt,
-            new Date(now.getTime() - VERIFIED_RESERVE_MAX_AGE_MS)
-          ),
-          lte(latestVerifiedReserveUpdates.verifiedAt, now),
-          inArray(latestVerifiedReserveUpdates.market, marketAddresses),
-          inArray(
-            latestVerifiedReserveUpdates.liquidityMint,
-            stablecoinLiquidityMints
-          )
+          gte(current.supplyApy, 0),
+          lt(current.supplyApy, args.maxSupplyApy ?? DEFAULT_MAX_SUPPLY_APY),
+          inArray(current.market, marketAddresses),
+          inArray(current.liquidityMint, stablecoinLiquidityMints)
         )
       )
-      .orderBy(desc(latestVerifiedReserveUpdates.supplyApy));
+      .orderBy(desc(current.supplyApy));
 
-    return selectCurrentEligibleSafeReserves(rows);
+    if (
+      !(await this.isRecentChainFrontier(rows[0]?.reserve_stream_frontier.slot))
+    ) {
+      return [];
+    }
+    return selectCurrentEligibleSafeReserves(
+      rows.map((row) => row.confirmed_current_reserves)
+    );
   }
 }
