@@ -45,6 +45,12 @@ import {
 } from "@/lib/wallet/stablecoin-classification";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
+const WALLET_ICONS: Readonly<Record<string, string>> = {
+  phantom: "wallet-phantom.svg",
+  solflare: "wallet-solflare.svg",
+  jupiter: "wallet-jupiter.png",
+  zerion: "wallet-zerion.svg",
+};
 
 // Same destinations the old workspace's bottom rail linked to. The mobile
 // settings sheet reuses these entries with its own labels.
@@ -166,7 +172,11 @@ export function FaceliftSidebar({
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { isAuthenticated, logout } = useAuthSession();
   const cherryRuntime = useCherryRuntime();
-  const { connected: isWalletConnected, disconnect } = useWallet();
+  const { connected: isWalletConnected, disconnect, publicKey, wallet } = useWallet();
+  const walletIcon =
+    publicKey?.toBase58() === data.walletAddress
+      ? WALLET_ICONS[wallet?.adapter.name.toLowerCase() ?? ""]
+      : undefined;
   // The adapter can auto-reconnect without an auth session (stale dev state);
   // disconnect must stay clickable in that half-connected limbo to clear it.
   const canDisconnect = isAuthenticated || isWalletConnected;
@@ -775,7 +785,7 @@ export function FaceliftSidebar({
               alt=""
               aria-hidden="true"
               className="mr-3 size-11 shrink-0 rounded-[11px]"
-              src="/agents/Agent-01.svg"
+              src={`${ASSET_BASE}/${walletIcon ?? "wallet-dog.svg"}`}
             />
             <span className="flex min-w-0 items-center gap-1">
               <span className="whitespace-nowrap text-[16px] text-foreground leading-5">

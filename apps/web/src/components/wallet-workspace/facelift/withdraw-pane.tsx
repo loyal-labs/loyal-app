@@ -28,7 +28,6 @@ import {
 } from "@/components/wallet-workspace/facelift/earn-activity-card";
 import {
   FlowDiagram,
-  FlowExplainerAside,
   FlowExplainerOverlay,
   type FlowStep,
 } from "@/components/wallet-workspace/facelift/flow-explainer";
@@ -348,7 +347,7 @@ export function WithdrawPane({
             </h1>
             <button
               aria-label="How Withdraw works"
-              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={() => setIsInfoOpen(true)}
               type="button"
             >
@@ -626,13 +625,6 @@ export function WithdrawPane({
         renders no chart pane here), so the middle pane keeps its usual
         width; overlay via the header ? below 1204px — same split Deposit
         and Autodeposit use. */}
-      <FlowExplainerAside title="How Withdraw works">
-        <FlowDiagram
-          docsHref={WITHDRAW_DOCS_URL}
-          footnote={WITHDRAW_FOOTNOTE}
-          steps={withdrawSteps}
-        />
-      </FlowExplainerAside>
 
       <FlowExplainerOverlay
         isOpen={isInfoOpen}

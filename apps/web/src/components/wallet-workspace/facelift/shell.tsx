@@ -19,6 +19,7 @@ import {
   type ChartTab,
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
+import { EarnExplainerCard } from "@/components/wallet-workspace/facelift/earn-explainer";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
 import {
   buildEarnMaxEarnedBars,
@@ -591,44 +592,31 @@ export function WorkspaceFaceliftShell() {
                     </PaneReveal>
                   )}
                 </MiddlePaneSlide>
-                {activeMiddleView === "withdraw" ||
-                activeMiddleView === "autodeposit" ||
-                activeMiddleView ===
-                  "autoswap" ? null : selectedEarnTransaction &&
-                  earnTransactionDetail &&
-                  activeMiddleView === "earn" ? (
-                  <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">
-                    <PaneReveal key={earnTransactionDetail.id}>
-                      <EarnTransactionDetailPane
-                        item={earnTransactionDetail}
-                        onClose={() => setSelectedEarnTransaction(null)}
-                        walletAddress={earnData.walletAddress}
-                      />
-                    </PaneReveal>
-                  </aside>
-                ) : (
-                  <EarnChartPane
-                    banner={
-                      <EarnBanners
-                        onSetUpAutodeposit={() => setMiddleView("autodeposit")}
-                      />
-                    }
-                    earnData={earnData}
-                    hideAside={activeMiddleView === "deposit"}
-                    isExpanded={isChartExpanded}
-                    isLoggedOut={isHydrated && !isSignedIn}
-                    onExpandedChange={setIsChartExpanded}
-                    onSelectTab={setChartTab}
-                    selectedTab={chartTab}
-                    statsPanel={<EarnStatsPanel />}
-                  />
-                )}
+                <EarnChartPane
+                  banner={
+                    <EarnBanners
+                      onSetUpAutodeposit={() => setMiddleView("autodeposit")}
+                    />
+                  }
+                  earnData={earnData}
+                  isExpanded={isChartExpanded}
+                  isLoggedOut={isHydrated && !isSignedIn}
+                  onExpandedChange={setIsChartExpanded}
+                  onSelectTab={setChartTab}
+                  selectedTab={chartTab}
+                  statsPanel={
+                    <>
+                      <EarnExplainerCard />
+                      <EarnStatsPanel />
+                    </>
+                  }
+                />
               </div>
               {earnData.hasPosition ? (
                 <SheetReveal
                   isOpen={selectedEarnTransaction !== null && isEarnRootView}
                   onClose={() => setSelectedEarnTransaction(null)}
-                  scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+                  scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
                   sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
                 >
                   {earnTransactionDetail ? (

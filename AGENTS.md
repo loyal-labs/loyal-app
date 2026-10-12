@@ -342,6 +342,11 @@ The Loyal web Earn UI lives under
 `/apps/web/src/components/wallet-workspace/facelift/` (mounted via
 `/apps/web/src/app/app/app-workspace-shell.tsx`) and
 `/apps/web/src/components/wallet-sidebar/earn-detail-view.tsx`.
+The desktop Earn rail stays mounted across auth states and Earn action screens,
+with the chart, How Earn works, and Loyal Stats in that order. Action-specific
+help and transaction details open as overlays. Earn and invited Earn MAX users
+without deposits share the coin-icon first-deposit screen and compact animated
+Deposit button; logged-out screens retain their marketing illustration.
 User-initiated Earn uses smart-account vault `accountIndex = 1` and the
 canonical Kamino USDC reserve. Older auto-yield planning docs may discuss
 agent-managed vault `0`; that is a separate flow.

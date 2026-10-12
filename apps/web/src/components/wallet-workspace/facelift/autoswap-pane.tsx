@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 
 import {
   FlowDiagram,
-  FlowExplainerAside,
   FlowExplainerOverlay,
   type FlowStep,
 } from "@/components/wallet-workspace/facelift/flow-explainer";
@@ -157,7 +156,7 @@ export function AutoswapPane({
           </div>
           <button
             aria-label="How Autoswap works"
-            className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
+            className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={() => setIsInfoOpen(true)}
             type="button"
           >
@@ -275,12 +274,6 @@ export function AutoswapPane({
           )}
         </div>
       </section>
-
-      {/* Info panel: fixed right pane on wide viewports, overlay via the
-          header ? below 1204px — same composition as Autodeposit. */}
-      <FlowExplainerAside title="How Autoswap works">
-        <FlowDiagram steps={AUTOSWAP_STEPS} />
-      </FlowExplainerAside>
 
       <FlowExplainerOverlay
         isOpen={isInfoOpen}
