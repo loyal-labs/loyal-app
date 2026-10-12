@@ -9,6 +9,8 @@ import { getDatabase } from "@/lib/core/database";
 
 import type { LoyalStats } from "./stats-command";
 
+const EARN_MAX_VAULT = "HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA";
+const EARN_MAX_REQUEST_TIMEOUT_MS = 3_000;
 const EARN_AUM_START_DATE = "2026-06-15";
 const FIXED_KAMINO_MAIN_ROUTE_MODE = "fixed_kamino_main";
 const NATIVE_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -223,23 +225,51 @@ function preserveCompletedAumWeeks(
   );
 }
 
+async function loadEarnMaxAumRaw(): Promise<bigint> {
+  const response = await fetch(
+    `https://api.voltr.xyz/vault/${EARN_MAX_VAULT}/share-price`,
+    {
+      cache: "no-store",
+      signal: AbortSignal.timeout(EARN_MAX_REQUEST_TIMEOUT_MS),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Earn MAX valuation failed: HTTP ${response.status}`);
+  }
+  const body: { success?: unknown; data?: { totalValue?: unknown } } | null =
+    await response.json();
+  const value = body?.data?.totalValue;
+  if (
+    body?.success !== true ||
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0
+  ) {
+    throw new Error("Invalid Earn MAX valuation returned by Voltr");
+  }
+  // Pool NAV is raw USDC, including pending claims until they leave the vault.
+  return BigInt(value);
+}
+
 export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
   const database = getDatabase();
   const sql = getYieldNeonSql();
 
-  const [userCountRows, existingSnapshotRows, transactionResults] =
-    await Promise.all([
-      database.select({ value: count() }).from(appUsers),
-      database
-        .select({ earnAumSeries: loyalStatsSnapshots.earnAumSeries })
-        .from(loyalStatsSnapshots)
-        .where(eq(loyalStatsSnapshots.snapshotKey, "current"))
-        .limit(1),
-      sql.transaction((txn) => [
-        txn.query(
-          `SET LOCAL statement_timeout = '${STATS_QUERY_TIMEOUT_MS}ms'`
-        ),
-        txn.query(`
+  const [
+    userCountRows,
+    existingSnapshotRows,
+    transactionResults,
+    earnMaxAumRaw,
+  ] = await Promise.all([
+    database.select({ value: count() }).from(appUsers),
+    database
+      .select({ earnAumSeries: loyalStatsSnapshots.earnAumSeries })
+      .from(loyalStatsSnapshots)
+      .where(eq(loyalStatsSnapshots.snapshotKey, "current"))
+      .limit(1),
+    sql.transaction((txn) => [
+      txn.query(`SET LOCAL statement_timeout = '${STATS_QUERY_TIMEOUT_MS}ms'`),
+      txn.query(`
         WITH
         ${ACTIVE_EARN_HOLDINGS_CTE},
         current_bounds AS (
@@ -354,8 +384,9 @@ export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
         FROM refresh_lock
         WHERE acquired
         `),
-      ]),
-    ]);
+    ]),
+    loadEarnMaxAumRaw(),
+  ]);
 
   const totalUsers = userCountRows[0]?.value;
   const yieldRows = transactionResults[1] as unknown as YieldStatsRow[];
@@ -367,7 +398,13 @@ export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
     throw new Error("Invalid Loyal stats query result");
   }
 
+  const totalAumRaw =
+    parseRawMetric(yieldStats.total_aum_raw, "total AUM") + earnMaxAumRaw;
   const currentAumSeries = parseAumSeries(yieldStats.earn_aum_series);
+  const currentWeek = currentAumSeries.at(-1);
+  if (currentWeek) {
+    currentWeek.aumRaw = totalAumRaw.toString();
+  }
   const previousAumSeries = existingSnapshotRows[0]
     ? parseAumSeries(existingSnapshotRows[0].earnAumSeries)
     : [];
@@ -385,7 +422,7 @@ export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
       currentAumSeries,
       previousAumSeries
     ),
-    totalAumRaw: parseRawMetric(yieldStats.total_aum_raw, "total AUM"),
+    totalAumRaw,
     totalOptimizedVolumeRaw: parseRawMetric(
       yieldStats.total_optimized_volume_raw,
       "total optimized volume"

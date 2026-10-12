@@ -15,6 +15,20 @@ required conditions pass.
    - The snapshot includes headline AUM, optimized volume, total users, weekly
      AUM series, and `refreshedAt`.
 
+   - Headline AUM and the current UTC chart week include the pooled Earn MAX
+     vault's net asset value (`totalValue` in raw USDC from Voltr's public
+     `/vault/HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA/share-price`).
+     Count the pool once, including pending withdrawals until claimed; do not
+     add its underlying leveraged collateral or individual LP balances again.
+   - Completed chart weeks remain unchanged; there is no historical backfill.
+     Total users still counts app accounts and optimization volume still counts
+     confirmed rebalances. Principal and policy/user counts remain Earn routing
+     metrics, not pooled Earn MAX metrics.
+   - Voltr reads have a three-second timeout and reject failed or invalid
+     valuations. They run only during refresh; a failed read leaves the last
+     good snapshot intact. The initial inclusion can trigger the existing AUM
+     increase alert and is reflected in the change versus the prior week.
+
 2. The snapshot is refreshed safely every minute.
 
    - One authenticated cron owns refresh work; no second cron or cache service is
@@ -52,3 +66,15 @@ required conditions pass.
 Production worker restart, database extension installation/repack, migration,
 or deployment require an explicit live-operations approval after the exact
 targets and commands are presented.
+
+## Earn MAX aggregation verifier
+
+From `apps/telegram`, run:
+
+```sh
+bun run scripts/telegram/verify-stats-earn-max.ts
+```
+
+This offline verifier runs the real stats loader and cron with mocked source
+transports. It checks combined AUM, unchanged history, repeat refreshes, zero
+NAV, and rejection before persistence for unavailable or malformed NAV.
