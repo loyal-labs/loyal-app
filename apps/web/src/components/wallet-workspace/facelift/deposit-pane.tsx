@@ -16,7 +16,6 @@ import {
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import {
   FlowDiagram,
-  FlowExplainerAside,
   FlowExplainerOverlay,
   type FlowStep,
 } from "@/components/wallet-workspace/facelift/flow-explainer";
@@ -301,7 +300,7 @@ export function DepositPane({
             </h1>
             <button
               aria-label="How Deposit works"
-              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={() => setIsInfoOpen(true)}
               type="button"
             >
@@ -605,17 +604,6 @@ export function DepositPane({
           </button>
         </div>
       </section>
-
-      {/* Explainer: fixed right pane on wide viewports (the slot the chart
-        column vacates for this screen), overlay via the header ? below
-        1204px — same split the Autodeposit screen uses. */}
-      <FlowExplainerAside title="How Deposit works">
-        <FlowDiagram
-          docsHref={DEPOSIT_DOCS_URL}
-          footnote={DEPOSIT_FOOTNOTE}
-          steps={depositSteps}
-        />
-      </FlowExplainerAside>
 
       <FlowExplainerOverlay
         isOpen={isInfoOpen}

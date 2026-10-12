@@ -22,7 +22,6 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import {
   FlowDiagram,
-  FlowExplainerAside,
   FlowExplainerOverlay,
   type FlowStep,
 } from "@/components/wallet-workspace/facelift/flow-explainer";
@@ -205,7 +204,7 @@ export function AutodepositPane({
             </h1>
             <button
               aria-label="How Autodeposit works"
-              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={() => setIsInfoOpen(true)}
               type="button"
             >
@@ -383,15 +382,6 @@ export function AutodepositPane({
           </button>
         </div>
       </section>
-
-      {/* Info panel: fixed right pane on wide viewports (Figma 4693:69387),
-          overlay via the header ? below 1204px (Figma 4693:69792). */}
-      <FlowExplainerAside title="How Autodeposit works">
-        <FlowDiagram
-          docsHref={AUTODEPOSIT_DOCS_URL}
-          steps={AUTODEPOSIT_STEPS}
-        />
-      </FlowExplainerAside>
 
       <AutodepositInfoOverlay
         isOpen={isInfoOpen}

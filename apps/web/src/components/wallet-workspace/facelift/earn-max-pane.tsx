@@ -1255,7 +1255,6 @@ export function EarnMaxWorkspace({
               apyBadgeLabel={formatEarnMaxApyLabel(view.forecastApyBps)}
               onBack={onBack}
               onDeposit={() => setScreen("deposit")}
-              staticHeadline
               title="Earn MAX"
               tooltipText={EARN_MAX_TOOLTIP_TEXT}
             />

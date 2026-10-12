@@ -3,7 +3,6 @@
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import {
   StaggerLine,
@@ -127,9 +126,7 @@ export function FlowDiagram({
       })}
       {footnote ? (
         <StaggerLine index={steps.length}>
-          <p className="pt-5 text-[13px] leading-4 text-tertiary">
-            {footnote}
-          </p>
+          <p className="pt-5 text-[13px] leading-4 text-tertiary">{footnote}</p>
         </StaggerLine>
       ) : null}
       {docsHref ? (
@@ -148,35 +145,7 @@ export function FlowDiagram({
   );
 }
 
-// Fixed right pane on wide viewports — the same scrollable 400px column the
-// root chart pane uses, holding the explainer card with the protocol stats
-// card below it (ASK-2047), so the action screens read as part of the
-// workspace.
-export function FlowExplainerAside({
-  children,
-  title,
-}: {
-  children: ReactNode;
-  title: string;
-}) {
-  return (
-    <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-      <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card">
-        <header className="flex w-full items-center p-2">
-          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
-            {title}
-          </h2>
-        </header>
-        {children}
-      </section>
-      <EarnStatsPanel />
-    </aside>
-  );
-}
-
-// Below 1204px the explainer opens from the header "?" as an overlay: card
-// next to the sidebar on desktop widths, bottom sheet on mobile — rising on
-// the panel-reveal clock like a native sheet.
+// Action-specific help opens beside the sidebar, or as a bottom sheet on mobile.
 export function FlowExplainerOverlay({
   children,
   isOpen,
@@ -206,7 +175,7 @@ export function FlowExplainerOverlay({
     <SheetReveal
       isOpen={isOpen}
       onClose={onClose}
-      scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] min-[1204px]:hidden max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
+      scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
       sheetClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
     >
       <header className="flex w-full items-center p-2">
