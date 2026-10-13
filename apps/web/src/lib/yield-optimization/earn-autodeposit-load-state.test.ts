@@ -296,9 +296,13 @@ function createBootstrapClient({
   return {
     client: {
       db: {
+        batch(results: unknown[]) {
+          return results;
+        },
         execute(query: SQL) {
           executeSql.push(dialect.sqlToQuery(query).sql);
-          if (executeSql.length === 1) {
+          // The slot batch: target lock, drained-slot cancel, slot upsert.
+          if (executeSql.length <= 3) {
             return { rows: [{ id: slotId }] };
           }
           return { rows: scheduledSweep ? [scheduledSweep] : [] };

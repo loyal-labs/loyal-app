@@ -482,25 +482,33 @@ async function ensureScheduledAutodepositSlot(
   dependencies: Pick<EarnAutodepositRepositoryDependencies, "client" | "now">
 ): Promise<bigint> {
   const now = dependencies.now();
-  const queryResult = await dependencies.client.db.execute(sql`
-    WITH existing_slot AS (
-      SELECT slot.id
-      FROM ${balanceSweepScheduledSlots} AS slot
-      WHERE slot.target_id = ${input.targetId}
-        AND slot.token_mint = ${input.mint}
-        AND slot.status = 'scheduled'
-      ORDER BY slot.eligible_after ASC, slot.id ASC
-      LIMIT 1
-    ),
-    updated_slot AS (
+  const { db } = dependencies.client;
+  // A target has at most one scheduled slot (unique index). Same steps as the
+  // Go worker's openSlotFor: take the target's turn, cancel a slot whose lots
+  // drained (a drained slot is never reused), then upsert. Each statement of
+  // the batch transaction reads after the target lock is held.
+  const [, , queryResult] = await db.batch([
+    db.execute(sql`
+      SELECT 1 FROM ${balanceSweepTargets}
+      WHERE ${balanceSweepTargets.id} = ${input.targetId}
+      FOR UPDATE
+    `),
+    db.execute(sql`
       UPDATE ${balanceSweepScheduledSlots} AS slot
-      SET eligible_after = GREATEST(slot.eligible_after, ${input.eligibleAfter}),
+      SET status = 'canceled',
+          last_error = 'its lots drained before new lots arrived',
           updated_at = ${now}
-      WHERE slot.id IN (SELECT id FROM existing_slot)
-      RETURNING slot.id
-    ),
-    inserted_slot AS (
-      INSERT INTO ${balanceSweepScheduledSlots} (
+      WHERE slot.target_id = ${input.targetId}
+        AND slot.status = 'scheduled'
+        AND NOT EXISTS (
+          SELECT 1 FROM ${balanceSweepSurplusLots} AS lot
+          WHERE lot.scheduled_slot_id = slot.id
+            AND lot.status = 'open'
+            AND lot.remaining_amount_raw > 0
+        )
+    `),
+    db.execute(sql`
+      INSERT INTO ${balanceSweepScheduledSlots} AS slot (
         target_id,
         token_mint,
         eligible_after,
@@ -508,21 +516,20 @@ async function ensureScheduledAutodepositSlot(
         created_at,
         updated_at
       )
-      SELECT
+      VALUES (
         ${input.targetId},
         ${input.mint},
         ${input.eligibleAfter},
         'scheduled',
         ${now},
         ${now}
-      WHERE NOT EXISTS (SELECT 1 FROM updated_slot)
-      RETURNING id
-    )
-    SELECT id FROM updated_slot
-    UNION ALL
-    SELECT id FROM inserted_slot
-    LIMIT 1
-  `);
+      )
+      ON CONFLICT (target_id) WHERE status = 'scheduled' DO UPDATE
+      SET eligible_after = GREATEST(slot.eligible_after, EXCLUDED.eligible_after),
+          updated_at = EXCLUDED.updated_at
+      RETURNING slot.id
+    `),
+  ]);
   const [row] = getExecuteRows(queryResult);
 
   if (!row) {
@@ -2331,29 +2338,11 @@ export async function updateAutodepositWalletBalanceFloor(
       WHERE projection.amount_raw > ${input.walletBalanceFloorRaw}
       RETURNING event_id
     ),
-    candidate_slot AS (
-      SELECT slot.id
-      FROM ${balanceSweepScheduledSlots} AS slot
-      INNER JOIN projection
-        ON projection.target_id = slot.target_id
-      CROSS JOIN inserted_event
-      WHERE slot.token_mint = projection.mint
-        AND slot.status = 'scheduled'
-      ORDER BY slot.eligible_after ASC, slot.id ASC
-      LIMIT 1
-    ),
-    updated_slot AS (
-      UPDATE ${balanceSweepScheduledSlots} AS slot
-      SET eligible_after = GREATEST(slot.eligible_after, ${rebaselineEligibleAfter}),
-          updated_at = ${now}
-      WHERE slot.id IN (SELECT id FROM candidate_slot)
-      RETURNING
-        slot.id,
-        slot.eligible_after,
-        slot.status::text AS status
-    ),
-    inserted_slot AS (
-      INSERT INTO ${balanceSweepScheduledSlots} (
+    scheduled_slot AS (
+      -- A target has at most one scheduled slot (unique index). Every open
+      -- lot of the target was suppressed above, so the slot's idle clock and
+      -- error belonged to lots that no longer count.
+      INSERT INTO ${balanceSweepScheduledSlots} AS slot (
         target_id,
         token_mint,
         eligible_after,
@@ -2370,17 +2359,16 @@ export async function updateAutodepositWalletBalanceFloor(
         ${now}
       FROM projection
       CROSS JOIN inserted_event
-      WHERE NOT EXISTS (SELECT 1 FROM updated_slot)
+      WHERE true
+      ON CONFLICT (target_id) WHERE status = 'scheduled' DO UPDATE
+      SET eligible_after = GREATEST(slot.eligible_after, EXCLUDED.eligible_after),
+          idle_blocked_since = NULL,
+          last_error = NULL,
+          updated_at = EXCLUDED.updated_at
       RETURNING
-        id,
-        eligible_after,
-        status::text AS status
-    ),
-    scheduled_slot AS (
-      SELECT id, eligible_after, status FROM updated_slot
-      UNION ALL
-      SELECT id, eligible_after, status FROM inserted_slot
-      LIMIT 1
+        slot.id,
+        slot.eligible_after,
+        slot.status::text AS status
     ),
     inserted_lot AS (
       INSERT INTO ${balanceSweepSurplusLots} (
