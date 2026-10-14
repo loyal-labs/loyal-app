@@ -467,7 +467,7 @@ test("fresh-wallet dependent batch simulation diagnoses setup accounts before an
   expect(connection.sendRawTransaction).not.toHaveBeenCalled();
 });
 
-test("dependent setup signs only after confirmation and recording, using real signed wire", async () => {
+test("fresh-wallet dependent setup signs only after confirmation and recording, using real signed wire", async () => {
   const { createPublicKey, verify } = await import("node:crypto");
   const { VersionedTransaction } = await import("@solana/web3.js");
   let confirmed = 0;
@@ -540,7 +540,7 @@ test("dependent setup signs only after confirmation and recording, using real si
 });
 
 for (const failure of ["rejected", "confirmation", "recording"] as const) {
-  test(`dependent setup stops before the next signature after ${failure}`, async () => {
+  test(`fresh-wallet dependent setup stops before the next signature after ${failure}`, async () => {
     let approvals = 0;
     const rejection = Object.assign(new Error("User rejected"), { code: 4001 });
     const connection = createConnection({
