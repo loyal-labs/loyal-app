@@ -103,6 +103,7 @@ export function useEarnPositionData(): EarnPositionData {
     hasResolved,
     position,
     refresh: refreshPosition,
+    rpcObservation,
     setPosition,
     suppressSubscriptionRefreshThroughSlot,
   } = useActiveEarnPosition({
@@ -367,6 +368,7 @@ export function useEarnPositionData(): EarnPositionData {
     mainUsdc,
     position,
     refreshPosition,
+    rpcObservation,
     setAutodepositOverride,
     setPosition,
     smartAccountData,

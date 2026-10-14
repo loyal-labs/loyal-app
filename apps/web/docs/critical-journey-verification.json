@@ -1,0 +1,181 @@
+{
+  "verifiedAt": "2026-10-14T12:37:46.721Z",
+  "environment": "mainnet product; isolated local fixtures; no transaction broadcasts",
+  "clickstack": {
+    "apiBase": "https://observability.5.161.121.229.sslip.io/api/api/v2",
+    "realLogSearchHttpStatus": 200,
+    "adminLoaderCoverage": "available",
+    "newJourneyRows": 6,
+    "note": "Controlled synthetic success, fresh-wallet simulation failure and retry exported through deployed preview API and queried from live ClickStack."
+  },
+  "datadog": {
+    "intakeHttpStatus": 202,
+    "fixture": "earn.deposit initial / preflight simulation_failed",
+    "environment": "local",
+    "projectVariablesConfigured": [
+      "NEXT_PUBLIC_DATADOG_APPLICATION_ID",
+      "NEXT_PUBLIC_DATADOG_CLIENT_TOKEN"
+    ],
+    "targets": ["production", "preview"],
+    "searchAndFunnelVerification": "Shared failure attempt searched successfully; dashboard yww-hgc-nev created and read back (8 widgets). Exact cohort conversion remains in admin; native RUM counts are not cohort rates.",
+    "dashboardUrl": "https://us5.datadoghq.com/dashboard/yww-hgc-nev"
+  },
+  "checks": {
+    "observabilityTests": {
+      "passed": 88,
+      "failed": 0
+    },
+    "browserContractsLatestFullRun": {
+      "passed": 18,
+      "failed": 0,
+      "log": "/tmp/loyal-journey-final-browser.log",
+      "reloadFix": "Load the Bun browser bundle as a module so Datadog helper declarations cannot replace browser globals.",
+      "boundaries": "Real Privy controller, modal/session providers and swap hook; mocked Privy SDK, wallet/RPC and backend HTTP; actual auth/swap watchdog timers; no wallet-extension or product-route E2E."
+    },
+    "releaseRuleReadOnlySqlFixtures": {
+      "regression": 1,
+      "nineJourneys": 0,
+      "unhealthyBaseline": 0
+    },
+    "recoveredTimeoutDashboard": {
+      "verifiedAt": "2026-10-14T11:09:52.690474+00:00",
+      "browserContractsPassed": 5,
+      "clickPath": "admin login -> sidebar -> journeys",
+      "fixture": "local query response: timeout followed by successful retry",
+      "observed": {
+        "failures": 0,
+        "stalls": 1,
+        "unresolved": 0,
+        "affectedUsers": 1,
+        "firstAttemptSuccess": 0,
+        "eventualSuccess": 1
+      },
+      "screenshot": "/tmp/loyal-admin-journeys-timeout.png"
+    },
+    "earnMaxVisibility": {
+      "regressionsPassed": 2,
+      "existingWireTestsPassed": 4,
+      "condition": "Matching confirmed activity signature plus position snapshot slot >= transaction slot",
+      "liveTransaction": "not performed"
+    },
+    "swapVisibility": {
+      "realHookBrowser": "passed: confirmation, actual 60-second watchdog, delayed balance visibility, exactly-once completion",
+      "boundaries": "Wallet/RPC fixture, Jupiter intercepted, unsigned wire; no broadcast",
+      "pureRegression": "passed: owner mismatch, unchanged/partial/invalid balances"
+    },
+    "privyController": {
+      "scenariosPassed": 8,
+      "freshRetryWalletsCreated": 1,
+      "deadlineMs": 120000,
+      "delayedConnectionRecovery": "passed",
+      "identityTokenExcluded": "passed",
+      "correlationHeaders": "passed"
+    },
+    "signerRestoration": {
+      "scenariosPassed": 4,
+      "scenarios": [
+        "matching signer",
+        "account mismatch",
+        "connection failure",
+        "timeout then recovery"
+      ],
+      "deadlineMs": 30000,
+      "rerenderDeduplication": "passed",
+      "newPrivyExchangesOnReturn": 0,
+      "typecheck": "passed",
+      "scopedLint": "passed"
+    },
+    "telegramRelay": {
+      "passed": 72,
+      "failed": 0,
+      "typecheck": "passed after installing package-local locked dependencies",
+      "build": "passed",
+      "log": "/tmp/loyal-relay-summary-check.log",
+      "compactSummary": "HTTP webhook through actual relay and Telegram sender boundary; HTML rejection fallback checked; not yet deployed"
+    },
+    "liveAdmin": {
+      "clickPath": "local admin login -> sidebar User journeys -> Synthetic",
+      "data": "Real ClickStack canary rows",
+      "volume": 2,
+      "denominator": 2,
+      "firstAttemptSuccess": 1,
+      "eventualSuccess": 2,
+      "failedJourneys": 1,
+      "screenshot": "/tmp/loyal-admin-live-journeys.png"
+    }
+  },
+  "alertEvidence": {
+    "releaseAlertId": "6ace5c09f1ee537a8e910e5b",
+    "releaseDiagnosticDashboardId": "6ace5bfaf1ee537a8e910e56",
+    "depositStallAlertId": "6ace1471f1ee537a8e910b69",
+    "notificationAndRecovery": "User confirmed Telegram delivery for test alert at 2026-10-14T12:18Z; ClickStack ALERT -> OK verified at 12:19Z. Recovery notification not confirmed. Temporary test alert removed after verification.",
+    "heartbeatAbsenceAlert": "configured in repository; activation gated on deployed heartbeat",
+    "syntheticTestAlertId": "6acf7215f1ee537a8e9117ec",
+    "syntheticEvidenceSearch": "https://observability.5.161.121.229.sslip.io/search/6acf7208f1ee537a8e9117e7"
+  },
+  "deployment": "Latest preview verified Ready: https://loyal-frontend-rd7karwb9-loyal-team.vercel.app (dpl_3te6Ti5GB398mGCpuYpwLX9ZWe4U). Production web/admin/relay rollout and scheduled workflow activation pending.",
+  "browserVerifiedAt": "2026-10-14T11:54:36.818925+00:00",
+  "liveCanary": {
+    "success": {
+      "journeyId": "50c14957-fde0-4d97-a393-4c0b095de070",
+      "attemptId": "172d7d96-9797-4c60-81fc-a0dc81494d1f",
+      "traceId": "970858b389304a1d98fa8de570a0e13c"
+    },
+    "failureAndRecovery": {
+      "journeyId": "4bd42b81-39a1-4df3-86b8-57b1ec6d55e6",
+      "failedAttemptId": "9ad8f328-5915-4faa-8ee9-040cfeb90fb9",
+      "retryAttemptId": "b54848f2-6ae5-4262-b7f4-0583db02e739",
+      "failedTraceId": "b1cda1581a974f53adfad0b2e0d6e4cc",
+      "step": "preflight",
+      "error": "simulation_failed"
+    },
+    "boundaries": "Real browser tracker and Datadog SDK; fixture simulation result, wallet/RPC/chain success mocked. ClickStack exporter, ingestion, traces, queries, dashboard aggregation and Telegram delivery real. Initial start timestamps backdated 9 minutes in ClickStack only to exercise cohort maturity; latency is not a performance sample."
+  },
+  "latestCohortCanary": {
+    "target": "https://loyal-frontend-ktprxux8s-loyal-team.vercel.app",
+    "attempts": {
+      "success": "1e748d9c-6285-4966-a8e9-50a60c813c51",
+      "failure": "e5a07e33-cb55-4349-8e63-7f7acca7e62d",
+      "retry": "57e4503d-df80-40f3-9945-72717ee5a903"
+    },
+    "statuses": [202, 202, 202, 202, 202, 202],
+    "datadogDepositActions": [
+      {
+        "outcome": "completed",
+        "trafficKind": "synthetic"
+      },
+      {
+        "outcome": "started",
+        "trafficKind": "synthetic"
+      },
+      {
+        "outcome": "started",
+        "trafficKind": "synthetic"
+      },
+      {
+        "outcome": "failed",
+        "trafficKind": "synthetic"
+      },
+      {
+        "outcome": "started",
+        "trafficKind": "synthetic"
+      },
+      {
+        "outcome": "completed",
+        "trafficKind": "synthetic"
+      }
+    ],
+    "queryEvidence": "Both started and failed actions found in Datadog with traffic_kind synthetic; failure span Error verified in ClickStack",
+    "clock": "No timestamps changed in this run",
+    "clientDeadlineMs": 5000
+  },
+  "backendTraceProbe": {
+    "target": "https://loyal-frontend-ezogt1wmw-loyal-team.vercel.app",
+    "status": 401,
+    "code": "unauthenticated",
+    "traceId": "d410c56d940e4efb87dc1c3a35f9bbae",
+    "timestamp": "2026-10-14T12:29:59.589Z",
+    "boundary": "Unauthenticated request rejected before transaction or persistence",
+    "result": "Three backend spans found with supplied trace ID; request root preserves parent span 1c52c02b57154020"
+  }
+}

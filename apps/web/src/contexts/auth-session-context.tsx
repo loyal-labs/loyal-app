@@ -1,5 +1,7 @@
 "use client";
 
+import { createBrowserLifecycleTracker } from "@/features/observability/client";
+
 import type { ReactNode } from "react";
 import {
   createContext,
@@ -13,10 +15,7 @@ import {
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import {
-  createAuthApiClient,
-  type AuthApiClient,
-} from "@/lib/auth/client";
+import { createAuthApiClient, type AuthApiClient } from "@/lib/auth/client";
 import type { WalletSessionResponse } from "@/features/identity/wallet-session-contracts";
 import { shouldRecheckAuthSession } from "@/contexts/auth-session-refresh";
 import { resetAuthenticatedUser, trackAuthLogout } from "@/lib/core/analytics";
@@ -26,7 +25,7 @@ type AuthSessionContextValue = {
   isHydrated: boolean;
   user: AuthSessionUser | null;
   session: WalletSessionResponse["session"] | null;
-  refreshSession: () => Promise<void>;
+  refreshSession: () => Promise<WalletSessionResponse | null>;
   logout: () => Promise<void>;
 };
 
@@ -35,7 +34,8 @@ const AuthApiClientContext = createContext<AuthApiClient | null>(null);
 
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const publicEnv = usePublicEnv();
-  const [sessionState, setSessionState] = useState<WalletSessionResponse | null>(null);
+  const [sessionState, setSessionState] =
+    useState<WalletSessionResponse | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const lastSessionCheckAtRef = useRef<number | null>(null);
   const authApiClient = useMemo(() => createAuthApiClient(), []);
@@ -43,30 +43,55 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const user = sessionState?.user ?? null;
   const session = sessionState?.session ?? null;
 
+  const readSession = useCallback(
+    async (variant: "initial" | "return" | "refresh") => {
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "auth.session_restore",
+        flowVariant: variant,
+      });
+      tracker.start("intent");
+      tracker.observe("session_read");
+      try {
+        const next =
+          variant === "refresh"
+            ? await authApiClient.refreshSession({ flowId: tracker.flowId })
+            : await authApiClient.getSession({ flowId: tracker.flowId });
+        if (next) tracker.complete("backend_session_valid");
+        else tracker.cancel("session_read", { errorCode: "unauthenticated" });
+        return next;
+      } catch (error) {
+        tracker.fail("session_read", { errorCode: "request_failed" });
+        throw error;
+      }
+    },
+    [authApiClient]
+  );
+
   const hydrateSession = useCallback(async () => {
     try {
-      const nextSession = await authApiClient.getSession();
+      const nextSession = await readSession("return");
       setSessionState(nextSession);
     } finally {
       lastSessionCheckAtRef.current = Date.now();
     }
-  }, [authApiClient]);
+  }, [readSession]);
 
   const refreshSession = useCallback(async () => {
     try {
-      const nextSession = await authApiClient.refreshSession();
+      const nextSession = await readSession("refresh");
       setSessionState(nextSession);
+      return nextSession;
     } finally {
       lastSessionCheckAtRef.current = Date.now();
     }
-  }, [authApiClient]);
+  }, [readSession]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function hydrateSessionState() {
       try {
-        const nextSession = await authApiClient.getSession();
+        const nextSession = await readSession("initial");
         if (!cancelled) {
           setSessionState(nextSession);
         }
@@ -87,7 +112,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [authApiClient]);
+  }, [readSession]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -102,7 +127,13 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (!shouldRecheckAuthSession(lastSessionCheckAtRef.current)) {
+      // A known-expired session must bypass the ordinary return-visit throttle.
+      const isExpired =
+        session !== null && Date.parse(session.expiresAt) <= Date.now();
+      if (
+        !isExpired &&
+        !shouldRecheckAuthSession(lastSessionCheckAtRef.current)
+      ) {
         return;
       }
 
@@ -178,7 +209,9 @@ export function useAuthSession() {
 export function useAuthApiClient() {
   const context = useContext(AuthApiClientContext);
   if (!context) {
-    throw new Error("useAuthApiClient must be used within an AuthSessionProvider");
+    throw new Error(
+      "useAuthApiClient must be used within an AuthSessionProvider"
+    );
   }
 
   return context;

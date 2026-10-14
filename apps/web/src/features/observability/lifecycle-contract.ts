@@ -1,3 +1,4 @@
+import { isSpanId, isTraceId, type JourneyTraceContext } from "./trace-context";
 import {
   normalizeResourceValue,
   normalizeTelemetryPathname,
@@ -11,6 +12,9 @@ export const LIFECYCLE_SAMPLING_RATIO = 1 as const;
 
 export const LIFECYCLE_FLOW_NAMES = [
   "auth.sign_in",
+  "auth.session_restore",
+  "auth.signer_restore",
+  "auth.authenticated_action",
   "auth.smart_account_provisioning",
   "earn.deposit",
   "earn.withdrawal",
@@ -27,6 +31,8 @@ export type LifecycleFlowName = (typeof LIFECYCLE_FLOW_NAMES)[number];
 export const LIFECYCLE_OUTCOMES = [
   "started",
   "observed",
+  "retrying",
+  "timed_out",
   "completed",
   "failed",
   "cancelled",
@@ -43,6 +49,9 @@ export const LIFECYCLE_SOURCES = [
 export type LifecycleSource = (typeof LIFECYCLE_SOURCES)[number];
 
 export const LIFECYCLE_VARIANTS = {
+  "auth.authenticated_action": ["overview"],
+  "auth.session_restore": ["initial", "return", "refresh"],
+  "auth.signer_restore": ["return"],
   // seed_vault/wallet_adapter/import_wallet/new_wallet are the mobile app's
   // wallet-onboarding modes (Seed Vault, MWA, seed import, fresh keypair).
   "auth.sign_in": [
@@ -73,8 +82,24 @@ export const LIFECYCLE_VARIANTS = {
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
 
 export const LIFECYCLE_STAGES = {
+  "auth.authenticated_action": [
+    "intent",
+    "backend_session_valid",
+    "action_completed",
+  ],
+  "auth.session_restore": ["intent", "session_read", "backend_session_valid"],
+  "auth.signer_restore": [
+    "intent",
+    "backend_session_valid",
+    "wallet_select",
+    "wallet_connect",
+    "signer_ready",
+  ],
   "auth.sign_in": [
     "intent",
+    "privy_authenticated",
+    "backend_session_valid",
+    "signer_ready",
     "wallet_select",
     "wallet_connect",
     "challenge",
@@ -106,8 +131,10 @@ export const LIFECYCLE_STAGES = {
     "slot_resolve",
     "backend_confirm",
     "ui_commit",
+    "position_visible",
   ],
   "earn.withdrawal": [
+    "position_visible",
     "intent",
     "prepare",
     "autodeposit_close",
@@ -150,6 +177,7 @@ export const LIFECYCLE_STAGES = {
     "ui_commit",
   ],
   "wallet.swap": [
+    "balance_visible",
     "intent",
     "quote_refresh",
     "build",
@@ -157,7 +185,13 @@ export const LIFECYCLE_STAGES = {
     "ui_commit",
   ],
   "earn_max.invite": ["redeem"],
-  "earn_max.vault": ["intent", "prepare", "wallet_submit_confirm", "ui_commit"],
+  "earn_max.vault": [
+    "intent",
+    "prepare",
+    "wallet_submit_confirm",
+    "ui_commit",
+    "position_visible",
+  ],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
 
 export const LIFECYCLE_ERROR_CODES = [
@@ -426,20 +460,28 @@ export type LifecycleDiagnostics = {
   walletProvider?: LifecycleWalletProvider;
 };
 
-export type BrowserLifecycleEnvelope = LifecycleDiagnostics & {
-  clientPlatform?: LifecycleClientPlatform;
-  durationMs: number;
-  elapsedMs: number;
-  flowId: string;
-  flowName: LifecycleFlowName;
-  flowVariant: LifecycleFlowVariant;
-  outcome: LifecycleOutcome;
-  pathname: string;
-  runtime: "browser" | "mobile" | "node";
-  source: LifecycleSource;
-  stage: LifecycleFlowStage;
-  timestamp: string;
-};
+export type BrowserLifecycleEnvelope = LifecycleDiagnostics &
+  Partial<JourneyTraceContext> & {
+    rumSessionId?: string;
+    journeyId?: string;
+    attemptNumber?: number;
+    eventId?: string;
+    clientBuildId?: string;
+    pageSessionId?: string;
+    retryCount?: number;
+    clientPlatform?: LifecycleClientPlatform;
+    durationMs: number;
+    elapsedMs: number;
+    flowId: string;
+    flowName: LifecycleFlowName;
+    flowVariant: LifecycleFlowVariant;
+    outcome: LifecycleOutcome;
+    pathname: string;
+    runtime: "browser" | "mobile" | "node";
+    source: LifecycleSource;
+    stage: LifecycleFlowStage;
+    timestamp: string;
+  };
 
 // Mobile envelopes carry their own release/environment (the app fleet mixes
 // binary versions and OTA bundles) plus an optional wallet address that the
@@ -458,6 +500,8 @@ export type MobileLifecycleEnvelope = BrowserLifecycleEnvelope & {
 };
 
 export type NormalizedLifecycleEvent = BrowserLifecycleEnvelope & {
+  trafficKind?: "external" | "internal" | "synthetic";
+  userId?: string;
   deploymentEnvironment: string;
   deviceId?: string;
   devicePlatform?: MobileDevicePlatform;
@@ -532,7 +576,9 @@ function assertOptionalBoolean(
  * because base58 addresses, JWTs and API keys are made entirely of token-safe
  * characters and would survive any character filter intact.
  */
-function normalizeErrorDetail(value: unknown): LifecycleErrorDetail | undefined {
+function normalizeErrorDetail(
+  value: unknown
+): LifecycleErrorDetail | undefined {
   return includes(LIFECYCLE_ERROR_DETAILS, value) ? value : undefined;
 }
 
@@ -545,6 +591,16 @@ export function parseBrowserLifecycleEnvelope(
   }
   const record = value as Record<string, unknown>;
   const allowedKeys = new Set([
+    "traceId",
+    "spanId",
+    "parentSpanId",
+    "rumSessionId",
+    "journeyId",
+    "attemptNumber",
+    "eventId",
+    "clientBuildId",
+    "pageSessionId",
+    "retryCount",
     "authProofKind",
     "autodepositCloseRequired",
     "chainState",
@@ -582,6 +638,38 @@ export function parseBrowserLifecycleEnvelope(
     "walletProvider",
   ]);
   if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    throw new InvalidLifecycleEnvelopeError();
+  }
+
+  if (
+    (record.traceId !== undefined && !isTraceId(record.traceId)) ||
+    (record.spanId !== undefined && !isSpanId(record.spanId)) ||
+    (record.parentSpanId !== undefined && !isSpanId(record.parentSpanId)) ||
+    (record.traceId === undefined) !== (record.spanId === undefined) ||
+    (record.parentSpanId !== undefined && record.traceId === undefined)
+  )
+    throw new InvalidLifecycleEnvelopeError();
+
+  for (const key of [
+    "journeyId",
+    "eventId",
+    "pageSessionId",
+    "rumSessionId",
+  ] as const) {
+    if (record[key] !== undefined && !isCanonicalUuidV4(record[key])) {
+      throw new InvalidLifecycleEnvelopeError();
+    }
+  }
+  if (
+    (record.retryCount !== undefined &&
+      !isIntegerInRange(record.retryCount, 0, 1000)) ||
+    (record.attemptNumber !== undefined &&
+      !isIntegerInRange(record.attemptNumber, 1, 1000)) ||
+    (record.journeyId === undefined) !== (record.attemptNumber === undefined) ||
+    (record.clientBuildId !== undefined &&
+      (typeof record.clientBuildId !== "string" ||
+        !/^[0-9a-f]{40}$/.test(record.clientBuildId)))
+  ) {
     throw new InvalidLifecycleEnvelopeError();
   }
 
@@ -728,7 +816,8 @@ export function parseBrowserLifecycleEnvelope(
     isMoneyFlow ||
     flowName === "earn.autodeposit.configuration" ||
     flowName === "earn.autoswap.configuration" ||
-    flowName === "earn_max.vault";
+    flowName === "earn_max.vault" ||
+    flowName === "wallet.swap";
   if (
     (record.chainState !== undefined ||
       record.persistenceState !== undefined ||
@@ -812,8 +901,14 @@ export function parseMobileLifecycleEnvelope(
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new InvalidLifecycleEnvelopeError();
   }
-  const { deviceId, devicePlatform, environment, release, walletAddress, ...rest } =
-    value as Record<string, unknown>;
+  const {
+    deviceId,
+    devicePlatform,
+    environment,
+    release,
+    walletAddress,
+    ...rest
+  } = value as Record<string, unknown>;
 
   const normalizedEnvironment =
     typeof environment === "string"
@@ -860,6 +955,14 @@ export function parseMobileLifecycleEnvelope(
 }
 
 export type LifecycleTracker = {
+  timeout: (
+    stage: LifecycleFlowStage,
+    diagnostics?: LifecycleDiagnostics
+  ) => void;
+  retry: (
+    stage: LifecycleFlowStage,
+    diagnostics?: LifecycleDiagnostics
+  ) => void;
   cancel: (
     stage: LifecycleFlowStage,
     diagnostics?: LifecycleDiagnostics,
@@ -897,7 +1000,7 @@ export type LifecycleEmitOptions = {
 // crypto.randomUUID only exists in secure contexts (https/localhost); on
 // http LAN dev hosts it is undefined and would crash every flow that starts a
 // tracker. getRandomValues is available everywhere, so derive a canonical v4.
-function fallbackRandomUuidV4(): string {
+export function fallbackRandomUuidV4(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -905,7 +1008,10 @@ function fallbackRandomUuidV4(): string {
   const hex = Array.from(bytes, (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(
+    12,
+    16
+  )}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 // Formats an unknown error for the `errorMessage` diagnostic: class name plus
@@ -915,15 +1021,21 @@ function fallbackRandomUuidV4(): string {
 // boundary, not here.
 export function lifecycleErrorMessage(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
-  const cause =
-    (error as Error & { error?: unknown }).error ?? error.cause;
+  const cause = (error as Error & { error?: unknown }).error ?? error.cause;
   const base = `${error.name}: ${error.message}`;
-  if (cause instanceof Error) return `${base} <- ${cause.name}: ${cause.message}`;
-  if (cause !== undefined && cause !== null) return `${base} <- ${String(cause)}`;
+  if (cause instanceof Error)
+    return `${base} <- ${cause.name}: ${cause.message}`;
+  if (cause !== undefined && cause !== null)
+    return `${base} <- ${String(cause)}`;
   return base;
 }
 
 export function createLifecycleTracker(args: {
+  traceContext?: JourneyTraceContext;
+  journeyId?: string;
+  attemptNumber?: number;
+  clientBuildId?: string;
+  pageSessionId?: string;
   clientPlatform?: LifecycleClientPlatform;
   emit: (event: BrowserLifecycleEnvelope) => void;
   flowId?: string;
@@ -948,6 +1060,15 @@ export function createLifecycleTracker(args: {
   let lastAt = createdAt;
   let terminal: LifecycleOutcome | null = null;
   let recoveryEmitted = false;
+  let retryCount = 0;
+  const context = {
+    ...args.traceContext,
+    ...(args.journeyId
+      ? { journeyId: args.journeyId, attemptNumber: args.attemptNumber }
+      : {}),
+    ...(args.clientBuildId ? { clientBuildId: args.clientBuildId } : {}),
+    ...(args.pageSessionId ? { pageSessionId: args.pageSessionId } : {}),
+  };
 
   const emit = (
     outcome: LifecycleOutcome,
@@ -962,6 +1083,9 @@ export function createLifecycleTracker(args: {
       const event = parseBrowserLifecycleEnvelope(
         {
           ...diagnostics,
+          ...context,
+          eventId: randomUUID(),
+          retryCount,
           ...(args.clientPlatform
             ? { clientPlatform: args.clientPlatform }
             : {}),
@@ -999,6 +1123,12 @@ export function createLifecycleTracker(args: {
   };
 
   return {
+    timeout: (stage, diagnostics) => emit("timed_out", stage, diagnostics),
+    retry: (stage, diagnostics) => {
+      if (terminal) return;
+      retryCount = Math.min(1000, retryCount + 1);
+      emit("retrying", stage, diagnostics);
+    },
     cancel: (stage, diagnostics, options) =>
       emit("cancelled", stage, diagnostics, options),
     complete: (stage, diagnostics, options) =>
@@ -1023,6 +1153,8 @@ export function createLifecycleTracker(args: {
           parseBrowserLifecycleEnvelope(
             {
               ...diagnostics,
+              ...context,
+              eventId: randomUUID(),
               ...(args.clientPlatform
                 ? { clientPlatform: args.clientPlatform }
                 : {}),
@@ -1070,4 +1202,39 @@ export function mapExecuteNowState(state: ExecuteNowState): {
   if (state === "canceled")
     return { outcome: "cancelled", stage: "state_observed" };
   return { outcome: "observed", stage: "state_observed" };
+}
+
+export function lifecycleFailureCategory(
+  event: Pick<BrowserLifecycleEnvelope, "outcome" | "errorCode">
+) {
+  if (
+    event.outcome === "timed_out" ||
+    event.errorCode === "unconfirmed_signature"
+  )
+    return "timeout";
+  if (event.errorCode === "wallet_rejected") return "user_rejection";
+  if (
+    [
+      "unauthenticated",
+      "invalid_request",
+      "metadata_mismatch",
+      "principal_mismatch",
+      "cluster_mismatch",
+      "autodeposit_not_active",
+      "autodeposit_not_found",
+      "no_scheduled_sweeps",
+      "insufficient_native_sol",
+      "insufficient_usdc",
+      "invalid_source",
+      "state_not_ready",
+      "wallet_account_mismatch",
+      "wallet_mismatch",
+      "earn_position_required",
+    ].includes(event.errorCode ?? "")
+  )
+    return "validation";
+  if (event.outcome === "cancelled") return "user_cancellation";
+  return event.outcome === "failed" || event.outcome === "retrying"
+    ? "technical"
+    : "none";
 }

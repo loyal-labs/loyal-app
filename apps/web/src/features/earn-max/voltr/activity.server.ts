@@ -28,6 +28,7 @@ const ACTIONS: [action: string, discriminator: number[]][] = [
 ];
 
 type VoltrHistoryEntry = {
+  confirmedSlot?: string;
   action: string;
   /** Deposit: USDC in. Claim: USDC paid out. Request: filled below. */
   amountRaw: bigint | null;
@@ -137,6 +138,7 @@ function decode(
     const lpDelta =
       entries.length === 0 ? lpDeltaRaw(transaction, authority) : BigInt(0);
     entries.push({
+      confirmedSlot: String(transaction.slot),
       action: match.action,
       amountRaw:
         match.action === "deposit"
@@ -225,6 +227,7 @@ export function voltrActivity(
       : entry
   );
   const operations = entries.map((entry) => ({
+    confirmedSlot: entry.confirmedSlot,
     action: entry.action,
     amountRaw: entry.amountRaw === null ? null : entry.amountRaw.toString(),
     id: `${entry.signature}:${entry.action}`,

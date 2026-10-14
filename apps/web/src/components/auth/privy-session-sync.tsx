@@ -24,14 +24,19 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
-import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import {
+  createBrowserLifecycleTracker,
+  lifecycleFlowHeaders,
+} from "@/features/observability/client";
 import {
   lifecycleErrorMessage,
+  type LifecycleFlowStage,
   type LifecycleTracker,
   normalizeLifecycleErrorCode,
 } from "@/features/observability/lifecycle-contract";
 
 import { useNeedsMobileWalletBrowser } from "./mobile-wallet-list";
+import { useSignerRestoration } from "./use-signer-restoration";
 
 type Step = "idle" | "privy" | "creating_wallet" | "exchanging";
 
@@ -65,7 +70,7 @@ export async function exchangePrivySession(
       "content-type": "application/json",
       "privy-id-token": identityToken,
       // Joins the route's smart-account provisioning events to this flow.
-      ...(flowId ? { "x-loyal-flow-id": flowId } : {}),
+      ...(flowId ? lifecycleFlowHeaders(flowId) : {}),
     },
     body: JSON.stringify({ walletAddress }),
   });
@@ -139,6 +144,38 @@ function Inner({ children }: { children: ReactNode }) {
   const loginAddressRef = useRef<string | null>(null);
   const runningRef = useRef(false);
   const wasAuthenticatedRef = useRef(false);
+  const lifecycleRef = useRef<LifecycleTracker | null>(null);
+  const lifecycleStageRef =
+    useRef<LifecycleFlowStage<"auth.sign_in">>("wallet_approval");
+  const lifecycleDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const clearLifecycleDeadline = useCallback(() => {
+    if (lifecycleDeadlineRef.current !== null)
+      clearTimeout(lifecycleDeadlineRef.current);
+    lifecycleDeadlineRef.current = null;
+  }, []);
+  useEffect(() => clearLifecycleDeadline, [clearLifecycleDeadline]);
+  const startLifecycle = useCallback(() => {
+    if (lifecycleRef.current) return lifecycleRef.current;
+    const lifecycle = createBrowserLifecycleTracker({
+      flowName: "auth.sign_in",
+      flowVariant: "interactive",
+    });
+    lifecycleRef.current = lifecycle;
+    lifecycleStageRef.current = "wallet_approval";
+    lifecycle.start("intent");
+    // A deadline marks a stall, not a failed authentication or user abandonment.
+    lifecycleDeadlineRef.current = setTimeout(
+      () =>
+        lifecycle.timeout(lifecycleStageRef.current, {
+          errorCode: "request_failed",
+          errorDetail: "request_timeout",
+        }),
+      120_000
+    );
+    return lifecycle;
+  }, []);
 
   const { login } = useLogin({
     onComplete: ({ loginAccount }) => {
@@ -148,6 +185,15 @@ function Inner({ children }: { children: ReactNode }) {
           : null;
     },
     onError: (code) => {
+      clearLifecycleDeadline();
+      if (code === "exited_auth_flow") {
+        lifecycleRef.current?.cancel("wallet_approval");
+      } else {
+        lifecycleRef.current?.fail("wallet_approval", {
+          errorCode: "request_failed",
+        });
+      }
+      lifecycleRef.current = null;
       setWantsSession(false);
       setStep("idle");
       // Closing Privy's modal is not an error to show. Either way, fall back
@@ -161,6 +207,7 @@ function Inner({ children }: { children: ReactNode }) {
   });
 
   const start = useCallback(() => {
+    startLifecycle();
     setError(null);
     setWantsSession(true);
     if (!authenticated) {
@@ -173,7 +220,7 @@ function Inner({ children }: { children: ReactNode }) {
     // nothing. Show our modal instead: the effect below reports the step and
     // any error there, and without it the click is swallowed silently.
     openSignInModal();
-  }, [authenticated, login, openSignInModal, setWantsSession]);
+  }, [authenticated, login, openSignInModal, setWantsSession, startLifecycle]);
 
   const addEmail = useCallback(() => {
     if (authenticated) {
@@ -256,6 +303,7 @@ function Inner({ children }: { children: ReactNode }) {
       }
 
       if (!address) {
+        lifecycleStageRef.current = "wallet_connect";
         setStep("creating_wallet");
         lifecycle.observe("wallet_connect");
         // A previous attempt may have created the wallet already and failed
@@ -277,6 +325,7 @@ function Inner({ children }: { children: ReactNode }) {
       }
 
       setStep("exchanging");
+      lifecycleStageRef.current = "completion";
       lifecycle.observe("completion");
       await exchangePrivySession(address, lifecycle.flowId);
 
@@ -285,7 +334,19 @@ function Inner({ children }: { children: ReactNode }) {
       // user signed in on the server and signed out in the browser, with the
       // sign-in button dead until a reload.
       lifecycle.observe("session_refresh");
-      await refreshSession();
+      lifecycleStageRef.current = "session_refresh";
+      const restoredSession = await refreshSession();
+      if (restoredSession?.user?.walletAddress !== address) {
+        lifecycle.fail("session_refresh", {
+          errorCode: restoredSession?.user
+            ? "wallet_account_mismatch"
+            : "unauthenticated",
+        });
+        throw new Error(
+          "The sign-in session could not be restored. Please sign in again."
+        );
+      }
+      lifecycle.observe("backend_session_valid");
       closeSignInModal();
 
       // Privy knows which wallet-standard wallet owns the address; the adapter
@@ -299,12 +360,29 @@ function Inner({ children }: { children: ReactNode }) {
           )
         : undefined;
       if (entry) {
+        lifecycleStageRef.current = "wallet_connect";
         adapter.select(entry.adapter.name);
         if (!entry.adapter.connected) {
-          await entry.adapter.connect().catch(() => undefined);
+          await entry.adapter.connect().catch(() => {
+            lifecycle.fail("wallet_connect", {
+              errorCode: "wallet_connection_failed",
+            });
+          });
         }
       }
-      lifecycle.complete("ui_commit");
+      if (
+        entry?.adapter.connected &&
+        entry.adapter.publicKey?.toBase58() === address
+      ) {
+        lifecycle.observe("signer_ready");
+        lifecycle.complete("ui_commit");
+      } else {
+        lifecycle.fail("wallet_connect", {
+          errorCode: entry?.adapter.connected
+            ? "wallet_account_mismatch"
+            : "wallet_unavailable",
+        });
+      }
       if (!hasEmail) linkEmail();
     },
     [
@@ -326,11 +404,8 @@ function Inner({ children }: { children: ReactNode }) {
     if (!wantsSession || !authenticated || !walletsReady || !privyUser) return;
     if (runningRef.current) return;
     runningRef.current = true;
-    const lifecycle = createBrowserLifecycleTracker({
-      flowName: "auth.sign_in",
-      flowVariant: "interactive",
-    });
-    lifecycle.start("intent");
+    const lifecycle = startLifecycle();
+    lifecycle.observe("privy_authenticated");
     void completeSignIn(lifecycle)
       .catch((e: unknown) => {
         lifecycle.fail("completion", {
@@ -345,51 +420,30 @@ function Inner({ children }: { children: ReactNode }) {
         openSignInModal();
       })
       .finally(() => {
+        clearLifecycleDeadline();
         runningRef.current = false;
+        lifecycleRef.current = null;
         setWantsSession(false);
         setStep("idle");
       });
   }, [
     authenticated,
+    clearLifecycleDeadline,
     completeSignIn,
     openSignInModal,
     privyUser,
     setWantsSession,
+    startLifecycle,
     walletsReady,
     wantsSession,
   ]);
 
-  // Reload: the Loyal session names a wallet, but wallet-adapter starts
-  // disconnected (or on whatever it auto-connected to). Earn actions require
-  // the connected wallet to equal the session wallet, so re-select the one
-  // Privy says owns the address — same step completeSignIn does at login.
-  useEffect(() => {
-    if (!isHydrated || !isAuthenticated || !walletsReady) return;
-    const address = user?.walletAddress;
-    if (!address || adapter.publicKey?.toBase58() === address) return;
-    if (adapter.connecting) return;
-    const owner = privyWallets.find((w) => w.address === address);
-    const entry = owner
-      ? adapter.wallets.find(
-          (w) => w.adapter.name === owner.standardWallet.name
-        )
-      : undefined;
-    if (!entry) return;
-    if (adapter.wallet?.adapter.name !== entry.adapter.name) {
-      adapter.select(entry.adapter.name);
-      return; // effect re-runs once the selection lands
-    }
-    if (!adapter.connected) {
-      void adapter.connect().catch(() => undefined);
-    }
-  }, [
+  useSignerRestoration({
+    address: user?.walletAddress ?? null,
+    enabled: isHydrated && isAuthenticated && walletsReady && !wantsSession,
     adapter,
-    isAuthenticated,
-    isHydrated,
-    privyWallets,
-    user?.walletAddress,
-    walletsReady,
-  ]);
+    wallets: privyWallets,
+  });
 
   // Sign-out: Loyal session gone while Privy still authenticated.
   useEffect(() => {

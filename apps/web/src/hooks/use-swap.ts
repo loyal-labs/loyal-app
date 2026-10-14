@@ -6,7 +6,7 @@ import {
   PublicKey,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
@@ -14,9 +14,14 @@ import {
   type LifecycleErrorCode,
   lifecycleErrorMessage,
   type LifecycleFlowStage,
+  type LifecycleTracker,
   normalizeLifecycleWalletProvider,
 } from "@/features/observability/lifecycle-contract";
 import { trackWalletSwapCompleted } from "@/lib/core/analytics";
+import {
+  isSwapVisible,
+  type SwapBalanceSnapshot,
+} from "@/features/observability/swap-visibility";
 
 // Debug logger that only emits in development
 const logger = {
@@ -139,7 +144,7 @@ type JupiterSwapResponse = {
   prioritizationFeeLamports: number;
 };
 
-export function useSwap() {
+export function useSwap(visibleBalances: SwapBalanceSnapshot) {
   const { connection } = useConnection();
   const {
     publicKey,
@@ -149,6 +154,52 @@ export function useSwap() {
   } = useWallet();
   const publicEnv = usePublicEnv();
   const { swap: swapConfig } = publicEnv;
+  const visibleBalancesRef = useRef(visibleBalances);
+  visibleBalancesRef.current = visibleBalances;
+  const pendingVisibility = useRef(
+    new Map<
+      string,
+      {
+        tracker: LifecycleTracker;
+        before: SwapBalanceSnapshot;
+        atConfirmation: SwapBalanceSnapshot;
+        inputMint: string;
+        outputMint: string;
+        timer: ReturnType<typeof setTimeout>;
+        successProperties?: AnalyticsProperties;
+        signature?: string;
+      }
+    >()
+  );
+  useEffect(() => {
+    const pending = pendingVisibility.current;
+    return () => {
+      for (const item of pending.values()) clearTimeout(item.timer);
+      pending.clear();
+    };
+  }, [visibleBalances.owner]);
+  useEffect(() => {
+    for (const [id, item] of pendingVisibility.current) {
+      if (
+        visibleBalances === item.atConfirmation ||
+        !isSwapVisible(
+          item.before,
+          visibleBalances,
+          item.inputMint,
+          item.outputMint
+        )
+      )
+        continue;
+      item.tracker.complete("balance_visible", { chainState: "confirmed" });
+      clearTimeout(item.timer);
+      pendingVisibility.current.delete(id);
+      if (item.successProperties)
+        trackWalletSwapCompleted(publicEnv, {
+          ...item.successProperties,
+          signature: item.signature,
+        });
+    }
+  }, [visibleBalances, publicEnv]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quote, setQuote] = useState<SwapQuote | null>(null);
@@ -327,6 +378,7 @@ export function useSwap() {
       );
       let lifecycleStage: LifecycleFlowStage<"wallet.swap"> = "intent";
       tracker.start("intent");
+      const before = visibleBalancesRef.current;
 
       try {
         logger.debug("Executing swap with quote:", quoteResponse);
@@ -444,7 +496,9 @@ export function useSwap() {
 
               if (confirmation.value.err) {
                 throw new Error(
-                  `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
+                  `Transaction failed: ${JSON.stringify(
+                    confirmation.value.err
+                  )}`
                 );
               }
             }
@@ -457,13 +511,32 @@ export function useSwap() {
                   : "confirmed",
             });
             setLoading(false);
-            if (successTrackingProperties) {
-              trackWalletSwapCompleted(publicEnv, {
-                ...successTrackingProperties,
-                signature,
-              });
+            if (executionResult.status === "proposed") {
+              tracker.observe("ui_commit", { chainState: "submitted" });
+            } else {
+              tracker.observe("ui_commit", { chainState: "confirmed" });
+              if (
+                before.owner === swapUserPublicKey.toBase58() &&
+                visibleBalancesRef.current.owner === before.owner
+              ) {
+                pendingVisibility.current.set(tracker.flowId, {
+                  tracker,
+                  before,
+                  atConfirmation: visibleBalancesRef.current,
+                  inputMint: activeQuote.inputMint,
+                  outputMint: activeQuote.outputMint,
+                  signature,
+                  successProperties: successTrackingProperties,
+                  timer: setTimeout(() => {
+                    if (pendingVisibility.current.has(tracker.flowId))
+                      tracker.timeout("balance_visible", {
+                        chainState: "confirmed",
+                        errorCode: "realtime_unresolved",
+                      });
+                  }, 60_000),
+                });
+              }
             }
-            tracker.complete("ui_commit");
             return {
               signature,
               success: true,
@@ -474,7 +547,7 @@ export function useSwap() {
               attemptError instanceof Error ? attemptError.message : "";
             if (attempt === 0 && isSlippageExceededError(attemptMessage)) {
               logger.debug("Slippage exceeded; retrying with a fresh quote");
-              tracker.observe("wallet_submit_confirm", {
+              tracker.retry("wallet_submit_confirm", {
                 errorCode: "slippage_exceeded",
                 stageIndex: attempt,
               });
@@ -527,7 +600,6 @@ export function useSwap() {
     [
       connection,
       isConnected,
-      publicEnv,
       publicKey,
       quoteResponse,
       sendTransaction,

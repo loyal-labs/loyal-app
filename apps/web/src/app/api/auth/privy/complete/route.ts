@@ -1,3 +1,7 @@
+import {
+  withRequestLifecycle,
+  type RequestLifecycle,
+} from "@/features/observability/lifecycle.server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -14,6 +18,18 @@ const bodySchema = z.object({
 // Exchanges a Privy identity token (header `privy-id-token`) for the Loyal
 // session cookie. Everything downstream (routes, refresh, logout) is unchanged.
 export async function POST(request: Request) {
+  return withRequestLifecycle({
+    request,
+    flowName: "auth.sign_in",
+    flowVariant: "interactive",
+    stage: "completion",
+    run: (lifecycle) => handleRequest(request, lifecycle),
+  });
+}
+async function handleRequest(
+  request: Request,
+  lifecycle: RequestLifecycle | null
+) {
   const identityToken = request.headers.get("privy-id-token");
   if (!identityToken) {
     return NextResponse.json(
@@ -48,6 +64,8 @@ export async function POST(request: Request) {
       requestOrigin:
         request.headers.get("origin") ?? new URL(request.url).origin,
     });
+    if (result.user.walletAddress)
+      lifecycle?.setVerifiedWallet(result.user.walletAddress);
     const cookies = createAuthSessionCookieService({
       getConfig: () => getServerEnv(),
     });

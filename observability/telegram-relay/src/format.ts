@@ -60,6 +60,7 @@ export function formatTelegramMessage(
   }
 
   return (
+    formatJourneySummary(payload) ??
     formatPrettyMessage(payload, options) ?? {
       text: formatPlainTelegramMessage(payload),
     }
@@ -73,6 +74,13 @@ export function formatTelegramMessage(
 export function formatPlainTelegramMessage(
   payload: ClickStackWebhookPayload
 ): string {
+  const summary = journeySummary(payload);
+  if (summary) {
+    return `${alertName(payload.title).slice(
+      0,
+      200
+    )}\n\n${summary}\n\n${safeEvidenceLink(payload)}`.trim();
+  }
   const main = [payload.title.trim(), payload.body.trim()]
     .filter(Boolean)
     .join("\n\n");
@@ -92,6 +100,50 @@ export function formatPlainTelegramMessage(
 
   const availableMainLength = TELEGRAM_MESSAGE_LIMIT - suffix.length - 1;
   return `${sliceWholeCodePoints(main, availableMainLength)}…${suffix}`;
+}
+
+// Explicit summary blocks avoid interpreting headerless CSV with another alert's schema.
+function journeySummary(payload: ClickStackWebhookPayload): string | null {
+  const preamble = payload.body.split("```")[0] ?? "";
+  const summary = /\[journey-summary\]([\s\S]*?)\[\/journey-summary\]/
+    .exec(preamble)?.[1]
+    ?.trim();
+  return summary && summary.length <= 1800 ? summary : null;
+}
+
+function safeEvidenceLink(payload: ClickStackWebhookPayload): string {
+  try {
+    const url = new URL(payload.link);
+    return url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.href.length <= 1000
+      ? url.href
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+function formatJourneySummary(
+  payload: ClickStackWebhookPayload
+): FormattedMessage | null {
+  const summary = journeySummary(payload);
+  if (!summary) return null;
+  const link = safeEvidenceLink(payload);
+  const icon = payload.state === "OK" ? "✅" : "🚨";
+  const evidence = link
+    ? `\n\n<a href="${escapeHtml(link).replaceAll(
+        '"',
+        "&quot;"
+      )}">View evidence</a>`
+    : "";
+  const text = `<b>${icon} ${escapeHtml(
+    alertName(payload.title).slice(0, 200)
+  )}</b>\n\n${escapeHtml(summary)}${evidence}`;
+  return text.length <= TELEGRAM_MESSAGE_LIMIT
+    ? { text, parseMode: "HTML" }
+    : { text: formatPlainTelegramMessage(payload) };
 }
 
 /**

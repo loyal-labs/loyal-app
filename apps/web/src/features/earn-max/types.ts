@@ -1,6 +1,7 @@
 export type EarnMaxCoverage = "complete" | "history_incomplete";
 
 export type EarnMaxActivityItem = {
+  confirmedSlot?: string;
   action: string;
   /** Largest positive token delta of the operation, raw USDC units. */
   amountRaw: string | null;
@@ -48,6 +49,7 @@ export type EarnMaxApyPoint = {
 };
 
 export type EarnMaxSummary = {
+  observedSlot?: string;
   /** Daily vault share-price APY for the chart; empty when unknown. */
   apyHistory?: EarnMaxApyPoint[];
   /** Days the headline APY covers (7 once the vault is a week old). */

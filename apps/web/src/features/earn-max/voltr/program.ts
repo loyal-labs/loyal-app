@@ -191,6 +191,7 @@ const readU16 = (data: Buffer, offset: number) =>
   BigInt(data.readUInt16LE(offset));
 
 export type VoltrPosition = {
+  observedSlot?: string;
   /** USDC already sitting in the smart-account vault's USDC ATA. */
   assetRaw: bigint;
   /** Smart-account vault lamports (rent payer for withdrawal requests). */
@@ -238,8 +239,8 @@ export async function readVoltrPosition(
   authority: PublicKey
 ): Promise<VoltrPosition> {
   const user = voltrUserAccounts(authority);
-  const [vault, lpMint, assetAta, lpAta, receipt, escrow, authorityAccount, idle] =
-    await connection.getMultipleAccountsInfo([
+  const snapshot = await connection.getMultipleAccountsInfoAndContext(
+    [
       VOLTR_VAULT,
       VOLTR_LP_MINT,
       user.assetAta,
@@ -248,7 +249,19 @@ export async function readVoltrPosition(
       user.escrowLpAta,
       authority,
       VOLTR_IDLE_ATA,
-    ]);
+    ],
+    { commitment: "confirmed" }
+  );
+  const [
+    vault,
+    lpMint,
+    assetAta,
+    lpAta,
+    receipt,
+    escrow,
+    authorityAccount,
+    idle,
+  ] = snapshot.value;
   if (!(vault && lpMint)) {
     throw new Error("Voltr vault is not available on this cluster.");
   }
@@ -312,6 +325,7 @@ export async function readVoltrPosition(
   }
   return {
     assetRaw: assetAta ? assetAta.data.readBigUInt64LE(64) : BigInt(0),
+    observedSlot: String(snapshot.context.slot),
     assetsToLp: (assetRaw) =>
       unlockedValue <= BigInt(0)
         ? BigInt(0)

@@ -740,3 +740,48 @@ describe("relay end to end", () => {
     expect(after.calls).toHaveLength(1);
   });
 });
+
+test("journey summaries reach Telegram without raw CSV, including HTML retry", async () => {
+  for (const rejectHtml of [false, true]) {
+    const system = createSystem({
+      reply: ({ index }) =>
+        rejectHtml && index === 0
+          ? {
+              status: 400,
+              body: {
+                ok: false,
+                description: "Bad Request: can't parse entities",
+              },
+            }
+          : undefined,
+    });
+    const payload = alert({ group: "preflight", rows: [] });
+    payload.title = "TEST · First deposit simulation failed";
+    payload.body = [
+      'Group: "arrayElement(LogAttributes, stage):preflight"',
+      "1 lines found, which exceeds the threshold of 0 lines",
+      "[journey-summary]",
+      "Flow: First deposit · Simulation",
+      "Impact: 1 synthetic failure; no user funds moved",
+      "Release: synthetic fixture",
+      "Owner: Web Earn <platform>",
+      "[/journey-summary]",
+      "```",
+      '"timestamp","private-trace-id","private-journey-id","preflight"',
+      "```",
+    ].join("\n");
+    const response = await system.post(payload, `journey-${rejectHtml}`);
+    expect(response.status).toBe(200);
+    expect(system.calls.length).toBe(rejectHtml ? 2 : 1);
+    for (const call of system.calls) {
+      expect(call.text).toContain("1 synthetic failure");
+      expect(call.text).not.toContain("private-trace-id");
+      expect(call.text).not.toContain("arrayElement");
+      expect(call.text).not.toContain("threshold");
+      expect(call.text).not.toContain("[journey-summary]");
+      expect(call.text.length).toBeLessThanOrEqual(4096);
+    }
+    expect(system.calls[0]?.text).toContain(">View evidence</a>");
+    expect(system.calls[0]?.text).toContain("&lt;platform&gt;");
+  }
+});

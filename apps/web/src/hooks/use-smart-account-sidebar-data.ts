@@ -1,5 +1,8 @@
 "use client";
 
+import { classifyTransactionFailure } from "@/features/observability/transaction-failure";
+import type { LifecycleErrorCode } from "@/features/observability/lifecycle-contract";
+
 import {
   type LoyalCluster,
   resolveLoyalClusterForSolanaEnv,
@@ -61,7 +64,9 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
   captureBrowserError,
+  createAuthenticatedActionTracker,
   createBrowserLifecycleTracker,
+  lifecycleFlowHeaders,
 } from "@/features/observability/client";
 import type { BrowserErrorOperation } from "@/features/observability/error-contract";
 import {
@@ -501,7 +506,7 @@ export type EarnDepositResult = {
   confirmedSlot?: string;
   status?: "executed" | "confirmation_record_failed";
   error?: string;
-  errorCode?: "insufficient_native_sol";
+  errorCode?: LifecycleErrorCode;
 };
 
 export type EarnDepositBatchRequest = EarnDepositRequest & {
@@ -531,7 +536,7 @@ export type EarnDepositPolicyStageResult = {
   confirmedSlot?: string;
   status?: "confirmation_record_failed" | "executed";
   error?: string;
-  errorCode?: "insufficient_native_sol";
+  errorCode?: LifecycleErrorCode;
 };
 
 export type EarnWithdrawRequest = {
@@ -1669,22 +1674,37 @@ export function shouldSkipSmartAccountProposalLoad(
 }
 
 async function fetchSmartAccountGroup<T>(url: URL): Promise<T> {
-  const response = await fetch(url.toString(), {
-    credentials: "include",
-  });
-
-  if (!response.ok) {
-    const errorPayload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    const message =
-      errorPayload?.error?.message ?? "Failed to load smart-account overview.";
-
-    throw new Error(message);
+  const lifecycle =
+    url.pathname === "/api/smart-accounts/overview/base"
+      ? createAuthenticatedActionTracker()
+      : null;
+  lifecycle?.start("intent");
+  try {
+    const response = await fetch(url.toString(), {
+      credentials: "include",
+      ...(lifecycle ? { headers: lifecycleFlowHeaders(lifecycle.flowId) } : {}),
+    });
+    if (!response.ok) {
+      lifecycle?.fail("action_completed", {
+        errorCode:
+          response.status === 401 ? "unauthenticated" : "request_failed",
+        httpStatus: response.status,
+      });
+      const errorPayload = (await response
+        .json()
+        .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+      throw new Error(
+        errorPayload?.error?.message ?? "Failed to load smart-account overview."
+      );
+    }
+    const payload =
+      (await response.json()) as SmartAccountTimedRouteResponse<T>;
+    lifecycle?.complete("action_completed");
+    return payload.data;
+  } catch (error) {
+    lifecycle?.fail("action_completed", { errorCode: "request_failed" });
+    throw error;
   }
-
-  const payload = (await response.json()) as SmartAccountTimedRouteResponse<T>;
-  return payload.data;
 }
 
 async function fetchEarnState(options?: {
@@ -1714,7 +1734,7 @@ async function fetchEarnState(options?: {
 function observabilityJsonHeaders(flowId?: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    ...(flowId ? { "x-loyal-flow-id": flowId } : {}),
+    ...(flowId ? lifecycleFlowHeaders(flowId) : {}),
   };
 }
 
@@ -6611,6 +6631,7 @@ export function useSmartAccountSidebarData(
           success: false,
           ...(signature ? { signature } : {}),
           error,
+          errorCode: classifyTransactionFailure(err),
         };
       } finally {
         setIsActionPending(false);
@@ -6935,6 +6956,7 @@ export function useSmartAccountSidebarData(
             ...collectedSignatureFields(),
             resumeStage: resolveResumeStage(),
             error: getEarnDepositUserErrorMessage(error),
+            errorCode: classifyTransactionFailure(error),
           };
         }
 
@@ -6961,7 +6983,11 @@ export function useSmartAccountSidebarData(
           "earn.deposit_batch.execute",
           err
         );
-        return { success: false, error };
+        return {
+          success: false,
+          error,
+          errorCode: classifyTransactionFailure(err),
+        };
       } finally {
         setIsActionPending(false);
       }
@@ -7237,6 +7263,7 @@ export function useSmartAccountSidebarData(
           success: false,
           ...(signature ? { signature } : {}),
           error,
+          errorCode: classifyTransactionFailure(err),
         };
       } finally {
         setIsActionPending(false);

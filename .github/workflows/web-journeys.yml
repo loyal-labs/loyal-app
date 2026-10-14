@@ -1,0 +1,53 @@
+name: Web journey contracts
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "apps/admin/src/app/(admin)/journeys/**"
+      - "packages/smart-account-vaults/**"
+      - ".github/workflows/web-journeys.yml"
+      - "scripts/observability/**"
+  workflow_dispatch:
+  schedule:
+    - cron: "23 */6 * * *"
+permissions:
+  contents: read
+concurrency:
+  group: web-journeys-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  production-read-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node scripts/observability/check-availability.mjs
+
+  browser-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run build:auth-packages
+      - run: bun run build:solana-packages
+      - run: bun run --cwd packages/wallet-core build
+      - run: bun run --cwd packages/loyal-smart-accounts-core build
+      - run: bun test packages/smart-account-vaults/src/wallet.test.ts --test-name-pattern fresh-wallet
+      - run: bun test apps/web/src/features/observability/
+      - run: bunx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: bun run test:journeys
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: journey-contract-failure
+          path: apps/web/test-results
+          retention-days: 7

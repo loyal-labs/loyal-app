@@ -21,9 +21,11 @@
     "verify:chunk-load-recovery": "bun scripts/verify-chunk-load-recovery.ts",
     "verify:observability": "bun scripts/verify-observability.ts",
     "commit": "cz",
-    "knip": "bunx knip"
+    "knip": "bunx knip",
+    "test:journeys": "playwright test --config playwright.journeys.config.ts"
   },
   "dependencies": {
+    "@datadog/browser-rum": "^6.27.1",
     "@ai-sdk/openai-compatible": "^1.0.24",
     "@ai-sdk/provider-utils": "^3.0.22",
     "@ai-sdk/react": "^2.0.13",
@@ -114,6 +116,7 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.6",
     "typescript": "^5",
-    "ultracite": "^7.0.10"
+    "ultracite": "^7.0.10",
+    "@playwright/test": "1.58.2"
   }
 }

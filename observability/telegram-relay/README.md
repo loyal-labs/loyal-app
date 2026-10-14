@@ -496,3 +496,24 @@ for `state`, including `INSUFFICIENT_DATA`, are valid.
   `nextRecapAt`. Unauthenticated, so the
   counts are read without sweeping the caches and may briefly include expired
   entries that the sweep has not yet reclaimed.
+
+### Compact journey alerts
+
+Journey alert messages can supply an explicit summary block before ClickStack's
+CSV fence:
+
+```text
+[journey-summary]
+Flow: First deposit · Simulation
+Impact: Synthetic failure; no user funds moved
+Release: synthetic fixture
+Owner: Web Earn
+[/journey-summary]
+```
+
+The relay renders the alert title, this summary, and a **View evidence** link to
+ClickStack's time-bounded search. Raw CSV identifiers, generated query groups and
+threshold boilerplate stay out of chat. The summary is escaped as text; only an
+HTTPS evidence URL without credentials becomes a link. Telegram's HTML rejection
+fallback retains the compact summary. Other alerts retain their existing format.
+Deploy the relay before enabling these summary blocks in live alert messages.

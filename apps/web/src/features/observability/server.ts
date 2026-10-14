@@ -22,6 +22,7 @@ import type {
 import {
   buildOtlpErrorPayload,
   buildOtlpLifecyclePayload,
+  buildOtlpJourneyTracePayload,
   buildOtlpLoadingMetricPayload,
 } from "./otlp";
 
@@ -45,7 +46,7 @@ type TelemetryConfig = {
   ingestionKey: string;
 };
 
-type OtlpSignal = "logs" | "metrics";
+type OtlpSignal = "logs" | "metrics" | "traces";
 
 function getTelemetryConfig(signal: OtlpSignal): TelemetryConfig | null {
   const rawEndpoint = process.env.OBSERVABILITY_OTLP_ENDPOINT?.trim();
@@ -142,7 +143,12 @@ async function exportErrorEvent(event: NormalizedErrorEvent): Promise<boolean> {
 async function exportLifecycleEvent(
   event: NormalizedLifecycleEvent
 ): Promise<boolean> {
-  return exportOtlpPayload(buildOtlpLifecyclePayload(event), "logs");
+  const traces = buildOtlpJourneyTracePayload(event);
+  const results = await Promise.all([
+    exportOtlpPayload(buildOtlpLifecyclePayload(event), "logs"),
+    ...(traces ? [exportOtlpPayload(traces, "traces")] : []),
+  ]);
+  return results.every(Boolean);
 }
 
 async function exportLoadingMetric(
@@ -238,6 +244,24 @@ export async function reportServerError(
   }
 }
 
+export function getJourneyTrafficKind(
+  walletAddress?: string
+): "external" | "internal" | "synthetic" {
+  return process.env.OBSERVABILITY_TRAFFIC_KIND === "synthetic" &&
+    !["production", "prod"].includes(getObservabilityDeploymentEnvironment())
+    ? "synthetic"
+    : walletAddress &&
+      (
+        process.env.OBSERVABILITY_INTERNAL_WALLETS ??
+        "BmzZz5VTNU57EHaGwyDcP1vXz9a8RwEDYAcPCdW4nPg1"
+      )
+        .split(",")
+        .map((value) => value.trim())
+        .includes(walletAddress)
+    ? "internal"
+    : "external";
+}
+
 export async function reportBrowserLifecycleEnvelope(
   envelope: BrowserLifecycleEnvelope,
   walletAddress?: string
@@ -246,6 +270,20 @@ export async function reportBrowserLifecycleEnvelope(
     return await exportLifecycleEvent({
       ...envelope,
       ...(walletAddress ? { walletAddress } : {}),
+      ...(walletAddress
+        ? {
+            userId: Array.from(
+              new Uint8Array(
+                await crypto.subtle.digest(
+                  "SHA-256",
+                  new Uint8Array(new TextEncoder().encode(walletAddress)).buffer
+                )
+              ),
+              (byte) => byte.toString(16).padStart(2, "0")
+            ).join(""),
+          }
+        : {}),
+      trafficKind: getJourneyTrafficKind(walletAddress),
       deploymentEnvironment: getObservabilityDeploymentEnvironment(),
       release: getObservabilityRelease(),
       serviceName: "loyal-frontend",
@@ -306,4 +344,55 @@ export async function reportMobileLifecycleEnvelope(
   } catch {
     return false;
   }
+}
+
+/** Independent of user traffic; the cron response also exposes exporter failure. */
+export async function reportTelemetryHeartbeat(): Promise<boolean> {
+  const timeUnixNano = String(BigInt(Date.now()) * BigInt(1_000_000));
+  return exportOtlpPayload(
+    {
+      resourceLogs: [
+        {
+          resource: {
+            attributes: [
+              { key: "service.name", value: { stringValue: "loyal-frontend" } },
+              {
+                key: "service.version",
+                value: { stringValue: getObservabilityRelease() },
+              },
+              {
+                key: "deployment.environment.name",
+                value: { stringValue: getObservabilityDeploymentEnvironment() },
+              },
+            ],
+          },
+          scopeLogs: [
+            {
+              scope: { name: "loyal.frontend.telemetry-health", version: "1" },
+              logRecords: [
+                {
+                  timeUnixNano,
+                  observedTimeUnixNano: timeUnixNano,
+                  severityNumber: 9,
+                  severityText: "INFO",
+                  body: { stringValue: "telemetry.heartbeat" },
+                  attributes: [
+                    {
+                      key: "loyal.event.kind",
+                      value: { stringValue: "telemetry_heartbeat" },
+                    },
+                    {
+                      key: "loyal.traffic.kind",
+                      value: { stringValue: "synthetic" },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    "logs"
+  );
 }

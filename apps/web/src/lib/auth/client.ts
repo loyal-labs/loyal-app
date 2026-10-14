@@ -1,3 +1,4 @@
+import { lifecycleFlowHeaders } from "@/features/observability/client";
 import {
   extractApiErrorMessage,
   parseApiErrorDetails,
@@ -46,7 +47,9 @@ export type AuthApiClient = {
     payload: WalletCompleteRequest,
     options?: { flowId?: string }
   ): Promise<AuthSessionUser>;
-  getSession(): Promise<WalletSessionResponse | null>;
+  getSession(options?: {
+    flowId?: string;
+  }): Promise<WalletSessionResponse | null>;
   refreshSession(options?: {
     flowId?: string;
   }): Promise<WalletSessionResponse | null>;
@@ -94,7 +97,10 @@ async function callLocalAuthEndpoint(
   flowId?: string
 ): Promise<ApiOutcome> {
   const headers = new Headers(init.headers);
-  if (flowId) headers.set("x-loyal-flow-id", flowId);
+  if (flowId)
+    new Headers(lifecycleFlowHeaders(flowId)).forEach((value, key) =>
+      headers.set(key, value)
+    );
   const response = await fetch(endpoint, {
     ...init,
     credentials: "include",
@@ -186,10 +192,14 @@ export function createAuthApiClient(): AuthApiClient {
       return parsed.user;
     },
 
-    async getSession() {
-      const outcome = await callLocalAuthEndpoint("/api/auth/session", {
-        method: "GET",
-      });
+    async getSession(options) {
+      const outcome = await callLocalAuthEndpoint(
+        "/api/auth/session",
+        {
+          method: "GET",
+        },
+        options?.flowId
+      );
       if (!outcome.ok) {
         if (outcome.status === 401) {
           return null;

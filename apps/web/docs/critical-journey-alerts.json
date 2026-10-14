@@ -1,0 +1,85 @@
+{
+  "auditedAt": "2026-10-13",
+  "reused": {
+    "technicalErrorsAlertId": "6a60c6b9dcc64beb0ded91c3",
+    "technicalErrorsSavedSearchId": "6a5fb723dcc64beb0ded6cca",
+    "telegramWebhookId": "6a60b666dcc64beb0ded8d48"
+  },
+  "savedSearch": {
+    "id": "6ace1464f1ee537a8e910b64",
+    "name": "Web journey stalls after confirmed deposit",
+    "sourceId": "6a58601284f8f1d4ff4d12a5",
+    "whereLanguage": "sql",
+    "where": "ServiceName = 'loyal-frontend' AND ResourceAttributes['deployment.environment.name'] IN ('production','prod') AND LogAttributes['loyal.traffic.kind'] = 'external' AND LogAttributes['loyal.flow.name'] = 'earn.deposit' AND LogAttributes['loyal.flow.outcome'] = 'timed_out' AND LogAttributes['loyal.flow.stage'] = 'position_visible' AND LogAttributes['loyal.chain.state'] = 'confirmed'",
+    "select": "Timestamp,LogAttributes['loyal.journey.id'],LogAttributes['loyal.flow.id'],LogAttributes['loyal.flow.stage'],LogAttributes['loyal.client.build_id'],LogAttributes['loyal.user.id']",
+    "orderBy": "Timestamp DESC",
+    "tags": ["web-journeys", "earn"]
+  },
+  "alert": {
+    "id": "6ace1471f1ee537a8e910b69",
+    "name": "Confirmed web deposit not visible after 60 seconds",
+    "source": "saved_search",
+    "savedSearchId": "6ace1464f1ee537a8e910b64",
+    "interval": "5m",
+    "threshold": 0,
+    "thresholdType": "above_exclusive",
+    "groupBy": "concat(LogAttributes['loyal.flow.name'], ' / ', LogAttributes['loyal.flow.stage'], ' / release ', LogAttributes['loyal.client.build_id'])",
+    "channel": {
+      "type": "webhook",
+      "webhookId": "6a60b666dcc64beb0ded8d48"
+    },
+    "message": "Owner: web Earn. Flow: earn.deposit; step: position_visible. A confirmed, recorded deposit remained without an authoritative visible position for 60 seconds in an active browser. Do not deposit again: inspect RPC read freshness and position reconciliation. The alert group identifies the client release; the matched rows identify affected journeys and users. Evidence: https://observability.5.161.121.229.sslip.io/search/6ace1464f1ee537a8e910b64 ; dashboard: https://admin.askloyal.com/journeys"
+  },
+  "verification": {
+    "queryAndEvaluation": "passed; zero matches at 2026-10-13T11:25:00Z and 2026-10-13T11:30:00Z",
+    "notificationDelivery": "not verified",
+    "recoveryNotification": "not verified"
+  },
+  "pendingActivation": {
+    "telemetryOutage": {
+      "activateAfter": "At least one deployed production telemetry_heartbeat is observed; absence before deployment is not an incident.",
+      "savedSearch": {
+        "name": "Web telemetry heartbeat",
+        "sourceId": "6a58601284f8f1d4ff4d12a5",
+        "whereLanguage": "sql",
+        "where": "ServiceName = 'loyal-frontend' AND ResourceAttributes['deployment.environment.name'] IN ('production','prod') AND LogAttributes['loyal.event.kind'] = 'telemetry_heartbeat'"
+      },
+      "alert": {
+        "name": "Web telemetry missing for 15 minutes",
+        "source": "saved_search",
+        "interval": "15m",
+        "threshold": 1,
+        "thresholdType": "below",
+        "channel": {
+          "type": "webhook",
+          "webhookId": "6a60b666dcc64beb0ded8d48"
+        },
+        "message": "Owner: web platform. Synthetic telemetry heartbeat missing for 15 minutes (expected every 5 minutes), independent of user volume. Journey rates may be incomplete; do not interpret silence as zero failures. Inspect the deployed web release, Vercel cron invocation /api/cron/telemetry-heartbeat (200 accepted, 503 exporter failure), and collector health. Evidence: https://observability.5.161.121.229.sslip.io/search ; dashboard: https://admin.askloyal.com/journeys"
+      }
+    }
+  },
+  "releaseRegression": {
+    "dashboardId": "6ace5bfaf1ee537a8e910e56",
+    "tileId": "6ace5bfaf1ee537a8e910e54",
+    "alertId": "6ace5c09f1ee537a8e910e5b",
+    "interval": "1h",
+    "window": "rolling 6h; 7d older-release baseline; excludes journeys younger than 10m",
+    "queryFile": "journey-release-regressions.sql",
+    "thresholdType": "above_exclusive",
+    "threshold": 0,
+    "minimumJourneys": 10,
+    "minimumAffectedJourneys": 3,
+    "minimumFailureRate": 0.25,
+    "minimumBaselineJourneys": 10,
+    "minimumRelativeRegression": 2,
+    "minimumAbsoluteRegression": 0.15,
+    "telegramWebhookId": "6a60b666dcc64beb0ded8d48",
+    "verification": "Live tile returns 0 before rollout; read-only SQL fixtures: regression=1, nine-journey low volume=0, already-unhealthy baseline=0. Notification delivery/recovery not verified."
+  },
+  "compactTelegram": {
+    "activation": "Deploy observability/telegram-relay before replacing live messages with these templates.",
+    "testMessage": "[journey-summary]\nFlow: First deposit · Simulation\nImpact: Synthetic failure; no user funds moved\nRelease: synthetic fixture\nOwner: Web Earn\n[/journey-summary]",
+    "deliveryEvidence": "User confirmed Telegram receipt of the injected failure at 2026-10-14T12:18Z. Alert evaluated ALERT then OK; recovery notification was not confirmed.",
+    "datadogDashboard": "https://us5.datadoghq.com/dashboard/yww-hgc-nev"
+  }
+}

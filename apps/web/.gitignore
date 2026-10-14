@@ -57,3 +57,7 @@ CLAUDE.md
 .env*.local
 
 policy-builder.md
+
+# Controlled Playwright journey fixtures
+/test-results/
+/playwright-report/

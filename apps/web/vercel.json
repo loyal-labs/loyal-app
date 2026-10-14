@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/earn-yield-joy",
       "schedule": "41 15 * * *"
+    },
+    {
+      "path": "/api/cron/telemetry-heartbeat",
+      "schedule": "*/5 * * * *"
     }
   ],
   "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ] || ! git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA\" 2>/dev/null; then exit 1; fi; git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ../../packages",

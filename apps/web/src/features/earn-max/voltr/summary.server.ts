@@ -69,9 +69,11 @@ export async function readEarnMaxVoltrSummary(
   const pending = position.withdrawal;
   const blocked = voltrClaimBlockReason(position);
   const canClaim = blocked === null;
-  const health = pending && !canClaim ? await readEarnMaxWithdrawalHealth() : undefined;
+  const health =
+    pending && !canClaim ? await readEarnMaxWithdrawalHealth() : undefined;
   return {
     balanceUsd: Number(position.valueRaw) / 1_000_000,
+    observedSlot: position.observedSlot,
     claimAmountRaw: pending ? pending.payoutRaw.toString() : "0",
     coverage: history.complete ? "complete" : "history_incomplete",
     currentOperationId: null,

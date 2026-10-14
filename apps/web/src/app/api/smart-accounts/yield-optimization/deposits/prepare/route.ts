@@ -1,3 +1,7 @@
+import {
+  withRequestLifecycle,
+  type RequestLifecycle,
+} from "@/features/observability/lifecycle.server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import {
@@ -71,6 +75,20 @@ function getConnection(cluster: SolanaEnv): Connection {
 }
 
 export async function POST(request: Request) {
+  return withRequestLifecycle({
+    request,
+    flowName: "earn.deposit",
+    flowVariant: "initial",
+    stage: "prepare",
+
+    run: (lifecycle) => handleRequest(request, lifecycle),
+  });
+}
+
+async function handleRequest(
+  request: Request,
+  lifecycle: RequestLifecycle | null
+) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
   if (!principal) {
@@ -79,6 +97,8 @@ export async function POST(request: Request) {
 
   let amountRaw: bigint;
   let mint: string | null;
+  lifecycle?.setVerifiedWallet(principal.walletAddress);
+
   try {
     ({ amountRaw, mint } = parseEarnDepositPrepareRequestBody(
       await request.json()

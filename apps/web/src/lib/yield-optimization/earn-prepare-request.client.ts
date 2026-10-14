@@ -1,3 +1,4 @@
+import { lifecycleFlowHeaders } from "@/features/observability/client";
 import type { LifecycleErrorDetail } from "@/features/observability/lifecycle-contract";
 
 // Prepare routes legitimately run long (Safe reserve selection + Kamino RPC
@@ -71,7 +72,7 @@ export async function fetchEarnPrepare(args: {
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(args.flowId ? { "x-loyal-flow-id": args.flowId } : {}),
+          ...(args.flowId ? lifecycleFlowHeaders(args.flowId) : {}),
         },
         method: "POST",
         signal: controller.signal,

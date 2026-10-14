@@ -5,7 +5,10 @@ import {
   parseBrowserLifecycleEnvelope,
 } from "@/features/observability/lifecycle-contract";
 import { consumeBrowserLifecycleRateLimit } from "@/features/observability/rate-limit.server";
-import { reportBrowserLifecycleEnvelope } from "@/features/observability/server";
+import {
+  reportBrowserLifecycleEnvelope,
+  getJourneyTrafficKind,
+} from "@/features/observability/server";
 
 export const runtime = "nodejs";
 
@@ -78,6 +81,12 @@ async function resolveWalletAddress(
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (
+    request.headers.get("x-loyal-synthetic-probe") === "1" &&
+    getJourneyTrafficKind() !== "synthetic"
+  ) {
+    return jsonResponse({ error: "synthetic_target_required" }, 403);
+  }
   if (!isSameOriginRequest(request)) {
     return jsonResponse({ error: "forbidden" }, 403);
   }
@@ -91,8 +100,15 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const envelope = parseBrowserLifecycleEnvelope(await readJsonBody(request));
     const walletAddress = await resolveWalletAddress(request);
-    await reportBrowserLifecycleEnvelope(envelope, walletAddress);
-    return jsonResponse({ accepted: true }, 202);
+    const trafficKind = getJourneyTrafficKind(walletAddress);
+    const exported = await reportBrowserLifecycleEnvelope(
+      envelope,
+      walletAddress
+    );
+    if (!exported) {
+      return jsonResponse({ error: "telemetry_unavailable", trafficKind }, 503);
+    }
+    return jsonResponse({ accepted: true, trafficKind }, 202);
   } catch (error) {
     if (error instanceof RangeError) {
       return jsonResponse({ error: "payload_too_large" }, 413);

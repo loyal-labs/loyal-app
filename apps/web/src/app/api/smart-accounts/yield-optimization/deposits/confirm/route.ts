@@ -1,3 +1,7 @@
+import {
+  withRequestLifecycle,
+  type RequestLifecycle,
+} from "@/features/observability/lifecycle.server";
 import { NextResponse } from "next/server";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
@@ -99,11 +103,27 @@ async function resolveReusedPolicyCitation(
 }
 
 export async function POST(request: Request) {
+  return withRequestLifecycle({
+    request,
+    flowName: "earn.deposit",
+    flowVariant: "initial",
+    stage: "backend_confirm",
+    success: { chainState: "confirmed", persistenceState: "recorded" },
+    run: (lifecycle) => handleRequest(request, lifecycle),
+  });
+}
+
+async function handleRequest(
+  request: Request,
+  lifecycle: RequestLifecycle | null
+) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
   if (!principal) {
     return jsonError(401, "unauthenticated", "No active auth session.");
   }
+
+  lifecycle?.setVerifiedWallet(principal.walletAddress);
 
   let input: ConfirmedYieldDepositInput;
   try {

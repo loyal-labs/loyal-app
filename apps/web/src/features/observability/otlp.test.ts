@@ -38,6 +38,16 @@ function severityText(event: NormalizedLifecycleEvent): string | undefined {
 }
 
 describe("lifecycle alert severity", () => {
+  test("synthetic injected failures never page through production Errors", () => {
+    const event = lifecycleEvent({
+      trafficKind: "synthetic",
+      errorCode: "simulation_failed",
+      httpStatus: 500,
+    });
+    expect(isAlertableLifecycleEvent(event)).toBe(false);
+    expect(severityText(event)).toBe("INFO");
+    expect(severityText({ ...event, trafficKind: "external" })).toBe("ERROR");
+  });
   test.each([
     "insufficient_native_sol",
     "wallet_account_mismatch",
