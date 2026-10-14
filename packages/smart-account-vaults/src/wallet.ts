@@ -416,6 +416,25 @@ export async function sendPreparedBatchWithWallet({
   onTransactionConfirmed,
   onTransactionSent,
 }: SendPreparedBatchWithWalletArgs): Promise<string[]> {
+  if (sendMode === "sign-and-confirm-each") {
+    const signatures: string[] = [];
+    for (const [index, operation] of prepared.entries()) {
+      // Fetch a fresh blockhash and request approval only after the preceding
+      // transaction and its confirmation callback have completed.
+      const signature = await sendPreparedWithWallet({
+        connection,
+        wallet,
+        prepared: operation,
+        confirm: true,
+        sendOptions,
+        onTransactionSent: (sent) => onTransactionSent?.({ ...sent, index }),
+        onTransactionConfirmed: (confirmed) =>
+          onTransactionConfirmed?.({ ...confirmed, index }),
+      });
+      signatures.push(signature);
+    }
+    return signatures;
+  }
   if (!wallet.signAllTransactions) {
     throw new Error("Connected wallet does not support signAllTransactions.");
   }

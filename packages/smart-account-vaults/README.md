@@ -78,6 +78,13 @@ These build `TransactionMessage` payloads where the vault PDA is the payer/execu
 
 `sendPreparedWithWallet()` compiles a prepared operation to a versioned transaction, signs/sends with a wallet adapter, and optionally confirms it.
 
+For dependent setup operations, use `sendPreparedBatchWithWallet()` with
+`sendMode: "sign-and-confirm-each"`. This always confirms and awaits the
+confirmation callback before compiling and requesting the next wallet approval.
+Each operation gets a fresh blockhash. It stops on the first failure and never
+automatically resends an unresolved transaction. The other modes retain batch
+signing and must not be used when wallet simulation needs predecessor accounts.
+
 ### Exported types
 
 Read-model types:

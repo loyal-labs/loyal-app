@@ -224,7 +224,11 @@ export type SendPreparedBatchWithWalletArgs = {
   prepared: readonly PreparedLoyalSmartAccountsOperation<string>[];
   confirm?: boolean | "if-required";
   sendOptions?: SendOptions;
-  sendMode?: "confirm-each" | "send-all-before-confirm";
+  // Dependent setup transactions must land before the wallet simulates the next.
+  sendMode?:
+    | "confirm-each"
+    | "send-all-before-confirm"
+    | "sign-and-confirm-each";
   onTransactionConfirmed?: (args: {
     index: number;
     prepared: PreparedLoyalSmartAccountsOperation<string>;

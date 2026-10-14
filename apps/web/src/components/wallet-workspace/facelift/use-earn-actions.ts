@@ -1216,7 +1216,7 @@ export function useEarnActions(deps: {
               draft,
               isPolicySetupFlow: requiresPolicySetup,
               preparedDeposit,
-              showBatchTransactions: Boolean(wallet.signAllTransactions),
+              showBatchTransactions: true,
             })
           );
           captureBrowserLoadingMetricAfterPaint({
@@ -1290,11 +1290,11 @@ export function useEarnActions(deps: {
         if (stage === "policy" || stage === "policy-finalize") {
           tracker.observe(stage === "policy" ? "policy" : "policy_finalize", {
             chainState: "not_submitted",
-            executionMode: "batch",
+            executionMode: "sequential",
             policyMode: "create",
           });
           prepareWalletSubmission({
-            executionMode: "batch",
+            executionMode: "sequential",
             policyMode: "create",
           });
           const batchResult = await smartAccountData.executeEarnDepositBatch({
@@ -1534,7 +1534,6 @@ export function useEarnActions(deps: {
       smartAccountData,
       suppressPositionRefreshThroughSlot,
       trackedKaminoUsdcMint,
-      wallet.signAllTransactions,
       walletAddress,
     ]
   );

@@ -137,6 +137,18 @@ Wallet prompts and approval screens can legitimately exceed these budgets.
 
 ## Regression findings
 
+First-deposit ordering fix (ASK-2326): web Earn setup now uses
+`sign-and-confirm-each`. Policy creation, policy finalization and deposit are
+signed separately, after the preceding transaction confirms and its backend
+recording succeeds. Top-ups without setup keep the single-transaction path.
+The approval review lists every transaction and explains the separate prompts.
+SDK regression fixtures reproduce missing-predecessor rejection under the old
+batch ordering, verify compiled transaction signatures under sequential ordering,
+and stop progression on rejection, unresolved confirmation or recording failure.
+Wallet simulation and RPC are mocked; this is not a mainnet Kamino execution
+test or proof of the exact historical user incident. Reserve-selection failures
+(`no_eligible_reserve`) remain a separate diagnostic path.
+
 The audit found the following pre-change behavior:
 
 - Privy tracking starts inside the post-authentication handshake effect. Login
