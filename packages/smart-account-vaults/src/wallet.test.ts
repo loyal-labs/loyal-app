@@ -1,14 +1,19 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts-core";
-import type { Connection, Transaction, VersionedTransaction } from "@solana/web3.js";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import type {
+  Connection,
+  Transaction,
+  VersionedTransaction,
+} from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 
 import type { WalletAdapterLike } from "./types";
 import { sendPreparedBatchWithWallet, sendPreparedWithWallet } from "./wallet";
 
 const programId = new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
 const settingsPda = new PublicKey("11111111111111111111111111111112");
-const feePayer = new PublicKey("11111111111111111111111111111113");
+const fixtureSigner = Keypair.generate();
+const feePayer = fixtureSigner.publicKey;
 const recipient = new PublicKey("11111111111111111111111111111114");
 const recentBlockhash = "11111111111111111111111111111111";
 
@@ -43,10 +48,13 @@ function createRejectingWallet(error = new Error("wallet rejected")) {
 }
 
 function createSignAllTransactionsMock() {
-  return mock(
-    async (transactions: (Transaction | VersionedTransaction)[]) =>
-      transactions
-  ) as unknown as NonNullable<WalletAdapterLike["signAllTransactions"]>;
+  return mock(async (transactions: (Transaction | VersionedTransaction)[]) => {
+    for (const transaction of transactions) {
+      if ("version" in transaction) transaction.sign([fixtureSigner]);
+      else transaction.partialSign(fixtureSigner);
+    }
+    return transactions;
+  }) as unknown as NonNullable<WalletAdapterLike["signAllTransactions"]>;
 }
 
 function createConnection(args: {
@@ -69,7 +77,7 @@ function createConnection(args: {
   return {
     confirmTransaction:
       args.confirmTransaction ??
-      mock(async () => ({ value: { err: null } })),
+      mock(async () => ({ context: { slot: 1 }, value: { err: null } })),
     getAccountInfo: args.getAccountInfo,
     getLatestBlockhash: mock(async () => ({
       blockhash: recentBlockhash,
@@ -234,7 +242,7 @@ describe("wallet prepared sends", () => {
     });
     const confirmTransaction = mock(async (strategy: { signature: string }) => {
       events.push(`confirm:${strategy.signature}`);
-      return { value: { err: null } };
+      return { context: { slot: 1 }, value: { err: null } };
     });
     const connection = createConnection({
       confirmTransaction,
@@ -253,14 +261,16 @@ describe("wallet prepared sends", () => {
         publicKey: feePayer,
         signAllTransactions: createSignAllTransactionsMock(),
         signTransaction: mock(
-          async <T extends VersionedTransaction>(transaction: T) =>
-            transaction
+          async <T extends VersionedTransaction>(transaction: T) => transaction
         ),
       },
     });
 
     expect(signatures).toEqual(["signature-1", "signature-2"]);
-    expect(events.slice(0, 2)).toEqual(["send:signature-1", "send:signature-2"]);
+    expect(events.slice(0, 2)).toEqual([
+      "send:signature-1",
+      "send:signature-2",
+    ]);
     expect(events.indexOf("confirm:signature-1")).toBeGreaterThan(1);
     expect(events.indexOf("confirm:signature-2")).toBeGreaterThan(1);
     expect(events).toContain("callback:signature-1");
@@ -282,7 +292,7 @@ describe("wallet prepared sends", () => {
     });
     const confirmTransaction = mock(async (strategy: { signature: string }) => {
       events.push(`confirm:${strategy.signature}`);
-      return { value: { err: null } };
+      return { context: { slot: 1 }, value: { err: null } };
     });
     const connection = createConnection({
       confirmTransaction,
@@ -308,7 +318,10 @@ describe("wallet prepared sends", () => {
           ),
         },
       })
-    ).rejects.toThrow("second send failed");
+    ).rejects.toMatchObject({
+      transactionWasSubmitted: true,
+      cause: sendError,
+    });
 
     expect(events).toEqual([
       "send:signature-1",
@@ -382,4 +395,74 @@ describe("wallet prepared sends", () => {
       `Missing policy account ${missingPolicyAccount} for prepared setup policy seed 3`
     );
   });
+});
+
+test("fresh-wallet batch rejection cannot be replaced by dependent-account simulation", async () => {
+  const rejection = Object.assign(new Error("User rejected the request"), {
+    code: 4001,
+  });
+  const connection = createConnection({
+    logs: ["Program failed: missing account"],
+  });
+  await expect(
+    sendPreparedBatchWithWallet({
+      connection,
+      prepared: [createPrepared(), createPrepared()],
+      wallet: {
+        publicKey: feePayer,
+        signAllTransactions: mock(async () => {
+          throw rejection;
+        }),
+        signTransaction: mock(
+          async <T extends VersionedTransaction>(transaction: T) => transaction
+        ),
+      },
+    })
+  ).rejects.toBe(rejection);
+  expect(connection.simulateTransaction).not.toHaveBeenCalled();
+  expect(connection.sendRawTransaction).not.toHaveBeenCalled();
+});
+
+test("fresh-wallet dependent batch simulation diagnoses setup accounts before any submission", async () => {
+  let simulations = 0;
+  const connection = createConnection({
+    simulateTransaction: mock(async () => ({
+      context: { slot: 1 },
+      value:
+        ++simulations === 1
+          ? { err: null, logs: [] }
+          : {
+              err: { InstructionError: [0, { Custom: 0x1788 }] },
+              logs: [
+                `Program ${programId.toBase58()} failed: custom program error: 0x1788`,
+              ],
+            },
+    })),
+  });
+  const dependent = createPrepared(undefined, {
+    includedPolicyAccounts: [],
+    kind: "earnPolicyCreateMissingAccount",
+    policyAccount: recipient.toBase58(),
+    policySeed: "3",
+    policyStage: "setup",
+    programId: programId.toBase58(),
+    settingsPda: settingsPda.toBase58(),
+  });
+  await expect(
+    sendPreparedBatchWithWallet({
+      connection,
+      prepared: [createPrepared(), dependent],
+      wallet: {
+        publicKey: feePayer,
+        signAllTransactions: mock(async () => {
+          throw new Error("Wallet simulation failed");
+        }),
+        signTransaction: mock(
+          async <T extends VersionedTransaction>(transaction: T) => transaction
+        ),
+      },
+    })
+  ).rejects.toThrow("Missing policy account");
+  expect(simulations).toBe(2);
+  expect(connection.sendRawTransaction).not.toHaveBeenCalled();
 });

@@ -109,6 +109,16 @@ export function CryptoPage({
   const { isHydrated, isSignedIn } = useAuthCapability();
 
   const data = useWalletDesktopData({});
+  const swapVisibleBalances = useMemo(
+    () => ({
+      owner: data.walletAddress,
+      balances: data.positions.map((position) => ({
+        mint: position.asset.mint,
+        amount: position.publicBalance,
+      })),
+    }),
+    [data.walletAddress, data.positions]
+  );
 
   // --- legacy shielded-balance exit (ASK-2269) ---
   // Only wallets still holding deposits in the sunset private-transfer
@@ -615,6 +625,7 @@ export function CryptoPage({
               />
             ) : isSwapOpen ? (
               <SwapPane
+                visibleBalances={swapVisibleBalances}
                 activeSelectSide={swapSelectSide}
                 fromToken={swapFromToken}
                 onBack={closeSwap}

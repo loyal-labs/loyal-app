@@ -1,3 +1,7 @@
+import {
+  withRequestLifecycle,
+  type RequestLifecycle,
+} from "@/features/observability/lifecycle.server";
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 
@@ -188,6 +192,18 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  return withRequestLifecycle({
+    request,
+    flowName: "earn.autodeposit.execute_now",
+    flowVariant: "execute_now",
+    stage: "request",
+    run: (lifecycle) => handleExecuteRequest(request, lifecycle),
+  });
+}
+async function handleExecuteRequest(
+  request: Request,
+  lifecycle: RequestLifecycle | null
+) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
   if (!principal) {
@@ -278,6 +294,11 @@ export async function POST(request: Request) {
       );
     }
 
+    lifecycle?.setVerifiedWallet(principal.walletAddress);
+    lifecycle?.tracker.observe("request", {
+      executeNowState: "requested",
+      scheduledSlotId: requestResult.slotId.toString(),
+    });
     return NextResponse.json({
       status: "requested",
       sweepRequest: serializeRequestResult(requestResult),

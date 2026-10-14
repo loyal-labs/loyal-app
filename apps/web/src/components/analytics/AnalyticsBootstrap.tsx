@@ -6,6 +6,8 @@ import { useEffect, useRef } from "react";
 
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { restoreBrowserJourneys } from "@/features/observability/client";
+import { initJourneyDatadog } from "@/features/observability/datadog.client";
 import {
   identifyAuthenticatedUser,
   initAnalytics,
@@ -75,19 +77,22 @@ export function fireXPixelSignupIfNeeded(): void {
 export function AnalyticsBootstrap() {
   const pathname = usePathname();
   const publicEnv = usePublicEnv();
-  const { user } = useAuthSession();
+  const { isHydrated, user } = useAuthSession();
   const lastTrackedPathRef = useRef<string | null>(null);
   const previousUserRef = useRef<AuthSessionUser | null>(null);
 
   useEffect(() => {
     void initAnalytics(publicEnv);
+    void initJourneyDatadog(publicEnv);
   }, [publicEnv]);
 
   useEffect(() => {
-    if (!shouldTrackFrontendPageView({
-      pathname,
-      lastTrackedPath: lastTrackedPathRef.current,
-    })) {
+    if (
+      !shouldTrackFrontendPageView({
+        pathname,
+        lastTrackedPath: lastTrackedPathRef.current,
+      })
+    ) {
       return;
     }
 
@@ -96,13 +101,15 @@ export function AnalyticsBootstrap() {
   }, [pathname, publicEnv]);
 
   useEffect(() => {
+    if (!isHydrated) return;
     if (!user) {
-      resetAuthenticatedUser();
+      if (previousUserRef.current) resetAuthenticatedUser();
+      void restoreBrowserJourneys(null);
       return;
     }
 
     identifyAuthenticatedUser(publicEnv, user);
-  }, [publicEnv, user]);
+  }, [isHydrated, publicEnv, user]);
 
   useEffect(() => {
     if (

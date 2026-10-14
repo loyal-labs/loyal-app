@@ -58,6 +58,15 @@ async function getSimulationDiagnosticError(args: {
   prepared: PreparedOperation;
   transaction: VersionedTransaction;
 }): Promise<Error | null> {
+  // An explicit user denial must not become a failure of a dependent transaction.
+  if (
+    args.error &&
+    typeof args.error === "object" &&
+    "code" in args.error &&
+    args.error.code === 4001
+  ) {
+    return null;
+  }
   if (typeof args.connection.simulateTransaction !== "function") {
     return null;
   }

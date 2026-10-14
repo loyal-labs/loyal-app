@@ -1,5 +1,7 @@
 "use client";
 
+import { isWithdrawalVisible } from "@/features/observability/withdrawal-visibility";
+import { isDepositVisible } from "@/features/observability/deposit-visibility";
 import type {
   SmartAccountPreparedEarnUsdcAutodepositClose,
   SmartAccountPreparedEarnUsdcDeposit,
@@ -76,6 +78,7 @@ import {
   captureBrowserLoadingMetricAfterPaint,
   captureBrowserSubmittedFailureMetricAfterPaint,
   createBrowserLifecycleTracker,
+  lifecycleFlowHeaders,
   getBrowserPerformanceNow,
   measureBrowserLoadingDependencies,
 } from "@/features/observability/client";
@@ -92,7 +95,10 @@ import {
   useRealtimeSync,
   useRealtimeSyncScope,
 } from "@/features/realtime-sync";
-import type { ActiveEarnPosition } from "@/hooks/use-active-earn-position";
+import type {
+  ActiveEarnPosition,
+  EarnRpcObservation,
+} from "@/hooks/use-active-earn-position";
 import {
   fetchEarnEarningsRangeSet,
   invalidateEarnEarningsCache,
@@ -215,6 +221,7 @@ export function useEarnActions(deps: {
     setAmountRaw: Dispatch<SetStateAction<bigint | null>>;
   };
   position: ActiveEarnPosition | null;
+  rpcObservation?: EarnRpcObservation | null;
   refreshPosition: (
     context: RealtimeResourceRefreshContext
   ) => Promise<unknown>;
@@ -230,6 +237,7 @@ export function useEarnActions(deps: {
     mainUsdc,
     position,
     refreshPosition,
+    rpcObservation,
     setAutodepositOverride,
     setPosition,
     smartAccountData,
@@ -335,6 +343,116 @@ export function useEarnActions(deps: {
     scheduledSlotId: string | null;
     tracker: LifecycleTracker;
   } | null>(null);
+  const pendingDepositVisibilityRef = useRef(
+    new Map<
+      string,
+      {
+        timer: ReturnType<typeof setTimeout>;
+        tracker: LifecycleTracker;
+        wallet: string | null;
+        reserve: string;
+        confirmedSlot?: string;
+      }
+    >()
+  );
+  useEffect(() => {
+    for (const [id, pending] of pendingDepositVisibilityRef.current) {
+      if (pending.wallet !== walletAddress) {
+        clearTimeout(pending.timer);
+        pendingDepositVisibilityRef.current.delete(id);
+      } else if (
+        isDepositVisible(
+          position?.holdings,
+          pending.reserve,
+          pending.confirmedSlot
+        )
+      ) {
+        clearTimeout(pending.timer);
+        pending.tracker.complete("position_visible", {
+          chainState: "confirmed",
+          persistenceState: "recorded",
+        });
+        pendingDepositVisibilityRef.current.delete(id);
+      }
+    }
+  }, [position, walletAddress]);
+  useEffect(() => {
+    const pending = pendingDepositVisibilityRef.current;
+    return () => {
+      for (const entry of pending.values()) clearTimeout(entry.timer);
+      pending.clear();
+    };
+  }, []);
+  const pendingWithdrawalVisibility = useRef(
+    new Map<
+      string,
+      {
+        tracker: LifecycleTracker;
+        wallet: string | null;
+        slot?: string;
+        sourceId: string | null;
+        previousAmountRaw: string;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >()
+  );
+  const waitForWithdrawalVisibility = useCallback(
+    (
+      tracker: LifecycleTracker,
+      slot: string | undefined,
+      sourceId: string | null,
+      previousAmountRaw: string
+    ) => {
+      tracker.observe("ui_commit", {
+        chainState: "confirmed",
+        persistenceState: "recorded",
+      });
+      pendingWithdrawalVisibility.current.set(tracker.flowId, {
+        tracker,
+        wallet: walletAddress,
+        slot,
+        sourceId,
+        previousAmountRaw,
+        timer: setTimeout(() => {
+          if (pendingWithdrawalVisibility.current.has(tracker.flowId))
+            tracker.timeout("position_visible", {
+              chainState: "confirmed",
+              persistenceState: "recorded",
+              errorCode: "realtime_unresolved",
+            });
+        }, 60_000),
+      });
+    },
+    [walletAddress]
+  );
+  useEffect(() => {
+    for (const [id, pending] of pendingWithdrawalVisibility.current) {
+      const visible =
+        rpcObservation?.position === position &&
+        isWithdrawalVisible(
+          rpcObservation ?? null,
+          pending.slot,
+          pending.sourceId,
+          pending.previousAmountRaw
+        );
+      if (pending.wallet !== walletAddress || visible) {
+        clearTimeout(pending.timer);
+        if (pending.wallet === walletAddress)
+          pending.tracker.complete("position_visible", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
+        pendingWithdrawalVisibility.current.delete(id);
+      }
+    }
+  }, [position, rpcObservation, walletAddress]);
+  useEffect(() => {
+    const pending = pendingWithdrawalVisibility.current;
+    return () => {
+      for (const item of pending.values()) clearTimeout(item.timer);
+      pending.clear();
+    };
+  }, []);
   const withdrawTrackerRef = useRef<LifecycleTracker | null>(null);
   const fullWithdrawalConfirmedSlotRef = useRef<string | null>(null);
   const autodepositTrackerRef = useRef<LifecycleTracker | null>(null);
@@ -875,6 +993,28 @@ export function useEarnActions(deps: {
         error?: string;
         errorCode?: string;
       }): boolean => {
+        if (
+          result.errorCode &&
+          result.errorCode !== "insufficient_native_sol"
+        ) {
+          const errorCode = normalizeLifecycleErrorCode(result.errorCode);
+          if (errorCode === "wallet_rejected") {
+            tracker.cancel("wallet_submit_confirm", { errorCode });
+          } else {
+            tracker.fail(
+              errorCode === "simulation_failed"
+                ? "preflight"
+                : "wallet_submit_confirm",
+              {
+                errorCode,
+                ...(errorCode === "unconfirmed_signature"
+                  ? { chainState: "submitted" }
+                  : {}),
+              }
+            );
+          }
+          // Continue the existing error UI; the tracker preserves this cause.
+        }
         if (result.errorCode !== "insufficient_native_sol") {
           return false;
         }
@@ -943,13 +1083,33 @@ export function useEarnActions(deps: {
             startedAtMs: walletSubmittedAtMs,
           });
         }
-        tracker.complete("ui_commit", {
-          chainState: "confirmed",
-          persistenceState:
-            commit.result.status === "confirmation_record_failed"
-              ? "failed"
-              : "recorded",
-        });
+        if (commit.result.status === "confirmation_record_failed") {
+          tracker.fail("backend_confirm", {
+            chainState: "confirmed",
+            errorCode: "record_failed",
+            persistenceState: "failed",
+          });
+        } else {
+          pendingDepositVisibilityRef.current.set(tracker.flowId, {
+            timer: setTimeout(() => {
+              if (!pendingDepositVisibilityRef.current.has(tracker.flowId))
+                return;
+              tracker.timeout("position_visible", {
+                chainState: "confirmed",
+                persistenceState: "recorded",
+                errorCode: "realtime_unresolved",
+              });
+            }, 60_000),
+            tracker,
+            wallet: walletAddress,
+            reserve: commit.preparedDeposit.targetReserve.reserve.toBase58(),
+            confirmedSlot: commit.result.confirmedSlot,
+          });
+          tracker.observe("ui_commit", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
+        }
         earnToast.success("Deposited");
         lifecycleOnboarding.depositConfirmed();
       };
@@ -991,6 +1151,10 @@ export function useEarnActions(deps: {
               ) {
                 throw error;
               }
+              tracker.retry(
+                "prepare",
+                getEarnPrepareLifecycleDiagnostics(error)
+              );
               await new Promise((resolve) => setTimeout(resolve, 2000));
             }
           }
@@ -1371,6 +1535,7 @@ export function useEarnActions(deps: {
       suppressPositionRefreshThroughSlot,
       trackedKaminoUsdcMint,
       wallet.signAllTransactions,
+      walletAddress,
     ]
   );
 
@@ -1519,10 +1684,20 @@ export function useEarnActions(deps: {
               startedAtMs: walletSubmittedAtMs,
             });
           }
-          tracker.complete("ui_commit", {
-            chainState: "confirmed",
-            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
-          });
+          if (confirmationRecordFailed) {
+            tracker.fail("backend_confirm", {
+              chainState: "confirmed",
+              persistenceState: "failed",
+              errorCode: "record_failed",
+            });
+          } else {
+            waitForWithdrawalVisibility(
+              tracker,
+              latestConfirmedSlot,
+              draft.source.sourceId,
+              draft.source.amountRaw
+            );
+          }
           if (confirmationRecordFailed) {
             setWithdrawError(EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE);
             tracker.recovery({ errorCode: "record_failed" });
@@ -1668,6 +1843,12 @@ export function useEarnActions(deps: {
             fullWithdrawalConfirmedSlotRef.current =
               result.confirmedSlot ?? null;
             // The flow stays open: the rent-cleanup phase completes it.
+            if (confirmationRecordFailed)
+              tracker.fail("backend_confirm", {
+                chainState: "confirmed",
+                persistenceState: "failed",
+                errorCode: "record_failed",
+              });
             tracker.observe("full_exit_verify", {
               chainState: "confirmed",
               cleanupRequired: true,
@@ -1676,12 +1857,20 @@ export function useEarnActions(deps: {
                 : "recorded",
             });
           } else {
-            tracker.complete("ui_commit", {
-              chainState: "confirmed",
-              persistenceState: confirmationRecordFailed
-                ? "failed"
-                : "recorded",
-            });
+            if (confirmationRecordFailed) {
+              tracker.fail("backend_confirm", {
+                chainState: "confirmed",
+                persistenceState: "failed",
+                errorCode: "record_failed",
+              });
+            } else {
+              waitForWithdrawalVisibility(
+                tracker,
+                result.confirmedSlot,
+                draft.source.sourceId,
+                draft.source.amountRaw
+              );
+            }
             if (confirmationRecordFailed) {
               tracker.recovery({ errorCode: "record_failed" });
             }
@@ -1760,6 +1949,7 @@ export function useEarnActions(deps: {
       smartAccountData,
       suppressPositionRefreshThroughSlot,
       trackedKaminoUsdcMint,
+      waitForWithdrawalVisibility,
     ]
   );
 
@@ -1870,11 +2060,12 @@ export function useEarnActions(deps: {
           startedAtMs: walletSubmittedAtMs,
         });
       }
-      tracker.complete("ui_commit", {
-        chainState: "confirmed",
-        cleanupRequired: true,
-        persistenceState: "recorded",
-      });
+      waitForWithdrawalVisibility(
+        tracker,
+        fullWithdrawalConfirmedSlotRef.current ?? undefined,
+        null,
+        "0"
+      );
       withdrawTrackerRef.current = null;
       fullWithdrawalConfirmedSlotRef.current = null;
       earnToast.success("Policies closed");
@@ -1920,6 +2111,7 @@ export function useEarnActions(deps: {
     setAutodepositOverride,
     setPosition,
     smartAccountData,
+    waitForWithdrawalVisibility,
   ]);
 
   // ---- Autodeposit save (app-wallet-workspace.tsx:4411-4602 + 6134-6395) ----
@@ -2668,7 +2860,7 @@ export function useEarnActions(deps: {
             credentials: "include",
             headers: {
               "content-type": "application/json",
-              "x-loyal-flow-id": tracker.flowId,
+              ...lifecycleFlowHeaders(tracker.flowId),
             },
             method: "POST",
           }

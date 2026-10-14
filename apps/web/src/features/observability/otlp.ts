@@ -1,5 +1,8 @@
 import type { NormalizedErrorEvent } from "./error-contract";
-import type { NormalizedLifecycleEvent } from "./lifecycle-contract";
+import {
+  lifecycleFailureCategory,
+  type NormalizedLifecycleEvent,
+} from "./lifecycle-contract";
 import type { NormalizedLoadingMetric } from "./metrics-contract";
 
 export type OtlpAttribute = {
@@ -50,6 +53,8 @@ const EXPECTED_LOCAL_FAILURES = new Set([
 export function isAlertableLifecycleEvent(
   event: NormalizedLifecycleEvent
 ): boolean {
+  // Synthetic failures are evaluated by the dedicated canary alert.
+  if (event.trafficKind === "synthetic") return false;
   if (event.recoveryRequired === true) return true;
   if (event.outcome !== "failed") return false;
   if (
@@ -203,9 +208,7 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
   };
 }
 
-export function buildOtlpLifecyclePayload(
-  event: NormalizedLifecycleEvent
-): unknown {
+export function buildOtlpLifecyclePayload(event: NormalizedLifecycleEvent) {
   const attributes: OtlpAttribute[] = [
     stringAttribute("loyal.event.kind", "flow_lifecycle"),
     stringAttribute("loyal.flow.id", event.flowId),
@@ -221,10 +224,18 @@ export function buildOtlpLifecyclePayload(
   ];
 
   const strings: Array<[string, string | undefined]> = [
+    ["loyal.journey.id", event.journeyId],
+    ["loyal.traffic.kind", event.trafficKind],
+    ["loyal.user.id", event.userId],
+    ["loyal.rum.session_id", event.rumSessionId],
+    ["loyal.event.id", event.eventId],
+    ["loyal.client.build_id", event.clientBuildId],
+    ["loyal.page_session.id", event.pageSessionId],
     ["loyal.device.id", event.deviceId],
     ["loyal.device.platform", event.devicePlatform],
     ["loyal.wallet.address", event.walletAddress],
     ["loyal.wallet.provider", event.walletProvider],
+    ["loyal.error.category", lifecycleFailureCategory(event)],
     ["loyal.error.code", event.errorCode],
     ["loyal.error.detail", event.errorDetail],
     ["loyal.error.message", event.errorMessage],
@@ -244,6 +255,9 @@ export function buildOtlpLifecyclePayload(
   }
 
   const integers: Array<[string, number | undefined]> = [
+    ["loyal.attempt.number", event.attemptNumber],
+    ["loyal.retry.count", event.retryCount],
+    ["loyal.flow.version", event.journeyId ? 2 : 1],
     ["http.response.status_code", event.httpStatus],
     ["loyal.stage.index", event.stageIndex],
     ["loyal.stage.count", event.stageCount],
@@ -285,6 +299,14 @@ export function buildOtlpLifecyclePayload(
             logRecords: [
               {
                 attributes,
+                ...(event.traceId && event.spanId
+                  ? {
+                      traceId: event.traceId,
+                      spanId:
+                        event.eventId?.replaceAll("-", "").slice(0, 16) ??
+                        event.spanId,
+                    }
+                  : {}),
                 body: {
                   stringValue: `${event.flowName}.${event.stage}.${event.outcome}`,
                 },
@@ -301,6 +323,64 @@ export function buildOtlpLifecyclePayload(
                   : "loyal.frontend.lifecycle",
               version: "1",
             },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+// Step spans measure the interval since the previous lifecycle checkpoint.
+// The attempt span measures the whole browser flow or backend request.
+export function buildOtlpJourneyTracePayload(
+  event: NormalizedLifecycleEvent
+): unknown | null {
+  if (!event.traceId || !event.spanId || !event.eventId) return null;
+  const logs = buildOtlpLifecyclePayload(event).resourceLogs[0];
+  const attributes = logs.scopeLogs[0].logRecords[0].attributes;
+  const end = Date.parse(event.timestamp);
+  const span = {
+    traceId: event.traceId,
+    spanId: event.eventId.replaceAll("-", "").slice(0, 16),
+    parentSpanId: event.spanId,
+    name: `${event.flowName}.${event.stage}`,
+    kind: 1,
+    startTimeUnixNano: toUnixNano(
+      new Date(end - event.durationMs).toISOString()
+    ),
+    endTimeUnixNano: toUnixNano(event.timestamp),
+    attributes,
+    status: {
+      code: isAlertableLifecycleEvent({ ...event, trafficKind: "external" })
+        ? 2
+        : 0,
+    },
+  };
+  const terminal = ["completed", "failed", "cancelled"].includes(event.outcome);
+  return {
+    resourceSpans: [
+      {
+        resource: logs.resource,
+        scopeSpans: [
+          {
+            scope: { name: "loyal.frontend.journeys", version: "2" },
+            spans: [
+              span,
+              ...(terminal
+                ? [
+                    {
+                      ...span,
+                      spanId: event.spanId,
+                      parentSpanId: event.parentSpanId,
+                      name: `${event.flowName}.${event.source}`,
+                      kind: event.source === "next_api" ? 2 : 1,
+                      startTimeUnixNano: toUnixNano(
+                        new Date(end - event.elapsedMs).toISOString()
+                      ),
+                    },
+                  ]
+                : []),
+            ],
           },
         ],
       },

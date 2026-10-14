@@ -10,6 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { isWalletCancellation } from "@/components/wallet-workspace/facelift/earn-actions-support";
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import type { LifecycleTracker } from "@/features/observability/lifecycle-contract";
+import { classifyTransactionFailure } from "@/features/observability/transaction-failure";
 
 import type {
   EarnMaxActions,
@@ -18,6 +20,7 @@ import type {
   EarnMaxViewModel,
 } from "./types";
 import { readJson, viewModel, walletBridge } from "./use-earn-max";
+import { isVoltrOperationVisible } from "./voltr/visibility";
 import {
   VoltrClaimLiquidityError,
   voltrClaimPlan,
@@ -52,6 +55,24 @@ export function useEarnMaxVoltr(input: {
       ? `${input.walletAddress}:${input.settingsPda}`
       : null;
 
+  const pendingVisibility = useRef(
+    new Map<
+      string,
+      {
+        account: string | null;
+        tracker: LifecycleTracker;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    >()
+  );
+  useEffect(() => {
+    const pending = pendingVisibility.current;
+    return () => {
+      for (const item of pending.values()) clearTimeout(item.timer);
+      pending.clear();
+    };
+  }, []);
+
   const refresh = useCallback(async () => {
     const account = accountRef.current;
     if (!(input.settingsPda && input.walletAddress)) {
@@ -75,6 +96,23 @@ export function useEarnMaxVoltr(input: {
       setSummary(nextSummary);
       setActivity(nextActivity);
       setError(null);
+      for (const [signature, item] of pendingVisibility.current) {
+        if (
+          item.account !== account ||
+          isVoltrOperationVisible(
+            signature,
+            nextSummary.summary,
+            nextActivity.operations
+          )
+        ) {
+          clearTimeout(item.timer);
+          if (item.account === account)
+            item.tracker.complete("position_visible", {
+              chainState: "confirmed",
+            });
+          pendingVisibility.current.delete(signature);
+        }
+      }
     } catch (nextError) {
       if (accountRef.current !== account) return;
       // A failed status read must not leave a stale "Ready to claim" state.
@@ -165,7 +203,7 @@ export function useEarnMaxVoltr(input: {
           throw new Error("Earn MAX transaction is too large.");
         }
         stage = "wallet_submit_confirm";
-        await sendPreparedWithWallet({
+        const signature = await sendPreparedWithWallet({
           confirm: true,
           connection,
           prepared: {
@@ -175,8 +213,23 @@ export function useEarnMaxVoltr(input: {
           wallet: walletBridge(wallet),
         });
         tracker.observe("wallet_submit_confirm", { chainState: "confirmed" });
+        const account = accountRef.current;
+        pendingVisibility.current.set(signature, {
+          account,
+          tracker,
+          timer: setTimeout(() => {
+            if (
+              accountRef.current === account &&
+              pendingVisibility.current.has(signature)
+            )
+              tracker.timeout("position_visible", {
+                chainState: "confirmed",
+                errorCode: "realtime_unresolved",
+              });
+          }, 60_000),
+        });
+        tracker.observe("ui_commit", { chainState: "confirmed" });
         await refresh();
-        tracker.complete("ui_commit");
         return true;
       } catch (nextError) {
         // The tracker ignores this after a terminal fail above.
@@ -197,7 +250,9 @@ export function useEarnMaxVoltr(input: {
         } else {
           tracker.fail(stage, {
             errorCode:
-              stage === "prepare" ? "instruction_fetch_failed" : "send_failed",
+              stage === "prepare"
+                ? "instruction_fetch_failed"
+                : classifyTransactionFailure(nextError),
           });
         }
         setError(

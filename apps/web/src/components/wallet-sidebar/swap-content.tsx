@@ -11,6 +11,7 @@ import {
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { SwapBalanceSnapshot } from "@/features/observability/swap-visibility";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap, type SwapExecutionContext } from "@/hooks/use-swap";
 import { openTrackedLink, trackWalletSwapPressed } from "@/lib/core/analytics";
@@ -983,6 +984,7 @@ export function SwapContent({
   onClose,
   onDone,
   onSuccess,
+  visibleBalances,
   onNavigate,
   onBack,
   fromToken: fromTokenProp,
@@ -996,6 +998,7 @@ export function SwapContent({
 }: {
   onClose: () => void;
   onDone: () => void;
+  visibleBalances: SwapBalanceSnapshot;
   onSuccess?: () => Promise<void> | void;
   onNavigate: (view: Exclude<SubView, null>) => void;
   onBack?: () => void;
@@ -1017,7 +1020,7 @@ export function SwapContent({
     isAvailable,
     unavailableReason,
     error: swapError,
-  } = useSwap();
+  } = useSwap(visibleBalances);
   const [fromAmount, setFromAmount] = useState("");
   const [phase, setPhase] = useState<SwapPhase>("form");
   const [resultAmount, setResultAmount] = useState("");

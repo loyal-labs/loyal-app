@@ -10,6 +10,11 @@ import {
 } from "@loyal-labs/shared/analytics";
 
 import type { PublicEnv } from "@/lib/core/config/public";
+import {
+  resetBrowserJourneys,
+  restoreBrowserJourneys,
+} from "@/features/observability/client";
+import { identifyDatadogJourneyUser } from "@/features/observability/datadog.client";
 
 import {
   type FrontendAnalyticsEventName,
@@ -187,10 +192,16 @@ export function identifyAuthenticatedUser(
   }
 
   const client = getAnalyticsClient(publicEnv);
+  identifyDatadogJourneyUser(user.walletAddress ?? null);
   const profileFingerprint = buildFrontendProfileFingerprint(user);
   const shouldRefreshWorkspaceProfile = lastIdentifiedDistinctId !== distinctId;
 
   if (shouldRefreshWorkspaceProfile) {
+    if (lastIdentifiedDistinctId !== null) {
+      client.reset();
+      resetBrowserJourneys();
+    }
+    void restoreBrowserJourneys(user.walletAddress ?? null);
     client.identify(distinctId);
     lastIdentifiedDistinctId = distinctId;
   }
@@ -214,7 +225,9 @@ export function identifyAuthenticatedUser(
 }
 
 export function resetAuthenticatedUser(): void {
+  identifyDatadogJourneyUser(null);
   analyticsClient?.reset();
+  resetBrowserJourneys();
   lastIdentifiedDistinctId = null;
   lastProfiledDistinctId = null;
   lastProfileFingerprint = null;

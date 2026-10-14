@@ -195,6 +195,28 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const selectedVault = props.smartAccountData.selectedVault;
+  const walletSwapBalances = useMemo(
+    () => ({
+      owner: props.walletDesktopData.walletAddress,
+      balances: props.walletDesktopData.positions.map((position) => ({
+        mint: position.asset.mint,
+        amount: position.publicBalance,
+      })),
+    }),
+    [props.walletDesktopData.walletAddress, props.walletDesktopData.positions]
+  );
+  const vaultSwapBalances = useMemo(
+    () => ({
+      owner: selectedVault?.entry.address ?? null,
+      balances:
+        selectedVault?.positions.map((position) => ({
+          mint: position.asset.mint,
+          amount: position.totalBalance,
+        })) ?? [],
+    }),
+    [selectedVault]
+  );
+
   const selectedApproval = useMemo(
     () =>
       props.smartAccountData.approvals.find(
@@ -809,6 +831,14 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
               }}
             >
               <SwapContent
+                visibleBalances={
+                  isVaultSubview ? vaultSwapBalances : walletSwapBalances
+                }
+                onSuccess={async () => {
+                  await (isVaultSubview
+                    ? props.smartAccountData.refresh()
+                    : props.walletDesktopData.refresh());
+                }}
                 fromToken={effectiveSwapFromToken}
                 hideFormChrome
                 onBack={onBack}
@@ -1175,6 +1205,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                       }}
                     >
                       <SwapContent
+                        visibleBalances={walletSwapBalances}
+                        onSuccess={async () => {
+                          await props.walletDesktopData.refresh();
+                        }}
                         fromToken={mainSwapFromToken}
                         hideFormChrome
                         onClose={props.onClose}

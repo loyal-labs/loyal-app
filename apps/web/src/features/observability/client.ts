@@ -1,6 +1,9 @@
 "use client";
 
+import { journeyTraceparent, type JourneyTraceContext } from "./trace-context";
+
 import type { BrowserChunkRecoveryAction } from "./chunk-load-contract";
+import { captureDatadogJourney, getDatadogSessionId } from "./datadog.client";
 import {
   getBrowserPageSessionId,
   inspectBrowserChunkLoadError,
@@ -20,6 +23,9 @@ import {
 import {
   type BrowserLifecycleEnvelope,
   createLifecycleTracker,
+  fallbackRandomUuidV4,
+  isCanonicalUuidV4,
+  LIFECYCLE_VARIANTS,
   type LifecycleClientPlatform,
   type LifecycleFlowName,
   type LifecycleFlowVariant,
@@ -40,6 +46,119 @@ import {
 
 const CLIENT_REPORT_TIMEOUT_MS = 1250;
 const CLIENT_BUILD_ID = process.env.NEXT_PUBLIC_GIT_COMMIT_HASH ?? "unknown";
+const JOURNEY_WINDOW_MS = 10 * 60 * 1000;
+const browserJourneys = new Map<
+  string,
+  {
+    id: string;
+    startedAt: number;
+    attempt: number;
+  }
+>();
+
+const JOURNEY_STORAGE_KEY = "loyal.journeys.v2";
+let journeyOwner: string | undefined;
+let identityEpoch = 0;
+
+function persistBrowserJourneys(): void {
+  if (!journeyOwner || typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      JOURNEY_STORAGE_KEY,
+      JSON.stringify({ owner: journeyOwner, journeys: [...browserJourneys] })
+    );
+  } catch {
+    /* Storage restrictions must not block a user action. */
+  }
+}
+
+export async function restoreBrowserJourneys(
+  walletAddress: string | null
+): Promise<void> {
+  if (typeof window === "undefined") return;
+  const epoch = identityEpoch;
+  try {
+    const digest = walletAddress
+      ? await crypto.subtle.digest(
+          "SHA-256",
+          new Uint8Array(new TextEncoder().encode(walletAddress)).buffer
+        )
+      : null;
+    const owner = digest
+      ? Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0")
+        ).join("")
+      : "anonymous";
+    if (epoch !== identityEpoch || journeyOwner === owner) return;
+    const saved = JSON.parse(
+      window.sessionStorage.getItem(JOURNEY_STORAGE_KEY) ?? "null"
+    );
+    if (
+      saved?.owner === owner &&
+      Array.isArray(saved.journeys) &&
+      saved.journeys.length <= 100
+    ) {
+      const allowed = new Set(
+        Object.entries(LIFECYCLE_VARIANTS).flatMap(([flow, variants]) =>
+          variants.map(
+            (variant) =>
+              `${flow}:${variant === "resumed" ? "initial" : variant}`
+          )
+        )
+      );
+      for (const entry of saved.journeys) {
+        if (!Array.isArray(entry) || entry.length !== 2) continue;
+        const [key, value] = entry;
+        if (
+          allowed.has(key) &&
+          !browserJourneys.has(key) &&
+          value &&
+          isCanonicalUuidV4(value.id) &&
+          Number.isInteger(value.attempt) &&
+          value.attempt >= 1 &&
+          value.attempt < 1000 &&
+          Number.isFinite(value.startedAt) &&
+          value.startedAt <= Date.now() &&
+          Date.now() - value.startedAt < JOURNEY_WINDOW_MS
+        ) {
+          browserJourneys.set(key, {
+            id: value.id,
+            attempt: value.attempt,
+            startedAt: value.startedAt,
+          });
+        }
+      }
+    }
+    journeyOwner = owner;
+    persistBrowserJourneys();
+  } catch {
+    /* Corrupt storage or unavailable hashing disables reload continuity. */
+  }
+}
+
+let authenticatedActionState: "idle" | "running" | "complete" = "idle";
+const attemptContexts = new Map<
+  string,
+  {
+    journeyId: string;
+    attemptNumber: number;
+    flowVariant: string;
+    traceContext: JourneyTraceContext;
+  }
+>();
+
+export function resetBrowserJourneys(): void {
+  identityEpoch += 1;
+  journeyOwner = undefined;
+  try {
+    window.sessionStorage.removeItem(JOURNEY_STORAGE_KEY);
+  } catch {
+    /* SSR/private browsing. */
+  }
+  authenticatedActionState = "idle";
+  attemptContexts.clear();
+  browserJourneys.clear();
+}
 
 export type BrowserErrorProcessor = {
   process: (error: unknown, operation: BrowserErrorOperation) => Promise<void>;
@@ -77,15 +196,16 @@ async function postBrowserError(envelope: BrowserErrorEnvelope): Promise<void> {
 
 async function postBrowserLifecycle(
   envelope: BrowserLifecycleEnvelope
-): Promise<void> {
+): Promise<"external" | "internal" | "synthetic" | undefined> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(),
-    CLIENT_REPORT_TIMEOUT_MS
+    // Allow session resolution and the 1.25s exporter budget to return the cohort.
+    5000
   );
 
   try {
-    await fetch(OBSERVABILITY_LIFECYCLE_ENDPOINT, {
+    const response = await fetch(OBSERVABILITY_LIFECYCLE_ENDPOINT, {
       body: JSON.stringify(envelope),
       cache: "no-store",
       credentials: "same-origin",
@@ -94,6 +214,9 @@ async function postBrowserLifecycle(
       method: "POST",
       signal: controller.signal,
     });
+    const body = await response.json().catch(() => null);
+    if (["external", "internal", "synthetic"].includes(body?.trafficKind))
+      return body.trafficKind;
   } catch {
     // Lifecycle telemetry is best-effort and must never affect the user flow.
   } finally {
@@ -355,7 +478,15 @@ export function captureBrowserLifecycle(
   envelope: BrowserLifecycleEnvelope
 ): void {
   try {
-    void postBrowserLifecycle(envelope).catch(() => undefined);
+    const epoch = identityEpoch;
+    const rumSessionId = getDatadogSessionId();
+    if (rumSessionId) envelope = { ...envelope, rumSessionId };
+    void postBrowserLifecycle(envelope)
+      .then((trafficKind) => {
+        if (identityEpoch === epoch)
+          captureDatadogJourney(envelope, trafficKind);
+      })
+      .catch(() => undefined);
   } catch {
     // Lifecycle capture itself is never allowed to throw.
   }
@@ -391,11 +522,52 @@ export function createBrowserLifecycleTracker(args: {
   flowVariant: LifecycleFlowVariant;
   pathname?: string;
 }): LifecycleTracker {
-  return createLifecycleTracker({
+  const trackerIdentityEpoch = identityEpoch;
+  const key = `${args.flowName}:${
+    args.flowVariant === "resumed" ? "initial" : args.flowVariant
+  }`;
+  const previous = browserJourneys.get(key);
+  const pageSessionId = getBrowserPageSessionId();
+  const journey =
+    previous &&
+    Date.now() - previous.startedAt < JOURNEY_WINDOW_MS &&
+    previous.attempt < 1000
+      ? { ...previous, attempt: previous.attempt + 1 }
+      : { id: fallbackRandomUuidV4(), startedAt: Date.now(), attempt: 1 };
+  browserJourneys.set(key, journey);
+  persistBrowserJourneys();
+  const traceContext = {
+    traceId: fallbackRandomUuidV4().replaceAll("-", ""),
+    spanId: fallbackRandomUuidV4().replaceAll("-", "").slice(0, 16),
+  };
+  const tracker = createLifecycleTracker({
+    traceContext,
+    journeyId: journey.id,
+    attemptNumber: journey.attempt,
+    ...(/^[0-9a-f]{40}$/.test(CLIENT_BUILD_ID)
+      ? { clientBuildId: CLIENT_BUILD_ID }
+      : {}),
+    ...(pageSessionId ? { pageSessionId } : {}),
     ...(typeof window === "undefined"
       ? {}
       : { clientPlatform: detectBrowserClientPlatform() }),
-    emit: captureBrowserLifecycle,
+    emit: (event) => {
+      if (trackerIdentityEpoch !== identityEpoch) return;
+      captureBrowserLifecycle(event);
+      if (event.flowName === "auth.authenticated_action") {
+        if (event.outcome === "completed")
+          authenticatedActionState = "complete";
+        if (event.outcome === "failed" || event.outcome === "cancelled")
+          authenticatedActionState = "idle";
+      }
+      if (
+        event.outcome === "completed" &&
+        browserJourneys.get(key)?.id === journey.id
+      ) {
+        browserJourneys.delete(key);
+        persistBrowserJourneys();
+      }
+    },
     ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: args.flowName,
     flowVariant: args.flowVariant,
@@ -403,10 +575,38 @@ export function createBrowserLifecycleTracker(args: {
       args.pathname ??
       (typeof window === "undefined" ? "/" : window.location.pathname),
   });
+  if (attemptContexts.size >= 1000) attemptContexts.clear();
+  attemptContexts.set(tracker.flowId, {
+    traceContext,
+    journeyId: journey.id,
+    attemptNumber: journey.attempt,
+    flowVariant: args.flowVariant,
+  });
+  return tracker;
 }
 
-export function lifecycleFlowHeaders(flowId: string): HeadersInit {
-  return { "x-loyal-flow-id": flowId };
+export function createAuthenticatedActionTracker(): LifecycleTracker | null {
+  if (authenticatedActionState !== "idle") return null;
+  authenticatedActionState = "running";
+  return createBrowserLifecycleTracker({
+    flowName: "auth.authenticated_action",
+    flowVariant: "overview",
+  });
+}
+
+export function lifecycleFlowHeaders(flowId: string): Record<string, string> {
+  const context = attemptContexts.get(flowId);
+  return {
+    "x-loyal-flow-id": flowId,
+    ...(context
+      ? {
+          traceparent: journeyTraceparent(context.traceContext),
+          "x-loyal-journey-id": context.journeyId,
+          "x-loyal-attempt-number": String(context.attemptNumber),
+          "x-loyal-flow-variant": context.flowVariant,
+        }
+      : {}),
+  };
 }
 
 function withChunkRecoveryAction(

@@ -39,6 +39,7 @@ export const serverEnv = {
   get clickStackApiKey(): string | undefined {
     return (
       getOptionalEnv("LOYAL_CLICKSTACK_API_KEY") ??
+      getOptionalEnv("CLICKSTACK_API_KEY") ??
       getOptionalEnv("HYPERDX_ACCESS_KEY")
     );
   },

@@ -1,3 +1,7 @@
+import {
+  withRequestLifecycle,
+  type RequestLifecycle,
+} from "@/features/observability/lifecycle.server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
@@ -61,6 +65,20 @@ function getConnection(cluster: SolanaEnv): Connection {
 }
 
 export async function POST(request: Request) {
+  return withRequestLifecycle({
+    request,
+    flowName: "earn.withdrawal",
+    flowVariant: "partial",
+    stage: "prepare",
+
+    run: (lifecycle) => handleRequest(request, lifecycle),
+  });
+}
+
+async function handleRequest(
+  request: Request,
+  lifecycle: RequestLifecycle | null
+) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
   if (!principal) {
@@ -70,6 +88,8 @@ export async function POST(request: Request) {
   let amountRaw: bigint | "max";
   let sourceId: string | null;
   let legacy: EarnWithdrawLegacyPrepareRequest | null;
+  lifecycle?.setVerifiedWallet(principal.walletAddress);
+
   try {
     ({ amountRaw, sourceId, legacy } = parseEarnWithdrawPrepareRequestBody(
       await request.json()

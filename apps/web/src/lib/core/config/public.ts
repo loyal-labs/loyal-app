@@ -33,6 +33,8 @@ export type SwapConfig =
   | { mode: "disabled"; reason: string };
 
 export type PublicEnv = {
+  datadogApplicationId?: string;
+  datadogClientToken?: string;
   appEnvironment: AppEnvironment;
   loyalAppUrl: string;
   captcha: CaptchaConfig;
@@ -120,6 +122,11 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
     ),
     demoRecipeEnabled: isStrictTrue(getOptionalEnv(env, DEMO_RECIPE_ENV_NAME)),
     mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
+    datadogApplicationId: getOptionalEnv(
+      env,
+      "NEXT_PUBLIC_DATADOG_APPLICATION_ID"
+    ),
+    datadogClientToken: getOptionalEnv(env, "NEXT_PUBLIC_DATADOG_CLIENT_TOKEN"),
     mixpanelProxyPath: (() => {
       const value = getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_PROXY_PATH");
       if (!value) {

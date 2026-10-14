@@ -89,7 +89,12 @@ type EarnPositionConnection = Pick<
 > &
   Partial<Pick<Connection, "onAccountChange" | "removeAccountChangeListener">>;
 
-type RpcPositionRead = {
+export type EarnRpcObservation = {
+  position: ActiveEarnPosition | null;
+  observedSlot: string;
+};
+
+type RpcPositionRead = EarnRpcObservation & {
   position: ActiveEarnPosition | null;
   watchedAccounts: EarnRpcWatchedAccount[];
 };
@@ -447,6 +452,9 @@ export function useActiveEarnPosition({
   solanaEnv: string;
   walletAddress: string | null | undefined;
 }) {
+  const [rpcObservation, setRpcObservation] = useState<
+    (EarnRpcObservation & { scope: string }) | null
+  >(null);
   const [position, setPositionState] = useState<ActiveEarnPosition | null>(
     null
   );
@@ -534,6 +542,7 @@ export function useActiveEarnPosition({
       });
 
       return {
+        observedSlot: snapshot.observedSlot,
         position: applyEarnRpcSnapshotToPosition(basePosition, snapshot),
         watchedAccounts: snapshot.provenance.watchedAccounts,
       };
@@ -554,6 +563,11 @@ export function useActiveEarnPosition({
           position: next.position,
         });
       }
+      setRpcObservation({
+        position: next.position,
+        observedSlot: next.observedSlot,
+        scope: positionScope,
+      });
       positionRef.current = next.position;
       setWatchedAccounts(next.watchedAccounts);
       setPositionState(next.position);
@@ -925,6 +939,8 @@ export function useActiveEarnPosition({
   }, [connection, enabled, refresh, watchAccountKey]);
 
   return {
+    rpcObservation:
+      rpcObservation?.scope === positionScope ? rpcObservation : null,
     hasResolved,
     isLoading,
     position,

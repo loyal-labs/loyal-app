@@ -1,0 +1,305 @@
+{
+  "title": "Loyal web — critical journeys",
+  "description": "Authentication, first deposit and subsequent wallet journeys. ClickStack and admin provide authoritative joined diagnostics and mature journey rates.",
+  "experience_type": "",
+  "template_variables": [
+    {
+      "name": "environment",
+      "prefix": "env",
+      "defaults": ["production"]
+    },
+    {
+      "name": "traffic",
+      "prefix": "@context.traffic_kind",
+      "defaults": ["external"],
+      "available_values": ["external", "internal", "synthetic", "unknown"]
+    },
+    {
+      "name": "flow",
+      "prefix": "@context.flow",
+      "defaults": ["*"]
+    }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "type": "note",
+        "content": "## Loyal web journeys\n[Exact journey conversion, affected users and evidence](https://admin.askloyal.com/journeys)\nRUM counts are observed journeys within the selected time range, not cohort conversion rates. The admin dashboard applies a 10-minute attribution window and preserves initial failures after retry success. Missing events are unknown, not proof of failure. External cohort excludes server-identified internal/synthetic traffic; unknown delivery cohorts are excluded. Counts can differ across time boundaries, blocked SDKs and delivery failures. Replay is disabled. Product Analytics retention is not enabled.",
+        "background_color": "white",
+        "font_size": "14",
+        "text_align": "left",
+        "show_tick": false
+      },
+      "layout": {
+        "width": 12,
+        "height": 3
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Observed entries",
+        "autoscale": true,
+        "precision": 0,
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "rum",
+                "name": "a",
+                "search": {
+                  "query": "service:loyal-frontend @action.name:loyal.journey $environment $traffic $flow @context.outcome:started @context.step:intent"
+                },
+                "compute": {
+                  "aggregation": "cardinality",
+                  "metric": "@context.journey_id"
+                },
+                "group_by": []
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Completed on first attempt",
+        "autoscale": true,
+        "precision": 0,
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "rum",
+                "name": "a",
+                "search": {
+                  "query": "service:loyal-frontend @action.name:loyal.journey $environment $traffic $flow @context.outcome:completed @context.attempt_number:1 @context.retry_count:0"
+                },
+                "compute": {
+                  "aggregation": "cardinality",
+                  "metric": "@context.journey_id"
+                },
+                "group_by": []
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Completed on any attempt",
+        "autoscale": true,
+        "precision": 0,
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "rum",
+                "name": "a",
+                "search": {
+                  "query": "service:loyal-frontend @action.name:loyal.journey $environment $traffic $flow @context.outcome:completed"
+                },
+                "compute": {
+                  "aggregation": "cardinality",
+                  "metric": "@context.journey_id"
+                },
+                "group_by": []
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Journeys with failures",
+        "autoscale": true,
+        "precision": 0,
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "rum",
+                "name": "a",
+                "search": {
+                  "query": "service:loyal-frontend @action.name:loyal.journey $environment $traffic $flow @context.outcome:failed"
+                },
+                "compute": {
+                  "aggregation": "cardinality",
+                  "metric": "@context.journey_id"
+                },
+                "group_by": []
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Journeys with explicit timeouts",
+        "autoscale": true,
+        "precision": 0,
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "rum",
+                "name": "a",
+                "search": {
+                  "query": "service:loyal-frontend @action.name:loyal.journey $environment $traffic $flow @context.outcome:timed_out"
+                },
+                "compute": {
+                  "aggregation": "cardinality",
+                  "metric": "@context.journey_id"
+                },
+                "group_by": []
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Completed attempt p95 (ms)",
+        "autoscale": true,
+        "precision": 0,
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "rum",
+                "name": "a",
+                "search": {
+                  "query": "service:loyal-frontend @action.name:loyal.journey $environment $traffic $flow @context.outcome:completed"
+                },
+                "compute": {
+                  "aggregation": "pc95",
+                  "metric": "@context.elapsed_ms"
+                },
+                "group_by": []
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "definition": {
+        "type": "query_table",
+        "title": "Outcomes by flow and step (distinct journeys)",
+        "requests": [
+          {
+            "response_format": "scalar",
+            "queries": [
+              {
+                "data_source": "rum",
+                "name": "a",
+                "search": {
+                  "query": "service:loyal-frontend @action.name:loyal.journey $environment $traffic $flow "
+                },
+                "compute": {
+                  "aggregation": "cardinality",
+                  "metric": "@context.journey_id"
+                },
+                "group_by": [
+                  {
+                    "facet": "@context.flow",
+                    "limit": 10
+                  },
+                  {
+                    "facet": "@context.step",
+                    "limit": 20
+                  },
+                  {
+                    "facet": "@context.outcome",
+                    "limit": 8
+                  }
+                ]
+              }
+            ],
+            "formulas": [
+              {
+                "formula": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "layout": {
+        "width": 12,
+        "height": 5
+      }
+    }
+  ],
+  "telemetry": {
+    "intent": "Create requested Loyal journey analytics dashboard using verified RUM action schema"
+  }
+}

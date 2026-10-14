@@ -51,6 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/overview", icon: LayoutDashboardIcon, label: "Overview" },
       { href: "/metrics", icon: GaugeIcon, label: "Metrics" },
+      { href: "/journeys", icon: RouteIcon, label: "User journeys" },
       { href: "/communities", icon: UsersRoundIcon, label: "Communities" },
       // { href: "/features", icon: ListChecksIcon, label: "Features" },
       // { href: "/flags", icon: FlagIcon, label: "Flags" },

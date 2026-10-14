@@ -27,6 +27,7 @@ import {
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
+import type { SwapBalanceSnapshot } from "@/features/observability/swap-visibility";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap } from "@/hooks/use-swap";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -140,6 +141,7 @@ export function SwapPane({
   onFlipTokens,
   onRequestSelect,
   onSuccess,
+  visibleBalances,
   toToken,
 }: {
   activeSelectSide: "from" | "to" | null;
@@ -148,6 +150,7 @@ export function SwapPane({
   onDone: () => void;
   onFlipTokens: () => void;
   onRequestSelect: (side: "from" | "to") => void;
+  visibleBalances: SwapBalanceSnapshot;
   onSuccess: () => void;
   toToken: SwapToken;
 }) {
@@ -161,7 +164,7 @@ export function SwapPane({
     isAvailable,
     unavailableReason,
     error: swapError,
-  } = useSwap();
+  } = useSwap(visibleBalances);
 
   const [amountInput, setAmountInput] = useState("");
   // The refresh glyph under the amount flips the input between token units

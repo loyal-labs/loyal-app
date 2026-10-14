@@ -1,3 +1,7 @@
+import {
+  withRequestLifecycle,
+  type RequestLifecycle,
+} from "@/features/observability/lifecycle.server";
 import { NextResponse } from "next/server";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 
@@ -27,11 +31,27 @@ function getConfiguredSolanaEnv(): SolanaEnv {
 }
 
 export async function POST(request: Request) {
+  return withRequestLifecycle({
+    request,
+    flowName: "earn.withdrawal",
+    flowVariant: "partial",
+    stage: "backend_confirm",
+    success: { chainState: "confirmed", persistenceState: "recorded" },
+    run: (lifecycle) => handleRequest(request, lifecycle),
+  });
+}
+
+async function handleRequest(
+  request: Request,
+  lifecycle: RequestLifecycle | null
+) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 
   if (!principal) {
     return jsonError(401, "unauthenticated", "No active auth session.");
   }
+
+  lifecycle?.setVerifiedWallet(principal.walletAddress);
 
   let input: ConfirmedYieldWithdrawalInput;
   try {
