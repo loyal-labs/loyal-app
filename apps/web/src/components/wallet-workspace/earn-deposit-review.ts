@@ -543,7 +543,7 @@ export function buildEarnDepositReviewItem(args: {
         amount: `$${args.draft.amountLabel}`,
         heading: `Deposit into ${EARN_VAULT_LABEL}`,
         hideAmountHeading: true,
-        mascotNote: policyMascotNote,
+        mascotNote: `${policyMascotNote} Approve each transaction in your wallet; the next approval opens after the previous transaction confirms.`,
         rows: batchPreviewStages.map((item, index) => ({
           label: `Transaction #${index + 1}`,
           value: getStageSummary(item),

@@ -466,3 +466,123 @@ test("fresh-wallet dependent batch simulation diagnoses setup accounts before an
   expect(simulations).toBe(2);
   expect(connection.sendRawTransaction).not.toHaveBeenCalled();
 });
+
+test("dependent setup signs only after confirmation and recording, using real signed wire", async () => {
+  const { createPublicKey, verify } = await import("node:crypto");
+  const { VersionedTransaction } = await import("@solana/web3.js");
+  let confirmed = 0;
+  let recorded = 0;
+  let sent = 0;
+  let signed = 0;
+  const stages = [createPrepared(), createPrepared(), createPrepared()];
+  const connection = createConnection({
+    sendRawTransaction: mock(async (wire: Uint8Array) => {
+      const tx = VersionedTransaction.deserialize(wire);
+      const key = createPublicKey({
+        key: Buffer.concat([
+          Buffer.from("302a300506032b6570032100", "hex"),
+          feePayer.toBuffer(),
+        ]),
+        format: "der",
+        type: "spki",
+      });
+      expect(verify(null, tx.message.serialize(), key, tx.signatures[0]!)).toBe(
+        true
+      );
+      sent += 1;
+      return `signature-${sent}`;
+    }),
+    confirmTransaction: mock(async () => {
+      confirmed += 1;
+      return { context: { slot: confirmed }, value: { err: null } };
+    }),
+    simulateTransaction: mock(async () => ({ value: { err: null, logs: [] } })),
+  });
+  const wallet: WalletAdapterLike = {
+    publicKey: feePayer,
+    signTransaction: async (tx) => {
+      if (signed !== confirmed || signed !== recorded) {
+        throw new Error(
+          "Wallet simulation failed: missing predecessor setup account"
+        );
+      }
+      expect(tx).toBeInstanceOf(VersionedTransaction);
+      if ("version" in tx) tx.sign([fixtureSigner]);
+      else tx.partialSign(fixtureSigner);
+      signed += 1;
+      return tx;
+    },
+    signAllTransactions: async (txs) => {
+      for (const tx of txs) await wallet.signTransaction(tx);
+      return txs;
+    },
+  };
+  // The old ordering asks for the dependent signature before any setup lands.
+  await expect(
+    sendPreparedBatchWithWallet({ connection, wallet, prepared: stages })
+  ).rejects.toThrow("missing predecessor setup account");
+  expect(sent).toBe(0);
+  signed = 0;
+  const signatures = await sendPreparedBatchWithWallet({
+    connection,
+    wallet,
+    prepared: stages,
+    sendMode: "sign-and-confirm-each",
+    onTransactionConfirmed: async ({ index }) => {
+      expect(confirmed).toBe(index + 1);
+      await Promise.resolve();
+      recorded += 1;
+    },
+  });
+  expect(signatures).toHaveLength(3);
+  expect(recorded).toBe(3);
+  expect(connection.getLatestBlockhash).toHaveBeenCalledTimes(4);
+});
+
+for (const failure of ["rejected", "confirmation", "recording"] as const) {
+  test(`dependent setup stops before the next signature after ${failure}`, async () => {
+    let approvals = 0;
+    const rejection = Object.assign(new Error("User rejected"), { code: 4001 });
+    const connection = createConnection({
+      confirmTransaction: mock(async () => {
+        if (failure === "confirmation") throw new Error("RPC timeout");
+        return { context: { slot: 1 }, value: { err: null } };
+      }),
+      simulateTransaction: mock(async () => ({
+        value: { err: null, logs: [] },
+      })),
+    });
+    const wallet: WalletAdapterLike = {
+      publicKey: feePayer,
+      signTransaction: async (tx) => {
+        approvals += 1;
+        if (failure === "rejected") throw rejection;
+        if ("version" in tx) tx.sign([fixtureSigner]);
+        else tx.partialSign(fixtureSigner);
+        return tx;
+      },
+    };
+    const result = sendPreparedBatchWithWallet({
+      connection,
+      wallet,
+      prepared: [createPrepared(), createPrepared()],
+      sendMode: "sign-and-confirm-each",
+      onTransactionConfirmed: async () => {
+        if (failure === "recording") throw new Error("Recording failed");
+      },
+    });
+    if (failure === "confirmation") {
+      await expect(result).rejects.toMatchObject({
+        transactionWasSubmitted: true,
+      });
+    } else {
+      await expect(result).rejects.toThrow(
+        failure === "rejected" ? "User rejected" : "Recording failed"
+      );
+    }
+    expect(approvals).toBe(1);
+    expect(connection.sendRawTransaction).toHaveBeenCalledTimes(
+      failure === "rejected" ? 0 : 1
+    );
+  });
+}

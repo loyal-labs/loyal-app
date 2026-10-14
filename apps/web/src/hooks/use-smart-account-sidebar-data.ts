@@ -6678,10 +6678,6 @@ export function useSmartAccountSidebarData(
           error: "Connected wallet cannot sign transactions.",
         };
       }
-      if (!walletBridge.signAllTransactions) {
-        return { success: false, batchUnavailable: true };
-      }
-
       if (
         request.preparedDeposit.persistence.principalAmountRaw !==
         request.amountRaw.toString()
@@ -6810,6 +6806,7 @@ export function useSmartAccountSidebarData(
             wallet: walletBridge,
             prepared: batchStages.map((stage) => stage.prepared),
             confirm: true,
+            sendMode: "sign-and-confirm-each",
             onTransactionSent: () => {
               request.onWalletSubmitted?.();
             },
