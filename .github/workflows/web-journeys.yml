@@ -37,6 +37,7 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run build:auth-packages
       - run: bun run build:solana-packages
+      - run: bun run --cwd packages/wallet-core build
       - run: bun run --cwd packages/loyal-smart-accounts-core build
       - run: bun test packages/smart-account-vaults/src/wallet.test.ts --test-name-pattern fresh-wallet
       - run: bun test apps/web/src/features/observability/
