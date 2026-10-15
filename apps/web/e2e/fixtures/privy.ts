@@ -1,3 +1,4 @@
+import type { Wallet } from "@wallet-standard/base";
 import { useSyncExternalStore } from "react";
 import { fixtureOwner } from "./swap-wallet";
 
@@ -52,7 +53,17 @@ let callbacks: {
   }) => void;
   onError: (code: string) => void;
 };
+let loginAttempts = 0;
 const login = () => {
+  loginAttempts++;
+  if (scenario === "privy_error" && loginAttempts === 1) {
+    callbacks.onError("unknown_connect_wallet_error");
+    return;
+  }
+  if (scenario === "oauth_cancel") {
+    callbacks.onError("oauth_user_denied");
+    return;
+  }
   if (new URLSearchParams(location.search).get("scenario") === "cancel") {
     callbacks.onError("exited_auth_flow");
     return;
@@ -84,3 +95,28 @@ const createWallet = async () => {
   return { wallet: { address: fixtureOwner.toBase58() } };
 };
 export const useCreateWallet = () => ({ createWallet });
+
+// Exercise actual Wallet Standard registration across Privy wallet replacement.
+export const PrivyProvider = ({ children }: { children: React.ReactNode }) =>
+  children;
+export const toSolanaWalletConnectors = () => [];
+let standardWallets: (Wallet & { isPrivyWallet: boolean })[] = [];
+export const replaceEmbeddedWallet = () => {
+  standardWallets = [
+    {
+      name: "Privy",
+      version: "1.0.0",
+      icon: "data:image/svg+xml;base64,PHN2Zy8+",
+      chains: [],
+      features: {},
+      accounts: [],
+      isPrivyWallet: true,
+    },
+  ];
+  listeners.forEach((listener) => listener());
+};
+export const useStandardWallets = () => ({
+  ready: true,
+  wallets: useSyncExternalStore(subscribe, () => standardWallets),
+});
+export const currentEmbeddedWallet = () => standardWallets[0];
