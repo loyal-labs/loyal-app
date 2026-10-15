@@ -13,9 +13,6 @@ type Attempt = {
   connecting: boolean;
   terminalKey?: string;
   succeeded?: boolean;
-  stateKey: string;
-  waitingForWallet: boolean;
-  interactive: boolean;
 };
 
 export function useSignerRestoration({
@@ -23,21 +20,15 @@ export function useSignerRestoration({
   enabled,
   adapter,
   wallets,
-  lifecycle,
-  onSettled,
 }: {
   address: string | null;
   enabled: boolean;
   adapter: WalletContextState;
   wallets: readonly { address: string; standardWallet: { name: string } }[];
-  lifecycle?: LifecycleTracker | null;
-  onSettled?: () => void;
 }) {
   const attemptRef = useRef<Attempt | null>(null);
   const targetRef = useRef(address);
   targetRef.current = enabled ? address : null;
-  const onSettledRef = useRef(onSettled);
-  onSettledRef.current = onSettled;
   useEffect(
     () => () => {
       if (attemptRef.current) clearTimeout(attemptRef.current.timer);
@@ -49,7 +40,6 @@ export function useSignerRestoration({
   useEffect(() => {
     if (!enabled || !address) {
       if (attemptRef.current) clearTimeout(attemptRef.current.timer);
-      if (attemptRef.current?.interactive) onSettledRef.current?.();
       attemptRef.current = null;
       return;
     }
@@ -70,7 +60,6 @@ export function useSignerRestoration({
     let attempt = attemptRef.current;
     if (
       attempt?.address === address &&
-      (!lifecycle || lifecycle === attempt.tracker) &&
       (attempt.terminalKey === stateKey ||
         (attempt.succeeded &&
           adapter.connected &&
@@ -80,57 +69,31 @@ export function useSignerRestoration({
     if (
       !attempt ||
       attempt.address !== address ||
-      (lifecycle && lifecycle !== attempt.tracker) ||
       attempt.terminalKey !== undefined
     ) {
       if (attempt) clearTimeout(attempt.timer);
-      const tracker =
-        lifecycle ??
-        createBrowserLifecycleTracker({
-          flowName: "auth.signer_restore",
-          flowVariant: "return",
-        });
-      if (!lifecycle) {
-        tracker.start("intent");
-        tracker.observe("backend_session_valid");
-      }
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "auth.signer_restore",
+        flowVariant: "return",
+      });
+      tracker.start("intent");
+      tracker.observe("backend_session_valid");
       attempt = {
         address,
         tracker,
         connecting: false,
-        stateKey,
-        waitingForWallet: !entry,
-        interactive: !!lifecycle,
         timer: setTimeout(
-          () => {
-            const pending = attemptRef.current;
-            if (
-              !pending ||
-              pending.tracker !== tracker ||
-              targetRef.current !== address
-            )
-              return;
-            if (pending.waitingForWallet) {
-              pending.terminalKey = pending.stateKey;
-              tracker.fail("wallet_connect", {
-                errorCode: "wallet_unavailable",
-              });
-              if (pending.interactive) onSettledRef.current?.();
-              return;
-            }
+          () =>
             tracker.timeout("wallet_connect", {
               errorCode: "request_failed",
               errorDetail: "request_timeout",
-            });
-          },
-          lifecycle ? 120_000 : 30_000
+            }),
+          30_000
         ),
       };
       attemptRef.current = attempt;
     }
     const current = attempt;
-    current.stateKey = stateKey;
-    current.waitingForWallet = !entry;
     const finish = (
       errorCode?:
         | "wallet_unavailable"
@@ -146,18 +109,12 @@ export function useSignerRestoration({
         return;
       clearTimeout(current.timer);
       current.connecting = false;
-      current.terminalKey = current.stateKey;
+      current.terminalKey = stateKey;
       current.succeeded = !errorCode;
       if (errorCode === "wallet_rejected")
         current.tracker.cancel("wallet_connect", { errorCode });
       else if (errorCode) current.tracker.fail("wallet_connect", { errorCode });
-      else {
-        if (current.interactive) current.tracker.observe("signer_ready");
-        current.tracker.complete(
-          current.interactive ? "ui_commit" : "signer_ready"
-        );
-      }
-      if (current.interactive) onSettledRef.current?.();
+      else current.tracker.complete("signer_ready");
     };
     if (adapter.connected && adapter.publicKey?.toBase58() === address) {
       finish();
@@ -165,7 +122,7 @@ export function useSignerRestoration({
     }
     if (adapter.connecting || current.connecting) return;
     if (!entry) {
-      // Privy's wallet list and Wallet Standard registration settle separately.
+      finish("wallet_unavailable");
       return;
     }
     if (adapter.wallet?.adapter.name !== entry.adapter.name) {
@@ -178,9 +135,7 @@ export function useSignerRestoration({
       return;
     }
     if (entry.adapter.connected) {
-      // The adapter can be ready one render before WalletProvider catches up.
-      if (entry.adapter.publicKey?.toBase58() !== address)
-        finish("wallet_account_mismatch");
+      finish("wallet_account_mismatch");
       return;
     }
     current.connecting = true;
@@ -188,13 +143,12 @@ export function useSignerRestoration({
     void adapter
       .connect()
       .then(() => {
-        current.connecting = false;
-        if (
+        finish(
           entry.adapter.connected &&
-          entry.adapter.publicKey?.toBase58() !== address
-        )
-          finish("wallet_account_mismatch");
-        // Success is emitted by the effect after the matching context renders.
+            entry.adapter.publicKey?.toBase58() === address
+            ? undefined
+            : "wallet_account_mismatch"
+        );
       })
       .catch((error: unknown) => {
         finish(
@@ -203,5 +157,5 @@ export function useSignerRestoration({
             : "wallet_connection_failed"
         );
       });
-  }, [address, enabled, adapter, wallets, lifecycle]);
+  }, [address, enabled, adapter, wallets]);
 }

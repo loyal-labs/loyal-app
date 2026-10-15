@@ -1,5 +1,4 @@
 import React from "react";
-import { PrivyAuthProvider } from "../../src/components/auth/privy-provider";
 import { AuthProbe } from "./auth-browser";
 import { PrivyAuthController } from "../../src/components/auth/privy-session-sync";
 import { SignInModalProvider } from "../../src/contexts/sign-in-modal-context";
@@ -77,11 +76,9 @@ createRoot(document.getElementById("auth")!).render(
       <SessionProbe />
       {window.location.pathname === "/auth" && (
         <SignInModalProvider>
-          <PrivyAuthProvider>
-            <PrivyAuthController>
-              <AuthProbe />
-            </PrivyAuthController>
-          </PrivyAuthProvider>
+          <PrivyAuthController>
+            <AuthProbe />
+          </PrivyAuthController>
         </SignInModalProvider>
       )}
       {window.location.pathname === "/swap" && <SwapProbe />}
