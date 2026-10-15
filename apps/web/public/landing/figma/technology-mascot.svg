@@ -1,0 +1,43 @@
+<svg width="320" height="320" viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="320" height="320" fill="#31373E"/>
+<g id="Update">
+<path d="M-924 -4213C-924 -4248.35 -895.346 -4277 -860 -4277H4790C4825.35 -4277 4854 -4248.35 4854 -4213V5745C4854 5780.35 4825.35 5809 4790 5809H-860C-895.346 5809 -924 5780.35 -924 5745V-4213Z" fill="black" fill-opacity="0.1"/>
+<path d="M-860 -4277V-4276H4790V-4277V-4278H-860V-4277ZM4854 -4213H4853V5745H4854H4855V-4213H4854ZM4790 5809V5808H-860V5809V5810H4790V5809ZM-924 5745H-923V-4213H-924H-925V5745H-924ZM-860 5809V5808C-894.794 5808 -923 5779.79 -923 5745H-924H-925C-925 5780.9 -895.898 5810 -860 5810V5809ZM4854 5745H4853C4853 5779.79 4824.79 5808 4790 5808V5809V5810C4825.9 5810 4855 5780.9 4855 5745H4854ZM4790 -4277V-4276C4824.79 -4276 4853 -4247.79 4853 -4213H4854H4855C4855 -4248.9 4825.9 -4278 4790 -4278V-4277ZM-860 -4277V-4278C-895.899 -4278 -925 -4248.9 -925 -4213H-924H-923C-923 -4247.79 -894.794 -4276 -860 -4276V-4277Z" fill="black" fill-opacity="0.1"/>
+<g id="1440">
+<rect width="1440" height="6862.6" transform="translate(-388 -3478)" fill="white"/>
+<g id="Content">
+<g id="Section">
+<rect width="1440" height="792" transform="translate(-388 -376)" fill="white"/>
+<g id="Row">
+<g id="Card">
+<rect x="-364" y="-280" width="684" height="600" rx="24" fill="#F5F5F5"/>
+<g id="Image Container">
+<g id="Mascot" clip-path="url(#clip0_0_1)">
+<g id="Mascot_2">
+<path id="Vector" d="M57.3658 304.781L0 170.927H172.098V37.0732L248.585 170.927L267.707 37.0732L382.439 343.024L57.3658 304.781Z" fill="#F9363C"/>
+<g id="Mask group">
+<g id="Eye">
+<path id="Vector_2" d="M211.643 202.515C243.282 204.173 267.765 227.745 266.328 255.166L151.753 249.161C153.191 221.741 180.004 200.856 211.643 202.515Z" fill="white"/>
+<mask id="mask0_0_1" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="151" y="202" width="116" height="54">
+<path id="Subtract" d="M211.643 202.515C243.282 204.173 267.765 227.745 266.328 255.166L151.753 249.161C153.191 221.741 180.004 200.856 211.643 202.515Z" fill="white"/>
+</mask>
+<g mask="url(#mask0_0_1)">
+<circle id="Vector_3" cx="209.313" cy="246.983" r="26.1507" transform="rotate(3 209.313 246.983)" fill="black"/>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<clipPath id="clip0_0_1">
+<rect width="320" height="320" fill="white"/>
+</clipPath>
+</defs>
+</svg>

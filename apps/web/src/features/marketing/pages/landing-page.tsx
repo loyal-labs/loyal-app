@@ -169,7 +169,7 @@ export function LandingPage({
                 aria-hidden="true"
                 className="h-auto w-[240px] shrink-0 lg:w-[320px]"
                 height={320}
-                src="/landing/figma/technology-mascot.png"
+                src="/landing/figma/technology-mascot.svg"
                 width={320}
               />
             </div>
