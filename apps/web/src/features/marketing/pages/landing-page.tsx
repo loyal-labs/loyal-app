@@ -163,8 +163,15 @@ export function LandingPage({
                 {dict.developers.technology.cta}
               </Link>
             </div>
-            <div className="relative flex h-[264px] shrink-0 items-end justify-end overflow-hidden pl-16 pt-6 lg:h-auto lg:min-h-0 lg:flex-1 lg:pl-8 lg:pt-8">
-              <WorkflowMascot />
+            <div className="relative flex min-h-0 flex-1 items-end justify-end overflow-hidden pl-8 pt-8">
+              <Image
+                alt=""
+                aria-hidden="true"
+                className="h-auto w-[240px] shrink-0 lg:w-[320px]"
+                height={320}
+                src="/landing/figma/technology-mascot.png"
+                width={320}
+              />
             </div>
           </article>
 
@@ -213,76 +220,6 @@ export function LandingPage({
         path="/"
       />
     </main>
-  );
-}
-
-function WorkflowMascot() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-full max-h-[240px] max-w-[240px] shrink-0 lg:max-h-[320px] lg:max-w-[320px]"
-      fill="none"
-      viewBox="0 0 288 288"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M56.57 274.477L0 135.57H154.888V15.1016L223.727 135.57L240.937 15.1016L349.136 308.897L56.57 274.477Z"
-        fill="#F9363C"
-      />
-      <path
-        d="M208.7 225.213L221.524 267.374L47.5022 252.261L28.3477 205.227L208.7 225.213Z"
-        fill="white"
-      />
-      <mask
-        height="63"
-        id="workflow-mascot-mouth-mask"
-        maskUnits="userSpaceOnUse"
-        style={{ maskType: "alpha" }}
-        width="194"
-        x="28"
-        y="205"
-      >
-        <path
-          d="M208.7 225.213L221.524 267.374L47.5022 252.261L28.3477 205.227L208.7 225.213Z"
-          fill="white"
-        />
-      </mask>
-      <g mask="url(#workflow-mascot-mouth-mask)">
-        <path
-          d="M39.995 236.791L69.7419 223.964L106.272 245.221L132.882 232.211L179.563 252.874L218.628 237.204"
-          stroke="black"
-          strokeWidth="11.4773"
-        />
-      </g>
-      <path
-        d="M192.61 153.837C221.085 155.329 243.12 176.545 241.827 201.223L138.71 195.819C140.003 171.14 164.135 152.345 192.61 153.837Z"
-        fill="white"
-      />
-      <mask
-        height="49"
-        id="workflow-mascot-eye-mask"
-        maskUnits="userSpaceOnUse"
-        style={{ maskType: "alpha" }}
-        width="104"
-        x="138"
-        y="153"
-      >
-        <path
-          d="M192.61 153.837C221.085 155.329 243.12 176.545 241.827 201.223L138.71 195.819C140.003 171.14 164.135 152.345 192.61 153.837Z"
-          fill="white"
-        />
-      </mask>
-      <g mask="url(#workflow-mascot-eye-mask)">
-        <circle
-          className="developer-mascot-eye"
-          cx="198.974"
-          cy="193.001"
-          fill="black"
-          r="23.2332"
-          transform="rotate(3 198.974 193.001)"
-        />
-      </g>
-    </svg>
   );
 }
 

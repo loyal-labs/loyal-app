@@ -123,7 +123,7 @@ function LandingHeroStats({ copy }: { copy: LandingDict["hero"] }) {
   return (
     <section
       aria-label={copy.statsAriaLabel}
-      className="flex w-full flex-col items-center gap-4 pt-12 lg:col-span-3 lg:items-start lg:col-start-10 lg:row-start-1 lg:justify-self-end lg:self-center lg:gap-6 lg:pt-0 xl:w-[356px]"
+      className="flex w-full flex-col items-center gap-4 pt-12 lg:col-span-3 lg:items-start lg:col-start-10 lg:row-start-1 lg:justify-self-end lg:self-start lg:gap-6 lg:pt-0"
       data-hero-reveal="right"
       data-hero-reveal-delay="2"
     >
@@ -189,18 +189,48 @@ export function LandingHero({ copy }: { copy: LandingDict["hero"] }) {
       className="flex w-full justify-center bg-[#f9363c] text-white"
       id="hero"
     >
-      <div className="flex w-full max-w-[560px] items-center justify-between overflow-hidden px-4 pb-16 pt-5 lg:max-w-[1560px] lg:px-6 lg:py-[120px]">
+      <div className="flex w-full max-w-[560px] items-center justify-between overflow-hidden px-4 pb-16 pt-5 lg:max-w-[1560px] lg:px-6 lg:flex-col lg:gap-16 lg:pb-24 lg:pt-[52px]">
+        <div
+          className="hidden w-full flex-col items-center gap-9 lg:flex"
+          data-hero-reveal="scale"
+        >
+          <h1 className="max-w-[523px] text-center text-[48px] font-bold uppercase leading-[1.1] tracking-[-0.96px]">
+            {copy.headline.replaceAll("\u00a0", " ")}
+          </h1>
+          <div className="flex flex-wrap items-center justify-center gap-5">
+            <Link
+              className="inline-flex h-14 items-center justify-center rounded-full bg-black px-6 py-4 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+              href={loyalAppUrl}
+              rel="noopener noreferrer"
+            >
+              {copy.startEarning}
+            </Link>
+            <Link
+              className="inline-flex h-14 items-center justify-center gap-2 rounded-full bg-black/[0.16] py-4 pl-4 pr-6 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+              href="#get-started-mobile"
+            >
+              <Image
+                alt=""
+                aria-hidden="true"
+                height={24}
+                src="/landing/assets/hero-download-loyal.svg"
+                width={24}
+              />
+              {copy.downloadLoyal}
+            </Link>
+          </div>
+        </div>
         <div className="grid w-full min-w-0 grid-cols-1 gap-0 lg:grid-cols-12 lg:gap-6">
           <div
-            className="flex flex-col items-center justify-center pb-8 text-center lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:items-start lg:self-stretch lg:pb-0 lg:text-left"
+            className="flex flex-col items-center justify-center pb-8 text-center lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:items-start lg:justify-start lg:self-stretch lg:pb-0 lg:text-left"
             data-hero-reveal="left"
           >
             <div className="flex w-full flex-col items-center gap-8 lg:items-start lg:gap-9">
               <div className="flex w-full flex-col items-center gap-4 lg:items-start lg:gap-6">
-                <h1 className="max-w-[420px] text-[44px] font-bold uppercase leading-none tracking-[-0.88px] lg:text-[64px] lg:font-semibold lg:normal-case lg:tracking-[-1.28px]">
+                <h1 className="max-w-[420px] text-[44px] font-bold uppercase leading-none tracking-[-0.88px] lg:hidden">
                   {copy.headline}
                 </h1>
-                <p className="max-w-full text-[20px] font-normal leading-6 tracking-[-0.4px] text-white/80 lg:w-[338px] lg:text-[24px] lg:leading-[1.1] lg:tracking-[-0.48px]">
+                <p className="max-w-full text-[20px] font-normal leading-6 tracking-[-0.4px] text-white/80 lg:max-w-[400px] lg:text-balance lg:text-[24px] lg:leading-[1.1] lg:tracking-[-0.48px] lg:text-white">
                   {copy.subtitle}
                 </p>
               </div>
@@ -212,36 +242,6 @@ export function LandingHero({ copy }: { copy: LandingDict["hero"] }) {
               >
                 {copy.startEarning}
               </Link>
-
-              <div className="hidden w-full max-w-[448px] flex-col items-start gap-3 lg:flex">
-                <Link
-                  className="inline-flex h-14 items-center justify-center gap-2 rounded-full bg-black py-5 pl-3.5 pr-6 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-                  href={loyalAppUrl}
-                  rel="noopener noreferrer"
-                >
-                  <Image
-                    alt=""
-                    aria-hidden="true"
-                    height={24}
-                    src="/landing/assets/hero-open-web.svg"
-                    width={24}
-                  />
-                  {copy.openWebApp}
-                </Link>
-                <Link
-                  className="inline-flex h-14 items-center justify-center gap-2 rounded-full bg-black/15 py-5 pl-3.5 pr-6 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-                  href="#get-started-mobile"
-                >
-                  <Image
-                    alt=""
-                    aria-hidden="true"
-                    height={24}
-                    src="/landing/assets/hero-download-loyal.svg"
-                    width={24}
-                  />
-                  {copy.downloadLoyal}
-                </Link>
-              </div>
             </div>
           </div>
 

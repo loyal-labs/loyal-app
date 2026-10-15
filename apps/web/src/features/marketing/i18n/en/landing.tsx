@@ -31,7 +31,7 @@ export const enLanding = {
     ),
     startEarning: "Start earning",
     openWebApp: "Open web app",
-    downloadLoyal: "Download Loyal",
+    downloadLoyal: "Get the App",
     phoneAlt:
       "Loyal Earn screen showing 9.48% APY, autodeposit on, and $822.66 earned",
     animationAriaLabel:

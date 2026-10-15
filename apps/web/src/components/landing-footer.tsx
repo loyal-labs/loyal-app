@@ -144,7 +144,7 @@ export function LandingFooter({
 
   return (
     <footer
-      className="flex w-full justify-center bg-white px-6 pt-12"
+      className="flex w-full justify-center bg-white px-6 py-12"
       id="footer"
     >
       <div className="flex w-full max-w-[560px] flex-col gap-12 lg:max-w-[1560px]">
@@ -243,17 +243,6 @@ export function LandingFooter({
               </TrackedExternalLink>
             ))}
           </div>
-        </div>
-
-        <div className="relative w-full overflow-hidden" data-reveal="lift">
-          <Image
-            alt={copy.wordmarkAlt}
-            className="h-auto w-full"
-            height={565}
-            priority
-            src="/landing/figma/footer-wordmark.svg"
-            width={1512}
-          />
         </div>
       </div>
     </footer>
