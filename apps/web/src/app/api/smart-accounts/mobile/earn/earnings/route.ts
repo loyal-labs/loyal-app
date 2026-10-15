@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
@@ -9,11 +9,12 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import {
   createEmptyEarnEarningsRangeSet,
   EarnEarningsUnavailableError,
-  readEarnEarningsRangeSet,
 } from "@/lib/yield-optimization/earnings-read-service.server";
+import { readCachedEarnEarningsRangeSet } from "@/lib/yield-optimization/earnings-cache.server";
 import type { EarnEarningsUnavailableResponse } from "@/lib/yield-optimization/earnings.shared";
 
 const EARN_VAULT_INDEX = 1;
+export const maxDuration = 300;
 
 function jsonError(status: number, code: string, message: string) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -58,13 +59,16 @@ export async function GET(request: Request) {
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   try {
-    const payload = await readEarnEarningsRangeSet({
-      cluster,
-      settings: account.settingsPda,
-      timezone: url.searchParams.get("timezone"),
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress,
-    });
+    const payload = await readCachedEarnEarningsRangeSet(
+      {
+        cluster,
+        settings: account.settingsPda,
+        timezone: url.searchParams.get("timezone"),
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress,
+      },
+      after
+    );
     return NextResponse.json(payload);
   } catch (error) {
     const code =

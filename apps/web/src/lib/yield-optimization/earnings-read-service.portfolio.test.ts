@@ -66,7 +66,8 @@ function ledgerEvent(
 function readMultiMintEarnings(args: {
   ledgerEvents: ReturnType<typeof ledgerEvent>[];
   storedPositions: { initialLiquidityMint: string; principalRaw: number }[];
-  onSave?: () => void;
+  onSave?: (sourceRevision?: string) => void;
+  loadSourceRevision?: () => Promise<string>;
   savedPayload?: EarnEarningsRangeSetResponse;
 }) {
   const positions = args.storedPositions.map(
@@ -134,8 +135,9 @@ function readMultiMintEarnings(args: {
             }
           : null,
       now: () => NOW,
-      saveSnapshot: async () => {
-        args.onSave?.();
+      loadSourceRevision: args.loadSourceRevision,
+      saveSnapshot: async ({ sourceRevision }) => {
+        args.onSave?.(sourceRevision);
       },
     }
   );
@@ -682,4 +684,22 @@ test("principal replay preserves idle funding, caps earned withdrawals and settl
       snapshots: [],
     })
   ).not.toBe(original);
+});
+
+test("a concurrent history change cannot mark the saved chart current", async () => {
+  for (const changed of [false, true]) {
+    let reads = 0;
+    const saved: (string | undefined)[] = [];
+    await readMultiMintEarnings({
+      ledgerEvents: [
+        ledgerEvent("deposit", "USDC", 100_000_000, "2026-08-01T12:00:00Z"),
+      ],
+      storedPositions: [
+        { initialLiquidityMint: "USDC", principalRaw: 100_000_000 },
+      ],
+      loadSourceRevision: async () => (changed && reads++ > 0 ? "new" : "old"),
+      onSave: (revision) => saved.push(revision),
+    });
+    expect(saved).toEqual([changed ? undefined : "old"]);
+  }
 });

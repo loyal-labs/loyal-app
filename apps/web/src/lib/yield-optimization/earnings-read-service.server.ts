@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 
 import {
   getTimescaleReserveDatabaseUrl,
@@ -36,6 +36,7 @@ import {
 import {
   earnEarningsSnapshots,
   getYieldOptimizationClient,
+  userYieldPositions,
 } from "./yield-neon-client.server";
 
 export type EarnEarningsReadInput = {
@@ -60,6 +61,7 @@ type EarningsPosition = Pick<
 export type EarnEarningsSnapshotRecord = {
   generatedAt: Date;
   payload: EarnEarningsRangeSetResponse;
+  sourceRevision?: string;
 };
 
 export type EarnEarningsReadDependencies = {
@@ -90,11 +92,13 @@ export type EarnEarningsReadDependencies = {
     timezone: string
   ) => Promise<EarnEarningsSnapshotRecord | null>;
   now: () => Date;
+  loadSourceRevision?: (input: EarnEarningsReadInput) => Promise<string>;
   saveSnapshot: (args: {
     input: EarnEarningsReadInput;
     payload: EarnEarningsRangeSetResponse;
     principalAmountRaw: bigint;
     timezone: string;
+    sourceRevision?: string;
   }) => Promise<void>;
 };
 
@@ -181,11 +185,7 @@ function comparePathEvents(
   ) {
     return left.confirmedSlot < right.confirmedSlot ? -1 : 1;
   }
-  if (
-    left.id !== undefined &&
-    right.id !== undefined &&
-    left.id !== right.id
-  ) {
+  if (left.id !== undefined && right.id !== undefined && left.id !== right.id) {
     return left.id < right.id ? -1 : 1;
   }
   const order = {
@@ -299,11 +299,11 @@ export function buildCanonicalEarningsPath(args: {
           recordedPrincipalDeltaRaw === BigInt(0)
             ? BigInt(0)
             : matchingHolding?.eventType === "withdrawal_full"
-              ? principalAmountRaw
-              : recordedPrincipalDeltaRaw !== null &&
-                  recordedPrincipalDeltaRaw < BigInt(0)
-                ? -recordedPrincipalDeltaRaw
-                : event.amountRaw;
+            ? principalAmountRaw
+            : recordedPrincipalDeltaRaw !== null &&
+              recordedPrincipalDeltaRaw < BigInt(0)
+            ? -recordedPrincipalDeltaRaw
+            : event.amountRaw;
         principalAmountRaw =
           principalAmountRaw > principalReductionRaw
             ? principalAmountRaw - principalReductionRaw
@@ -620,9 +620,9 @@ export function getEarningsCoverage(args: {
     .reverse()
     .find((event) => event.principalAmountRaw > BigInt(0))?.reserve;
   const currentReserveLatestSample = currentReserve
-    ? ([...args.apySamples]
+    ? [...args.apySamples]
         .reverse()
-        .find((sample) => sample.reserve === currentReserve) ?? null)
+        .find((sample) => sample.reserve === currentReserve) ?? null
     : null;
   const currentReserveSampleAgeMs = currentReserveLatestSample
     ? Math.max(
@@ -650,7 +650,7 @@ export function getEarningsCoverage(args: {
   };
 }
 
-async function loadSnapshot(
+export async function loadEarnEarningsSnapshot(
   input: EarnEarningsReadInput,
   timezone: string
 ): Promise<EarnEarningsSnapshotRecord | null> {
@@ -664,7 +664,45 @@ async function loadSnapshot(
       eq(earnEarningsSnapshots.timezone, timezone)
     ),
   });
-  return row ? { generatedAt: row.generatedAt, payload: row.payload } : null;
+  if (!row) return null;
+  const { _sourceRevision, ...payload } =
+    row.payload as EarnEarningsRangeSetResponse & {
+      _sourceRevision?: string;
+    };
+  return {
+    generatedAt: row.generatedAt,
+    payload,
+    sourceRevision: _sourceRevision,
+  };
+}
+
+export async function getEarnEarningsSourceRevision(
+  input: EarnEarningsReadInput
+) {
+  const rows = await getYieldOptimizationClient()
+    .db.select({
+      id: userYieldPositions.id,
+      status: userYieldPositions.status,
+      principal: userYieldPositions.principalAmountRaw,
+      lastEvent: userYieldPositions.lastHoldingEventId,
+      updatedAt: userYieldPositions.updatedAt,
+    })
+    .from(userYieldPositions)
+    .where(
+      and(
+        eq(userYieldPositions.walletAddress, input.walletAddress),
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex)
+      )
+    )
+    .orderBy(asc(userYieldPositions.id));
+  return `earnings-v1:${createHash("sha256")
+    .update(
+      JSON.stringify(rows, (_key, value) =>
+        typeof value === "bigint" ? value.toString() : value
+      )
+    )
+    .digest("hex")}`;
 }
 
 async function saveSnapshot(args: {
@@ -672,6 +710,7 @@ async function saveSnapshot(args: {
   payload: EarnEarningsRangeSetResponse;
   principalAmountRaw: bigint;
   timezone: string;
+  sourceRevision?: string;
 }) {
   const client = getYieldOptimizationClient();
   const generatedAt = new Date(args.payload.generatedAt);
@@ -679,7 +718,7 @@ async function saveSnapshot(args: {
     cluster: args.input.cluster,
     generatedAt,
     historyRevision: args.payload.historyRevision,
-    payload: args.payload,
+    payload: { ...args.payload, _sourceRevision: args.sourceRevision },
     principalAmountRaw: args.principalAmountRaw,
     settings: args.input.settings,
     timezone: args.timezone,
@@ -692,6 +731,9 @@ async function saveSnapshot(args: {
     .values(values)
     .onConflictDoUpdate({
       set: values,
+      setWhere: sql`${
+        earnEarningsSnapshots.generatedAt
+      } <= ${generatedAt.toISOString()}::timestamptz`,
       target: [
         earnEarningsSnapshots.cluster,
         earnEarningsSnapshots.walletAddress,
@@ -765,12 +807,12 @@ function normalizedError(error: unknown) {
       error instanceof EarnEarningsUnavailableError
         ? error.code
         : error instanceof EarnEarningsApyTimeoutError
-          ? "timescale_timeout"
-          : rawMessage.includes("earn_earnings_snapshots")
-            ? "snapshot_store_unavailable"
-            : rawMessage.includes("timescale")
-              ? "timescale_unavailable"
-              : "dependency_unavailable",
+        ? "timescale_timeout"
+        : rawMessage.includes("earn_earnings_snapshots")
+        ? "snapshot_store_unavailable"
+        : rawMessage.includes("timescale")
+        ? "timescale_unavailable"
+        : "dependency_unavailable",
     errorName: error instanceof Error ? error.name : typeof error,
     errorDetailCode:
       error instanceof EarnEarningsUnavailableError ? error.detailCode : null,
@@ -856,7 +898,8 @@ export function createEarnEarningsReadDependencies(
     loadHoldingEvents: findYieldPositionHistoryEventsForVault,
     loadPortfolioSnapshots: findCompleteYieldVaultExposureSnapshots,
     loadPositions: findActiveYieldPositionsForVault,
-    loadSnapshot: readOnly ? async () => null : loadSnapshot,
+    loadSnapshot: readOnly ? async () => null : loadEarnEarningsSnapshot,
+    loadSourceRevision: getEarnEarningsSourceRevision,
     now: () => new Date(),
     saveSnapshot: readOnly ? async () => undefined : saveSnapshot,
   };
@@ -884,6 +927,7 @@ export async function readEarnEarningsRangeSet(
 
   try {
     const historyStartedAt = Date.now();
+    const sourceRevision = await dependencies.loadSourceRevision?.(input);
     const [positions, ledgerEvents, loadedPortfolioSnapshots, holdingEvents] =
       await Promise.all([
         dependencies.loadPositions
@@ -1091,6 +1135,10 @@ export async function readEarnEarningsRangeSet(
         payload,
         principalAmountRaw: projectedPrincipal,
         timezone,
+        sourceRevision:
+          sourceRevision === (await dependencies.loadSourceRevision?.(input))
+            ? sourceRevision
+            : undefined,
       })
       .catch((error) => {
         console.warn(

@@ -9,6 +9,20 @@ then restore slot/id order in memory. Sorting the entire history by slot in
 Postgres can exceed the read timeout for long-lived wallets. Load reserve
 exposures in batches of 1,000 snapshot IDs so each indexed read stays bounded.
 
+Web and mobile reads reuse persisted verified charts for five minutes, within
+the same local calendar day, while the source revision is unchanged. The
+revision covers every scoped position's ID, status, principal, latest holding
+event and update timestamp. Older charts return immediately as stale; Next.js
+`after` refreshes them after responding. A transaction-scoped PostgreSQL advisory
+lock coalesces refreshes across server instances by cluster, wallet, settings,
+vault index and timezone. Failed refreshes preserve the saved chart. A wallet
+with no saved chart still needs its first verified calculation.
+
+The source revision is stored privately in the snapshot JSON and removed from
+API responses. Capture it before and after calculation: concurrent source changes
+must not produce a reusable cache revision. Older calculations cannot overwrite
+newer snapshots. Bump the revision's calculation version when semantics change.
+
 Replay principal per position, preserving independent stablecoin positions and
 reused position lifecycles. For legacy reserve/idle withdrawals, use the linked
 principal delta: withdrawing idle funds may reduce no invested principal, while a
@@ -31,3 +45,5 @@ withdrawal source semantics and closure evidence. Re-audit if any guard changes;
 never infer new principal solely from a reserve deposit or overwrite a mismatch
 without explaining it. Test the repair and rollback against a disposable database
 before applying it, then verify fresh web/mobile earnings responses after rollout.
+History repairs must update the affected position's `updated_at` even when its
+principal stays unchanged, so previously verified charts are invalidated.
