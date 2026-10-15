@@ -341,33 +341,14 @@
     }
   }
 
-  .developer-mascot-eye,
   .developer-docs-eye {
     transform-box: fill-box;
     transform-origin: center;
     will-change: transform;
   }
 
-  .group:hover .developer-mascot-eye {
-    animation: developerMascotEyeLook 1.35s cubic-bezier(0.45, 0, 0.2, 1)
-      infinite;
-  }
-
   .group:hover .developer-docs-eye {
     animation: developerDocsEyeLook 1.35s cubic-bezier(0.45, 0, 0.2, 1) infinite;
-  }
-
-  @keyframes developerMascotEyeLook {
-    0%,
-    100% {
-      transform: translate3d(0, 0, 0);
-    }
-    35% {
-      transform: translate3d(-8px, -2px, 0);
-    }
-    70% {
-      transform: translate3d(7px, 1px, 0);
-    }
   }
 
   @keyframes developerDocsEyeLook {
@@ -452,7 +433,6 @@
       display: none;
     }
 
-    .group:hover .developer-mascot-eye,
     .group:hover .developer-docs-eye {
       animation: none;
     }
