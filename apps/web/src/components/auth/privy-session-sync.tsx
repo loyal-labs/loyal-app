@@ -20,6 +20,7 @@ import {
   useState,
 } from "react";
 
+import { Button } from "@/components/ui/button";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -108,11 +109,7 @@ function Inner({ children }: { children: ReactNode }) {
   const adapter = useWallet();
   const { isHydrated, isAuthenticated, refreshSession, user } =
     useAuthSession();
-  const {
-    openAccount: openSignInModal,
-    close: closeSignInModal,
-    registerHandler,
-  } = useSignInModal();
+  const { close: closeSignInModal, registerHandler } = useSignInModal();
 
   // Wallet-only users get Privy's "Connect your email" modal right after
   // sign-in; on success the Loyal session is re-issued so user.email lands.
@@ -129,6 +126,12 @@ function Inner({ children }: { children: ReactNode }) {
 
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [signerLifecycle, setSignerLifecycle] =
+    useState<LifecycleTracker | null>(null);
+  const finishSignerRestoration = useCallback(
+    () => setSignerLifecycle(null),
+    []
+  );
   // OAuth (Google) is a full-page redirect, so the "finish the Loyal sign-in
   // once Privy is authenticated" intent has to survive a reload.
   const [wantsSession, setWantsSessionState] = useState(
@@ -186,27 +189,29 @@ function Inner({ children }: { children: ReactNode }) {
     },
     onError: (code) => {
       clearLifecycleDeadline();
-      if (code === "exited_auth_flow") {
+      const cancelled =
+        code === "exited_auth_flow" || code === "oauth_user_denied";
+      if (cancelled) {
         lifecycleRef.current?.cancel("wallet_approval");
       } else {
         lifecycleRef.current?.fail("wallet_approval", {
           errorCode: "request_failed",
+          errorMessage: `Privy login: ${code}`,
         });
       }
       lifecycleRef.current = null;
       setWantsSession(false);
       setStep("idle");
-      // Closing Privy's modal is not an error to show. Either way, fall back
-      // to our modal: Privy's wallet list has no path for Ledger users (its
-      // Solana login is SIWS, which Ledger refuses to sign), ours does.
+      loginAddressRef.current = null;
       setError(
-        code === "exited_auth_flow" ? null : `Privy login failed: ${code}`
+        cancelled ? null : "Sign-in could not be completed. Please try again."
       );
-      openSignInModal();
     },
   });
 
   const start = useCallback(() => {
+    if (runningRef.current || signerLifecycle) return;
+    closeSignInModal();
     startLifecycle();
     setError(null);
     setWantsSession(true);
@@ -215,23 +220,27 @@ function Inner({ children }: { children: ReactNode }) {
       login();
       return;
     }
-    // Privy is already authenticated (the Google redirect lands here, and so
-    // does every retry after a failed handshake), so login() would open
-    // nothing. Show our modal instead: the effect below reports the step and
-    // any error there, and without it the click is swallowed silently.
-    openSignInModal();
-  }, [authenticated, login, openSignInModal, setWantsSession, startLifecycle]);
+    setStep("exchanging");
+  }, [
+    authenticated,
+    closeSignInModal,
+    login,
+    setWantsSession,
+    signerLifecycle,
+    startLifecycle,
+  ]);
 
   const addEmail = useCallback(() => {
     if (authenticated) {
       linkEmail();
       return;
     }
+    closeSignInModal();
     setError(null);
     setWantsSession(true);
     setStep("privy");
     login({ loginMethods: ["wallet"], walletChainType: "solana-only" });
-  }, [authenticated, linkEmail, login, setWantsSession]);
+  }, [authenticated, closeSignInModal, linkEmail, login, setWantsSession]);
 
   // "Connect" anywhere on the page goes straight to Privy while signed out;
   // signed in, the modal shows the Account view as before. Cherry never opens
@@ -349,50 +358,16 @@ function Inner({ children }: { children: ReactNode }) {
       lifecycle.observe("backend_session_valid");
       closeSignInModal();
 
-      // Privy knows which wallet-standard wallet owns the address; the adapter
-      // lists the same wallets by name, so hand it the matching one to sign
-      // with. Best-effort: the reselect effect below retries on every render
-      // once Privy's wallet list catches up.
-      const owner = privyWallets.find((w) => w.address === address);
-      const entry = owner
-        ? adapter.wallets.find(
-            (w) => w.adapter.name === owner.standardWallet.name
-          )
-        : undefined;
-      if (entry) {
-        lifecycleStageRef.current = "wallet_connect";
-        adapter.select(entry.adapter.name);
-        if (!entry.adapter.connected) {
-          await entry.adapter.connect().catch(() => {
-            lifecycle.fail("wallet_connect", {
-              errorCode: "wallet_connection_failed",
-            });
-          });
-        }
-      }
-      if (
-        entry?.adapter.connected &&
-        entry.adapter.publicKey?.toBase58() === address
-      ) {
-        lifecycle.observe("signer_ready");
-        lifecycle.complete("ui_commit");
-      } else {
-        lifecycle.fail("wallet_connect", {
-          errorCode: entry?.adapter.connected
-            ? "wallet_account_mismatch"
-            : "wallet_unavailable",
-        });
-      }
+      // Share the render-aware signer path with returning sessions.
+      setSignerLifecycle(lifecycle);
       if (!hasEmail) linkEmail();
     },
     [
-      adapter,
       closeSignInModal,
       createWallet,
       linkEmail,
       logout,
       privyUser,
-      privyWallets,
       refreshSession,
       refreshUser,
       user?.walletAddress,
@@ -408,7 +383,7 @@ function Inner({ children }: { children: ReactNode }) {
     lifecycle.observe("privy_authenticated");
     void completeSignIn(lifecycle)
       .catch((e: unknown) => {
-        lifecycle.fail("completion", {
+        lifecycle.fail(lifecycleStageRef.current, {
           errorCode: normalizeLifecycleErrorCode(
             e && typeof e === "object" && "code" in e
               ? (e as { code?: unknown }).code
@@ -417,7 +392,6 @@ function Inner({ children }: { children: ReactNode }) {
           errorMessage: lifecycleErrorMessage(e),
         });
         setError(e instanceof Error ? e.message : String(e));
-        openSignInModal();
       })
       .finally(() => {
         clearLifecycleDeadline();
@@ -430,7 +404,6 @@ function Inner({ children }: { children: ReactNode }) {
     authenticated,
     clearLifecycleDeadline,
     completeSignIn,
-    openSignInModal,
     privyUser,
     setWantsSession,
     startLifecycle,
@@ -443,6 +416,8 @@ function Inner({ children }: { children: ReactNode }) {
     enabled: isHydrated && isAuthenticated && walletsReady && !wantsSession,
     adapter,
     wallets: privyWallets,
+    lifecycle: signerLifecycle,
+    onSettled: finishSignerRestoration,
   });
 
   // Sign-out: Loyal session gone while Privy still authenticated.
@@ -465,6 +440,25 @@ function Inner({ children }: { children: ReactNode }) {
   return (
     <PrivyAuthContext.Provider value={value}>
       {children}
+      {error && step === "idle" ? (
+        <div className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-sm rounded-xl border bg-background p-4 text-foreground shadow-sm">
+          <p className="text-sm leading-relaxed" role="alert">
+            {error}
+          </p>
+          <div className="mt-4 flex gap-3">
+            <Button onClick={start} type="button">
+              Try signing in again
+            </Button>
+            <Button
+              onClick={() => setError(null)}
+              type="button"
+              variant="outline"
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </PrivyAuthContext.Provider>
   );
 }

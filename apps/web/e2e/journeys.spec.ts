@@ -47,6 +47,11 @@ for (const scenario of [
   "fresh_user",
   "fresh_retry",
   "cancel",
+  "oauth_cancel",
+  "privy_error",
+  "registration_delayed",
+  "context_delayed",
+  "missing_wallet",
   "backend_mismatch",
   "signer_mismatch",
   "connect_rejected",
@@ -105,6 +110,49 @@ for (const scenario of [
     await page
       .getByRole("button", { name: "Connect wallet", exact: true })
       .click();
+    if (
+      ["registration_delayed", "context_delayed", "missing_wallet"].includes(
+        scenario
+      )
+    ) {
+      await expect(page.getByLabel("Session state")).toHaveText(
+        "Authenticated"
+      );
+      await page.clock.fastForward(
+        scenario === "missing_wallet" ? 120_001 : 1000
+      );
+      if (scenario !== "missing_wallet") {
+        expect(
+          events.some((event) =>
+            ["failed", "completed"].includes(event.outcome)
+          )
+        ).toBe(false);
+        await page
+          .getByRole("button", {
+            name: "Finish wallet connection",
+            exact: true,
+          })
+          .click();
+      }
+    }
+    if (scenario === "privy_error") {
+      await expect(page.getByRole("alert")).toContainText(
+        "Sign-in could not be completed"
+      );
+      await expect(page.getByLabel("Account modal")).toHaveText("Closed");
+      await expect
+        .poll(() =>
+          events.some(
+            (event) =>
+              event.errorMessage === "Privy login: unknown_connect_wallet_error"
+          )
+        )
+        .toBe(true);
+      await page.getByRole("button", { name: "Try signing in again" }).click();
+      await expect
+        .poll(() => events.some((event) => event.outcome === "completed"))
+        .toBe(true);
+    }
     if (scenario === "connect_delayed") {
       await expect
         .poll(() =>
@@ -155,7 +203,8 @@ for (const scenario of [
       )
       .at(-1)!;
     expect(JSON.stringify(events)).not.toContain("controlled-identity-fixture");
-    if (scenario === "cancel") {
+    await expect(page.getByLabel("Account modal")).toHaveText("Closed");
+    if (scenario === "cancel" || scenario === "oauth_cancel") {
       expect(terminal.outcome).toBe("cancelled");
       expect(exchanges).toBe(0);
       await expect(page.getByLabel("Session state")).toHaveText("Anonymous");
@@ -171,6 +220,9 @@ for (const scenario of [
     );
     await expect(page.getByLabel("Session state")).toHaveText("Authenticated");
     if (
+      ["privy_error", "registration_delayed", "context_delayed"].includes(
+        scenario
+      ) ||
       scenario === "success" ||
       scenario === "connect_delayed" ||
       scenario.startsWith("fresh_")
@@ -186,7 +238,9 @@ for (const scenario of [
     } else {
       expect(terminal.outcome).toBe("failed");
       expect(terminal.errorCode).toBe(
-        scenario === "connect_rejected"
+        scenario === "missing_wallet"
+          ? "wallet_unavailable"
+          : scenario === "connect_rejected"
           ? "wallet_connection_failed"
           : "wallet_account_mismatch"
       );
@@ -625,6 +679,9 @@ test("authenticated action retries retain failure, propagate trace context and r
 
 for (const scenario of [
   "success",
+  "context_delayed",
+  "registration_delayed",
+  "missing_wallet",
   "signer_mismatch",
   "connect_rejected",
   "connect_delayed",
@@ -677,7 +734,34 @@ for (const scenario of [
         .getByRole("button", { name: "Finish wallet connection" })
         .click();
     }
-    const succeeds = scenario === "success" || scenario === "connect_delayed";
+    if (
+      ["registration_delayed", "context_delayed", "missing_wallet"].includes(
+        scenario
+      )
+    ) {
+      await page.clock.fastForward(
+        scenario === "missing_wallet" ? 30_001 : 1000
+      );
+      if (scenario !== "missing_wallet") {
+        expect(
+          events.some((event) =>
+            ["failed", "completed"].includes(event.outcome)
+          )
+        ).toBe(false);
+        await page
+          .getByRole("button", {
+            name: "Finish wallet connection",
+            exact: true,
+          })
+          .click();
+      }
+    }
+    const succeeds = [
+      "success",
+      "connect_delayed",
+      "registration_delayed",
+      "context_delayed",
+    ].includes(scenario);
     await expect
       .poll(
         () =>
@@ -701,9 +785,23 @@ for (const scenario of [
       expect(
         events.find((event) => event.outcome === "failed")?.errorCode
       ).toBe(
-        scenario === "signer_mismatch"
+        scenario === "missing_wallet"
+          ? "wallet_unavailable"
+          : scenario === "signer_mismatch"
           ? "wallet_account_mismatch"
           : "wallet_connection_failed"
       );
   });
 }
+
+test("real Privy controller: embedded wallet replacement", async ({ page }) => {
+  await page.route("**/api/auth/session", (route) =>
+    route.fulfill({ status: 401, json: {} })
+  );
+  await page.goto("/auth");
+  for (let replacement = 0; replacement < 2; replacement++) {
+    await page.getByRole("button", { name: "Replace embedded wallet" }).click();
+    await page.getByRole("button", { name: "Check embedded wallet" }).click();
+    await expect(page.getByLabel("Registered wallet")).toHaveText("Current");
+  }
+});
