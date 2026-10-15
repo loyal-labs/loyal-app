@@ -13,6 +13,9 @@ export function AuthProbe() {
       <button onClick={completeFixtureConnection}>
         Finish wallet connection
       </button>
+      <output aria-label="Account modal">
+        {modal.isOpen ? "Open" : "Closed"}
+      </output>
       <output aria-label="Sign-in step">{auth?.step}</output>
       <output aria-label="Sign-in error">{auth?.error ?? "None"}</output>
       <output aria-label="Created wallets">{walletCreationCount()}</output>

@@ -34,8 +34,8 @@ function usePrivyTheme() {
 // Spike (ASK-2262). Bridges Privy's embedded Solana wallet into the existing
 // @solana/wallet-adapter tree by registering it as a Wallet Standard wallet,
 // so every useWallet() consumer keeps working unchanged.
-// ponytail: registers once per page load via module-level set; wallet-adapter
-// dedupes by name, so a duplicate register is a no-op rather than a bug.
+// Register once: the installed wallet-adapter retains unregistered adapters,
+// so effect cleanup/re-registration creates duplicate, stale signers.
 const registered = new Set<string>();
 
 function PrivyEmbeddedWalletBridge() {
@@ -46,7 +46,8 @@ function PrivyEmbeddedWalletBridge() {
       if (!("isPrivyWallet" in wallet) || !wallet.isPrivyWallet) continue;
       if (registered.has(wallet.name)) continue;
       registered.add(wallet.name);
-      registerWallet(wallet);
+      // WalletProvider subscribes in a sibling effect; let it attach first.
+      queueMicrotask(() => registerWallet(wallet));
     }
   }, [ready, wallets]);
   return null;
