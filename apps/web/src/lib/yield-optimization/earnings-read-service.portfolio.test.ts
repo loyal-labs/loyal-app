@@ -609,3 +609,77 @@ describe("portfolio earnings verification", () => {
     );
   });
 });
+
+test("principal replay preserves idle funding, caps earned withdrawals and settles reused positions", () => {
+  const events: YieldPositionEvent[] = [
+    ledgerEvent("deposit", "USDC", 100, "2026-08-01T00:00:00Z", {
+      positionId: BigInt(1),
+      initializesPosition: true,
+    }),
+    ledgerEvent("deposit", "PYUSD", 200, "2026-08-01T00:00:01Z", {
+      positionId: BigInt(2),
+      initializesPosition: true,
+    }),
+    ledgerEvent("withdrawal", "USDC", 30, "2026-08-02T00:00:00Z", {
+      positionId: BigInt(1),
+      initializesPosition: false,
+      principalDeltaRaw: BigInt(0),
+    }),
+    ledgerEvent("deposit", "USDC", 30, "2026-08-02T00:00:01Z", {
+      positionId: BigInt(1),
+      initializesPosition: false,
+      principalDeltaRaw: BigInt(0),
+    }),
+    ledgerEvent("withdrawal", "USDC", 120, "2026-08-03T00:00:00Z", {
+      positionId: BigInt(1),
+      initializesPosition: false,
+    }),
+    ledgerEvent("deposit", "USDC", 50, "2026-08-04T00:00:00Z", {
+      positionId: BigInt(1),
+      initializesPosition: false,
+    }),
+    ledgerEvent("withdrawal", "USDC", 0, "2026-08-05T00:00:00Z", {
+      positionId: BigInt(1),
+      initializesPosition: false,
+      settlesPosition: true,
+    }),
+    ledgerEvent("deposit", "USDC", 25, "2026-08-06T00:00:00Z", {
+      positionId: BigInt(1),
+      initializesPosition: false,
+    }),
+  ];
+  for (const [day, expected] of [
+    [2, BigInt(300)],
+    [3, BigInt(200)],
+    [4, BigInt(250)],
+    [5, BigInt(200)],
+    [6, BigInt(225)],
+  ] as const) {
+    expect(
+      principalAt(events, new Date(`2026-08-0${day}T12:00:00Z`), "position")
+    ).toBe(expected);
+  }
+  expect(() =>
+    principalAt(
+      [{ ...events[0] }, { ...events[2], principalDeltaRaw: BigInt(1) }],
+      NOW,
+      "position"
+    )
+  ).toThrow("principal_history_delta_invalid");
+  const original = getPortfolioEarningsHistoryRevision({
+    events,
+    snapshots: [],
+  });
+  expect(
+    getPortfolioEarningsHistoryRevision({
+      events: events.map((e) => ({ ...e, principalDeltaRaw: undefined })),
+      snapshots: [],
+    })
+  ).not.toBe(original);
+  expect(
+    getPortfolioEarningsHistoryRevision({
+      events: events.map((e) => ({ ...e, settlesPosition: undefined })),
+      snapshots: [],
+    })
+  ).not.toBe(original);
+});

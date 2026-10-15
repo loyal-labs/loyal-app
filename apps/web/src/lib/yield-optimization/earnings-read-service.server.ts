@@ -396,6 +396,8 @@ export function getPortfolioEarningsHistoryRevision(args: {
           event.holdingEventId?.toString(),
           event.positionId?.toString(),
           event.initializesPosition,
+          event.principalDeltaRaw?.toString(),
+          event.settlesPosition,
         ]),
         snapshots: args.snapshots.map((snapshot) => [
           snapshot.observedSlot.toString(),

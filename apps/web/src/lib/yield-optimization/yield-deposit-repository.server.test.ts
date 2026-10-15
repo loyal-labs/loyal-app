@@ -1059,6 +1059,7 @@ describe("earnings ledger lifecycle projection", () => {
         batch: async () => [deposits, withdrawals],
         select: () => ({
           from: () => ({
+            innerJoin: () => ({ where: async () => [] }),
             where: () =>
               Object.assign(Promise.resolve(holdings), { orderBy: () => [] }),
           }),
