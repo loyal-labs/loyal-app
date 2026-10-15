@@ -253,3 +253,122 @@ describe("calculateEarnEarnings money path", () => {
     expect(principal).toBe(rawUsdc(125));
   });
 });
+
+test("checkpoint replay matches full history across deposits, closures, rebalances and calendar boundaries", () => {
+  const start = Date.parse("2025-12-20T10:23:00Z");
+  const at = (days: number) => new Date(start + days * DAY_MS);
+  const events: YieldPositionEvent[] = [
+    {
+      type: "deposit",
+      amountRaw: rawUsdc(1000),
+      confirmedAt: at(0),
+      positionId: BigInt(1),
+      initializesPosition: true,
+    },
+    {
+      type: "deposit",
+      amountRaw: rawUsdc(300),
+      confirmedAt: at(12.25),
+      positionId: BigInt(1),
+      initializesPosition: false,
+      liquidityMint: "PYUSD",
+    },
+    {
+      type: "withdrawal",
+      amountRaw: rawUsdc(100),
+      confirmedAt: at(30.5),
+      positionId: BigInt(1),
+      initializesPosition: false,
+    },
+    {
+      type: "withdrawal",
+      amountRaw: rawUsdc(1210),
+      confirmedAt: at(40),
+      positionId: BigInt(1),
+      initializesPosition: false,
+      settlesPosition: true,
+    },
+    {
+      type: "deposit",
+      amountRaw: rawUsdc(500),
+      confirmedAt: at(41),
+      positionId: BigInt(1),
+      initializesPosition: true,
+    },
+  ];
+  const snapshots: YieldPortfolioSnapshot[] = Array.from(
+    { length: 100 },
+    (_, day) => ({
+      observedAt: at(day),
+      observedSlot: BigInt(day),
+      exposures: [
+        {
+          amountRaw: rawUsdc(day === 40 ? 0 : 1000 + day),
+          kind: "kamino",
+          liquidityMint: day % 2 ? "PYUSD" : "USDC",
+          reserve: day % 2 ? "reserve-b" : "reserve-a",
+          sourceId: "reserve",
+        },
+        {
+          amountRaw: rawUsdc(50),
+          kind: "idle",
+          liquidityMint: "USDC",
+          reserve: null,
+          sourceId: "idle",
+        },
+      ],
+    })
+  );
+  const apySamples: ReserveApySample[] = Array.from({ length: 100 }, (_, day) =>
+    ["reserve-a", "reserve-b"].map((reserve) => ({
+      observedAt: at(day),
+      reserve,
+      supplyApy: 0.05 + day / 10000,
+    }))
+  ).flat();
+  const rounded = (value: unknown) =>
+    JSON.parse(
+      JSON.stringify(value, (_key, item) =>
+        typeof item === "number" ? Number(item.toFixed(8)) : item
+      )
+    );
+  for (const timezone of ["UTC", "Asia/Tbilisi", "America/New_York"]) {
+    for (const range of ["7D", "30D", "1Y", "ALL"] as const) {
+      let checkpoint:
+        | { at: Date; response: ReturnType<typeof calculateEarnEarnings> }
+        | undefined;
+      for (const day of [10, 12.5, 31, 40, 41, 42, 78.75, 90.5]) {
+        const args = {
+          events,
+          apySamples,
+          now: at(day),
+          portfolioSnapshots: snapshots,
+          principalClamp: "position" as const,
+          range,
+          timezone,
+        };
+        const full = calculateEarnEarnings(args);
+        const seed =
+          checkpoint &&
+          snapshots
+            .filter((snapshot) => snapshot.observedAt <= checkpoint!.at)
+            .at(-1);
+        const tail = checkpoint
+          ? [
+              ...(seed ? [{ ...seed, observedAt: checkpoint.at }] : []),
+              ...snapshots.filter(
+                (snapshot) => snapshot.observedAt > checkpoint!.at
+              ),
+            ]
+          : snapshots;
+        const incremental = calculateEarnEarnings({
+          ...args,
+          portfolioSnapshots: tail,
+          checkpoint,
+        });
+        expect(rounded(incremental)).toEqual(rounded(full));
+        checkpoint = { at: at(day), response: incremental };
+      }
+    }
+  }
+});

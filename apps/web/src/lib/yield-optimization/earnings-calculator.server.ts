@@ -793,9 +793,12 @@ export function calculateEarnEarnings(args: {
   principalClamp?: PrincipalClamp;
   range: EarningsRangeId;
   timezone: string;
+  checkpoint?: { at: Date; response: EarnEarningsResponse };
 }): EarnEarningsResponse {
   const principalClamp = args.principalClamp ?? "total";
-  const events = sortEarningsEvents(args.events);
+  const events = sortEarningsEvents(
+    args.events.filter((event) => event.confirmedAt <= args.now)
+  );
   const pathEvents = [
     ...(args.pathEvents ?? legacyEventsToPathEvents(events)),
   ].sort((a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime());
@@ -822,7 +825,17 @@ export function calculateEarnEarnings(args: {
     range: args.range,
     timezone: args.timezone,
   });
+  const checkpoint = args.checkpoint;
+  const resumeAt = checkpoint?.at.getTime() ?? Number.NEGATIVE_INFINITY;
+  const previousBars = new Map(
+    checkpoint?.response.bars.map((bar) => [bar.startAt, bar])
+  );
   const bars = buckets.map((bucket) => {
+    const previous = previousBars.get(bucket.startAt.toISOString());
+    if (bucket.endAt.getTime() <= resumeAt && previous) {
+      return { ...previous, isCurrent: bucket.isCurrent, label: bucket.label };
+    }
+    const startAt = new Date(Math.max(bucket.startAt.getTime(), resumeAt));
     const result = usePortfolio
       ? calculatePortfolioWindow({
           principalClamp,
@@ -830,16 +843,27 @@ export function calculateEarnEarnings(args: {
           endAt: bucket.endAt,
           events,
           snapshots: portfolioSnapshots,
-          startAt: bucket.startAt,
+          startAt,
         })
       : calculateWindow({
           apySamples,
           endAt: bucket.endAt,
           pathEvents,
-          startAt: bucket.startAt,
+          startAt,
         });
     const bucketSeconds =
       (bucket.endAt.getTime() - bucket.startAt.getTime()) / 1000;
+    if (previous && bucket.startAt.getTime() < resumeAt) {
+      const previousSeconds = (resumeAt - bucket.startAt.getTime()) / 1000;
+      const tailSeconds = (bucket.endAt.getTime() - startAt.getTime()) / 1000;
+      result.avgPrincipalUsd =
+        bucketSeconds > 0
+          ? (previous.avgPrincipalUsd * previousSeconds +
+              result.avgPrincipalUsd * tailSeconds) /
+            bucketSeconds
+          : 0;
+      result.earnedUsd += previous.earnedUsd;
+    }
 
     return {
       apyBps: deriveApyBps({
@@ -858,8 +882,9 @@ export function calculateEarnEarnings(args: {
     };
   });
   const lifetimeStart = firstDepositAt ?? args.now;
-  const calculateRange = (startAt: Date) =>
-    usePortfolio
+  const calculateRange = (from: Date) => {
+    const startAt = new Date(Math.max(from.getTime(), resumeAt));
+    return usePortfolio
       ? calculatePortfolioWindow({
           principalClamp,
           apySamples,
@@ -874,9 +899,20 @@ export function calculateEarnEarnings(args: {
           pathEvents,
           startAt,
         });
+  };
   const lifetime = calculateRange(lifetimeStart);
   const sinceLastDeposit = calculateRange(lastDepositAt ?? args.now);
   const today = calculateRange(startOfLocalDay(args.now, args.timezone));
+  if (checkpoint) {
+    lifetime.earnedUsd += checkpoint.response.lifetimeEarnedUsd;
+    if (lastDepositAt && lastDepositAt.getTime() < resumeAt) {
+      sinceLastDeposit.earnedUsd +=
+        checkpoint.response.sinceLastDepositEarnedUsd;
+    }
+    if (startOfLocalDay(args.now, args.timezone).getTime() < resumeAt) {
+      today.earnedUsd += checkpoint.response.todayEarnedUsd;
+    }
+  }
   const currentPathState = getPathStateAt(pathEvents, args.now);
   const principalAmountRaw = usePortfolio
     ? principalAt(events, args.now, principalClamp)

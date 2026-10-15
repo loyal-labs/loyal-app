@@ -703,3 +703,122 @@ test("a concurrent history change cannot mark the saved chart current", async ()
     expect(saved).toEqual([changed ? undefined : "old"]);
   }
 });
+
+test("verified checkpoints bound exposure reads and rebuild after historical corrections", async () => {
+  const { earningsCheckpointTime } = await import(
+    "./earnings-checkpoint.server"
+  );
+  const start = new Date("2026-03-01T10:00:00Z");
+  let now = new Date("2026-03-04T12:00:00Z");
+  let stored:
+    | import("./earnings-read-service.server").EarnEarningsSnapshotRecord
+    | null = null;
+  let historyRevision = "history-1";
+  let apy = 0.1;
+  const events = [
+    ledgerEvent("deposit", "USDC", 100_000_000, start.toISOString()),
+  ];
+  const snapshots: YieldPortfolioSnapshot[] = Array.from(
+    { length: 6 },
+    (_, day) => ({
+      observedAt: new Date(start.getTime() + day * 86400000),
+      observedSlot: BigInt(day),
+      exposures: [
+        {
+          amountRaw: BigInt(100_000_000),
+          kind: "kamino",
+          liquidityMint: "USDC",
+          reserve: "reserve-a",
+          sourceId: "reserve:reserve-a",
+        },
+      ],
+    })
+  );
+  const bounds: (Date | undefined)[] = [];
+  let holdingReads = 0;
+  const deps: import("./earnings-read-service.server").EarnEarningsReadDependencies =
+    {
+      apyTimeoutMs: 1000,
+      now: () => now,
+      loadSnapshot: async () => stored,
+      loadHistoryFingerprint: async () => historyRevision,
+      loadLedgerEvents: async () => events,
+      loadPositions: async () => [
+        {
+          initialLiquidityMint: "USDC",
+          principalAmountRaw: events.reduce(
+            (sum, event) => sum + event.amountRaw,
+            BigInt(0)
+          ),
+        } as UserYieldPositionRecord,
+      ],
+      loadHoldingEvents: async () => {
+        holdingReads++;
+        return [];
+      },
+      loadPortfolioSnapshots: async (input) => {
+        bounds.push(input.observedSince);
+        return snapshots.filter(
+          (s) => !input.observedSince || s.observedAt >= input.observedSince
+        );
+      },
+      loadApySamples: async () =>
+        Array.from({ length: 6 }, (_, day) => ({
+          observedAt: new Date(start.getTime() + day * 86400000),
+          reserve: "reserve-a",
+          supplyApy: apy,
+        })),
+      saveSnapshot: async (args) => {
+        stored = {
+          generatedAt: new Date(args.payload.generatedAt),
+          payload: args.payload,
+          checkpoint: args.checkpoint,
+        };
+      },
+    };
+  const input = {
+    cluster: "mainnet-beta",
+    settings: "settings",
+    walletAddress: "wallet",
+    vaultIndex: 1,
+    timezone: "America/New_York",
+  };
+  const read = () => readEarnEarningsRangeSet(input, deps);
+  expect((await read()).freshness).toBe("fresh");
+  expect(stored!.checkpoint?.at).toBe(
+    earningsCheckpointTime(start, now).toISOString()
+  );
+  events.push(
+    ledgerEvent("deposit", "PYUSD", 20_000_000, "2026-03-04T13:00:00Z")
+  );
+  now = new Date("2026-03-04T14:00:00Z");
+  const incremental = await read();
+  expect(bounds.at(-1)?.toISOString()).toBe("2026-03-04T00:00:00.000Z");
+  expect(holdingReads).toBe(1);
+  const checkpointAfter = stored!.checkpoint;
+  const full = await readEarnEarningsRangeSet(
+    input,
+    { ...deps, saveSnapshot: async () => {} },
+    false
+  );
+  for (const range of ["7D", "30D", "1Y", "ALL"] as const) {
+    expect(incremental.ranges[range].lifetimeEarnedUsd).toBeCloseTo(
+      full.ranges[range].lifetimeEarnedUsd,
+      10
+    );
+    expect(incremental.ranges[range].sinceLastDepositEarnedUsd).toBeCloseTo(
+      full.ranges[range].sinceLastDepositEarnedUsd,
+      10
+    );
+  }
+  expect(checkpointAfter).toBeDefined();
+  historyRevision = "corrected-old-exposure";
+  await read();
+  expect(bounds.at(-1)).toBeUndefined();
+  apy = 0.2;
+  await read();
+  expect(bounds.at(-1)).toBeUndefined();
+  events[0] = { ...events[0], amountRaw: BigInt(110_000_000) };
+  await read();
+  expect(bounds.at(-1)).toBeUndefined();
+});

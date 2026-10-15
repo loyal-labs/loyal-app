@@ -34,6 +34,14 @@ import {
   type UserYieldPositionRecord,
 } from "./yield-deposit-repository.server";
 import {
+  checkpointSeed,
+  earningsCheckpointTime,
+  earningsFingerprint,
+  loadEarningsHistoryFingerprint,
+  type EarningsCheckpoint,
+} from "./earnings-checkpoint.server";
+import { isServerVerifiedEarnEarningsPayload } from "./earnings.shared";
+import {
   earnEarningsSnapshots,
   getYieldOptimizationClient,
   userYieldPositions,
@@ -62,6 +70,7 @@ export type EarnEarningsSnapshotRecord = {
   generatedAt: Date;
   payload: EarnEarningsRangeSetResponse;
   sourceRevision?: string;
+  checkpoint?: EarningsCheckpoint;
 };
 
 export type EarnEarningsReadDependencies = {
@@ -70,6 +79,7 @@ export type EarnEarningsReadDependencies = {
     end: Date;
     pathEvents: readonly YieldPositionPathEvent[];
     portfolioSnapshots?: readonly YieldPortfolioSnapshot[];
+    reserves?: readonly string[];
     start: Date;
   }) => Promise<ReserveApySample[]>;
   loadLedgerEvents: (
@@ -85,7 +95,7 @@ export type EarnEarningsReadDependencies = {
     input: EarnEarningsReadInput
   ) => Promise<UserYieldPositionRecord[]>;
   loadPortfolioSnapshots?: (
-    input: EarnEarningsReadInput
+    input: EarnEarningsReadInput & { observedSince?: Date }
   ) => Promise<YieldPortfolioSnapshot[]>;
   loadSnapshot: (
     input: EarnEarningsReadInput,
@@ -93,12 +103,14 @@ export type EarnEarningsReadDependencies = {
   ) => Promise<EarnEarningsSnapshotRecord | null>;
   now: () => Date;
   loadSourceRevision?: (input: EarnEarningsReadInput) => Promise<string>;
+  loadHistoryFingerprint?: typeof loadEarningsHistoryFingerprint;
   saveSnapshot: (args: {
     input: EarnEarningsReadInput;
     payload: EarnEarningsRangeSetResponse;
     principalAmountRaw: bigint;
     timezone: string;
     sourceRevision?: string;
+    checkpoint?: EarningsCheckpoint;
   }) => Promise<void>;
 };
 
@@ -665,14 +677,16 @@ export async function loadEarnEarningsSnapshot(
     ),
   });
   if (!row) return null;
-  const { _sourceRevision, ...payload } =
+  const { _sourceRevision, _checkpoint, ...payload } =
     row.payload as EarnEarningsRangeSetResponse & {
       _sourceRevision?: string;
+      _checkpoint?: EarningsCheckpoint;
     };
   return {
     generatedAt: row.generatedAt,
     payload,
     sourceRevision: _sourceRevision,
+    checkpoint: _checkpoint?.version === 1 ? _checkpoint : undefined,
   };
 }
 
@@ -711,6 +725,7 @@ async function saveSnapshot(args: {
   principalAmountRaw: bigint;
   timezone: string;
   sourceRevision?: string;
+  checkpoint?: EarningsCheckpoint;
 }) {
   const client = getYieldOptimizationClient();
   const generatedAt = new Date(args.payload.generatedAt);
@@ -718,7 +733,11 @@ async function saveSnapshot(args: {
     cluster: args.input.cluster,
     generatedAt,
     historyRevision: args.payload.historyRevision,
-    payload: { ...args.payload, _sourceRevision: args.sourceRevision },
+    payload: {
+      ...args.payload,
+      _sourceRevision: args.sourceRevision,
+      _checkpoint: args.checkpoint,
+    },
     principalAmountRaw: args.principalAmountRaw,
     settings: args.input.settings,
     timezone: args.timezone,
@@ -748,10 +767,12 @@ async function loadApySamples(args: {
   end: Date;
   pathEvents: readonly YieldPositionPathEvent[];
   portfolioSnapshots?: readonly YieldPortfolioSnapshot[];
+  reserves?: readonly string[];
   start: Date;
 }) {
   const reserves = [
     ...new Set([
+      ...(args.reserves ?? []),
       ...args.pathEvents
         .filter((event) => event.principalAmountRaw > BigInt(0))
         .map((event) => event.reserve),
@@ -900,6 +921,7 @@ export function createEarnEarningsReadDependencies(
     loadPositions: findActiveYieldPositionsForVault,
     loadSnapshot: readOnly ? async () => null : loadEarnEarningsSnapshot,
     loadSourceRevision: getEarnEarningsSourceRevision,
+    loadHistoryFingerprint: loadEarningsHistoryFingerprint,
     now: () => new Date(),
     saveSnapshot: readOnly ? async () => undefined : saveSnapshot,
   };
@@ -907,7 +929,8 @@ export function createEarnEarningsReadDependencies(
 
 export async function readEarnEarningsRangeSet(
   input: EarnEarningsReadInput,
-  dependencies: EarnEarningsReadDependencies = createEarnEarningsReadDependencies()
+  dependencies: EarnEarningsReadDependencies = createEarnEarningsReadDependencies(),
+  useCheckpoint = true
 ): Promise<EarnEarningsRangeSetResponse> {
   const startedAt = Date.now();
   let apyMs: number | null = null;
@@ -928,7 +951,54 @@ export async function readEarnEarningsRangeSet(
   try {
     const historyStartedAt = Date.now();
     const sourceRevision = await dependencies.loadSourceRevision?.(input);
-    const [positions, ledgerEvents, loadedPortfolioSnapshots, holdingEvents] =
+    const ledgerEvents = await dependencies.loadLedgerEvents(input);
+    const firstLedgerDeposit = sortEarningsEvents(ledgerEvents).find(
+      (event) => event.type === "deposit"
+    )?.confirmedAt;
+    const historyFingerprint = async (before: Date) => {
+      try {
+        return await dependencies.loadHistoryFingerprint?.(input, before);
+      } catch (error) {
+        console.warn(
+          "[earnings-read] checkpoint verification unavailable",
+          normalizedError(error)
+        );
+        return undefined;
+      }
+    };
+    const nextCheckpointAt = firstLedgerDeposit
+      ? earningsCheckpointTime(firstLedgerDeposit, now)
+      : null;
+    let checkpoint =
+      useCheckpoint &&
+      snapshot?.checkpoint &&
+      isServerVerifiedEarnEarningsPayload(snapshot.payload) &&
+      snapshot.checkpoint.firstDepositAt ===
+        firstLedgerDeposit?.toISOString() &&
+      new Date(snapshot.checkpoint.at) <= now
+        ? snapshot.checkpoint
+        : undefined;
+    const ledgerFingerprint = (before: Date) =>
+      earningsFingerprint(
+        sortEarningsEvents(ledgerEvents).filter(
+          (event) => event.confirmedAt < before
+        )
+      );
+    if (
+      checkpoint &&
+      (!dependencies.loadHistoryFingerprint ||
+        checkpoint.ledgerFingerprint !==
+          ledgerFingerprint(new Date(checkpoint.at)) ||
+        checkpoint.historyFingerprint !==
+          (await historyFingerprint(new Date(checkpoint.at))))
+    ) {
+      checkpoint = undefined;
+    }
+    const nextHistoryFingerprint =
+      nextCheckpointAt && dependencies.loadHistoryFingerprint
+        ? await historyFingerprint(nextCheckpointAt)
+        : undefined;
+    const [positions, loadedPortfolioSnapshots, holdingEvents] =
       await Promise.all([
         dependencies.loadPositions
           ? dependencies.loadPositions(input)
@@ -937,16 +1007,20 @@ export async function readEarnEarningsRangeSet(
               .loadPosition(input)
               .then((position) => (position ? [position] : []))
           : [],
-        dependencies.loadLedgerEvents(input),
         dependencies.loadPortfolioSnapshots
-          ? dependencies.loadPortfolioSnapshots(input)
+          ? dependencies.loadPortfolioSnapshots({
+              ...input,
+              ...(checkpoint ? { observedSince: new Date(checkpoint.at) } : {}),
+            })
           : [],
-        dependencies.loadHoldingEvents
+        !checkpoint && dependencies.loadHoldingEvents
           ? dependencies.loadHoldingEvents(input)
           : [],
       ]);
     const rawPortfolioSnapshots = buildHoldingBackedPortfolioSnapshots({
-      completeSnapshots: loadedPortfolioSnapshots,
+      completeSnapshots: checkpoint
+        ? [checkpointSeed(checkpoint), ...loadedPortfolioSnapshots]
+        : loadedPortfolioSnapshots,
       holdingEvents,
     });
     const effectiveLedgerEvents = sortEarningsEvents(
@@ -964,7 +1038,7 @@ export async function readEarnEarningsRangeSet(
     const portfolioSnapshots = firstDepositAt
       ? normalizeEarningsPortfolioSnapshots({
           snapshots: rawPortfolioSnapshots,
-          start: firstDepositAt,
+          start: checkpoint ? new Date(checkpoint.at) : firstDepositAt,
           end: now,
         })
       : [];
@@ -1076,12 +1150,28 @@ export async function readEarnEarningsRangeSet(
           end: now,
           pathEvents,
           portfolioSnapshots,
+          reserves: checkpoint?.reserves,
           start: firstDepositAt,
         }),
         dependencies.apyTimeoutMs
       );
     } finally {
       apyMs = Date.now() - apyStartedAt;
+    }
+    const apyFingerprint = (before: Date, reserves?: readonly string[]) =>
+      earningsFingerprint(
+        apySamples.filter(
+          (sample) =>
+            sample.observedAt < before &&
+            (!reserves || (sample.reserve && reserves.includes(sample.reserve)))
+        )
+      );
+    if (
+      checkpoint &&
+      checkpoint.apyFingerprint !==
+        apyFingerprint(new Date(checkpoint.at), checkpoint.reserves)
+    ) {
+      return readEarnEarningsRangeSet(input, dependencies, false);
     }
     const coverage = getPortfolioEarningsCoverage({
       apySamples,
@@ -1114,9 +1204,91 @@ export async function readEarnEarningsRangeSet(
           principalClamp,
           range,
           timezone,
+          checkpoint: checkpoint
+            ? {
+                at: new Date(checkpoint.at),
+                response: checkpoint.ranges[range],
+              }
+            : undefined,
         }),
       ])
     ) as EarnEarningsRangeSetResponse["ranges"];
+    if (
+      checkpoint &&
+      checkpoint.historyFingerprint !==
+        (await historyFingerprint(new Date(checkpoint.at)))
+    ) {
+      return readEarnEarningsRangeSet(input, dependencies, false);
+    }
+    let nextCheckpoint: EarningsCheckpoint | undefined =
+      checkpoint?.at === nextCheckpointAt?.toISOString()
+        ? checkpoint
+        : undefined;
+    const seed = nextCheckpointAt
+      ? portfolioSnapshots
+          .filter((item) => item.observedAt < nextCheckpointAt)
+          .at(-1)
+      : undefined;
+    // A complete-vault observation must exist before we stop replaying holdings.
+    const completeBeforeCheckpoint =
+      checkpoint ||
+      (nextCheckpointAt &&
+        loadedPortfolioSnapshots.some(
+          (item) => item.observedAt < nextCheckpointAt
+        ));
+    if (
+      nextCheckpointAt &&
+      seed &&
+      completeBeforeCheckpoint &&
+      nextHistoryFingerprint &&
+      firstDepositAt &&
+      nextHistoryFingerprint === (await historyFingerprint(nextCheckpointAt))
+    ) {
+      const checkpointRanges = Object.fromEntries(
+        EARNINGS_RANGE_IDS.map((range) => [
+          range,
+          calculateEarnEarnings({
+            apySamples,
+            events: effectiveLedgerEvents,
+            now: nextCheckpointAt,
+            pathEvents,
+            portfolioSnapshots,
+            principalClamp,
+            range,
+            timezone,
+            checkpoint: checkpoint
+              ? {
+                  at: new Date(checkpoint.at),
+                  response: checkpoint.ranges[range],
+                }
+              : undefined,
+          }),
+        ])
+      ) as EarnEarningsRangeSetResponse["ranges"];
+      nextCheckpoint = {
+        version: 1,
+        at: nextCheckpointAt.toISOString(),
+        firstDepositAt: firstDepositAt.toISOString(),
+        historyFingerprint: nextHistoryFingerprint,
+        ledgerFingerprint: ledgerFingerprint(nextCheckpointAt),
+        apyFingerprint: apyFingerprint(nextCheckpointAt),
+        reserves: [
+          ...new Set(
+            apySamples.flatMap((sample) =>
+              sample.reserve ? [sample.reserve] : []
+            )
+          ),
+        ].sort(),
+        ranges: checkpointRanges,
+        seed: {
+          observedSlot: seed.observedSlot.toString(),
+          exposures: seed.exposures.map((exposure) => ({
+            ...exposure,
+            amountRaw: exposure.amountRaw.toString(),
+          })),
+        },
+      };
+    }
     const payload: EarnEarningsRangeSetResponse = {
       coverage,
       freshness: "fresh",
@@ -1135,6 +1307,7 @@ export async function readEarnEarningsRangeSet(
         payload,
         principalAmountRaw: projectedPrincipal,
         timezone,
+        checkpoint: nextCheckpoint,
         sourceRevision:
           sourceRevision === (await dependencies.loadSourceRevision?.(input))
             ? sourceRevision
@@ -1147,6 +1320,7 @@ export async function readEarnEarningsRangeSet(
         );
       });
     console.info("[earnings-read] ready", {
+      calculationMode: checkpoint ? "incremental" : "full",
       apyMs,
       currentReserveSampleAgeMs: coverage.currentReserveSampleAgeMs,
       eventCount: coverage.eventCount,

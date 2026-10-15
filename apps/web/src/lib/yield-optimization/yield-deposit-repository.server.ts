@@ -2964,7 +2964,7 @@ export async function findActiveYieldPositionsForVault(
 }
 
 export async function findCompleteYieldVaultExposureSnapshots(
-  input: ActiveYieldPositionForVaultLookupInput,
+  input: ActiveYieldPositionForVaultLookupInput & { observedSince?: Date },
   dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
     client: getYieldOptimizationClient(),
   }
@@ -2994,6 +2994,7 @@ export async function findCompleteYieldVaultExposureSnapshots(
     .where(
       and(
         eq(vaultPositionSnapshots.vaultId, vault.id),
+        input.observedSince ? sql`${vaultPositionSnapshots.observedAt} >= ${input.observedSince.toISOString()}::timestamptz` : undefined,
         sql`${vaultPositionSnapshots.context}->>'publication_scope' = 'complete_product_vault'`
       )
     )
