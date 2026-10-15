@@ -3,6 +3,82 @@ import { PgDialect } from "drizzle-orm/pg-core";
 
 mock.module("server-only", () => ({}));
 
+const { findCompleteYieldVaultExposureSnapshots } = await import(
+  "./yield-deposit-repository.server"
+);
+
+test("snapshot batches preserve chain ordering and latest idle exposure", async () => {
+  const snapshots = Array.from({ length: 1001 }, (_, index) => ({
+    id: BigInt(index + 1),
+    observedSlot: BigInt(index + 1),
+    observedAt: new Date("2026-10-01T00:00:00Z"),
+  }));
+  // Timestamp ordering can differ from chain ordering.
+  const timestampOrdered = [snapshots[1000], ...snapshots.slice(0, 1000)];
+  const reserve = (snapshotId: bigint) => ({
+    snapshotId,
+    amountRaw: BigInt(10),
+    liquidityMint: "usdc",
+    reserve: "reserve",
+  });
+  const reads = [
+    { orderBy: async () => timestampOrdered },
+    [reserve(BigInt(1))],
+    [reserve(BigInt(1001))],
+    [
+      {
+        observedSlot: BigInt(1001),
+        amountRaw: BigInt(5),
+        mint: "usdc",
+        tokenAccount: "idle",
+      },
+    ],
+  ];
+  const client = {
+    db: {
+      query: {
+        userYieldPositions: {
+          findMany: async () => [{ vaultPubkey: "vault" }],
+        },
+        managedVaults: { findFirst: async () => ({ id: BigInt(1) }) },
+      },
+      select: () => ({ from: () => ({ where: () => reads.shift() }) }),
+    },
+  };
+  const result = await findCompleteYieldVaultExposureSnapshots(
+    {
+      cluster: "mainnet-beta",
+      settings: "settings",
+      vaultIndex: 1,
+      walletAddress: "wallet",
+    },
+    { client } as never
+  );
+  expect(result).toHaveLength(1001);
+  expect(
+    result.every(
+      (snapshot, index) => snapshot.observedSlot === BigInt(index + 1)
+    )
+  ).toBe(true);
+  expect(
+    result[0].exposures.reduce(
+      (sum, exposure) => sum + exposure.amountRaw,
+      BigInt(0)
+    )
+  ).toBe(BigInt(10));
+  expect(
+    result
+      .at(-1)
+      ?.exposures.reduce((sum, exposure) => sum + exposure.amountRaw, BigInt(0))
+  ).toBe(BigInt(15));
+  expect(
+    result
+      .slice(0, -1)
+      .flatMap((snapshot) => snapshot.exposures)
+      .some((exposure) => exposure.kind === "idle")
+  ).toBe(false);
+});
+
 const { recordConfirmedYieldDeposit } = await import(
   "./yield-deposit-repository.server"
 );

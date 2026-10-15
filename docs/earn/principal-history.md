@@ -4,6 +4,11 @@ Web and mobile Earned charts share the earnings read service. Cash events must
 have unambiguous holding-event links and replay to the stored active principal.
 A mismatch remains unavailable; do not remove this check to hide accounting bugs.
 
+Read complete vault snapshots in the covering index's timestamp/slot/id order,
+then restore slot/id order in memory. Sorting the entire history by slot in
+Postgres can exceed the read timeout for long-lived wallets. Load reserve
+exposures in batches of 1,000 snapshot IDs so each indexed read stays bounded.
+
 Replay principal per position, preserving independent stablecoin positions and
 reused position lifecycles. For legacy reserve/idle withdrawals, use the linked
 principal delta: withdrawing idle funds may reduce no invested principal, while a
