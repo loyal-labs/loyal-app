@@ -16,7 +16,11 @@ const scenario =
 let finishConnection: (() => void) | undefined;
 export const completeFixtureConnection = () => {
   adapter.connected = true;
-  wallet = { ...wallet, connected: true };
+  wallet = {
+    ...wallet,
+    connected: true,
+    wallets: [{ adapter, readyState: "Installed" }],
+  };
   listeners.forEach((listener) => listener());
   finishConnection?.();
 };
@@ -38,11 +42,19 @@ const adapter = {
 };
 let wallet = {
   publicKey: adapter.publicKey,
-  connected: adapter.connected,
+  connected:
+    scenario === "context_delayed" ||
+    scenario === "registration_delayed" ||
+    scenario === "missing_wallet"
+      ? false
+      : adapter.connected,
   connecting: false,
   connect: adapter.connect,
   select: () => {},
-  wallets: [{ adapter, readyState: "Installed" }],
+  wallets:
+    scenario === "registration_delayed" || scenario === "missing_wallet"
+      ? []
+      : [{ adapter, readyState: "Installed" }],
   sendTransaction: async () => "fixture-signature-never-broadcast",
   wallet: { adapter },
 };

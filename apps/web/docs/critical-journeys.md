@@ -466,3 +466,21 @@ This timeout is a diagnostic dwell threshold, not proof that a provider failed.
 ## Return-visit signer restoration
 
 `auth.signer_restore` separately tracks the valid backend session, wallet selection, connection and matching signer. Missing wallets, account mismatch and connection errors are explicit outcomes; rejected approval is cancellation. A 30-second watchdog records a nonterminal timeout, allowing late recovery without restoring first-attempt success. Stable rerenders do not create new attempts; account changes invalidate pending completions. Browser contracts use the real controller and session provider with mocked wallet/Privy/HTTP boundaries; no funds move.
+
+Authentication recovery follow-up (October 15): dismissing Privy or denying OAuth
+closes sign-in without opening the account/legacy modal. Provider and exchange
+failures show a dismissible retry notice; provider error codes are retained in
+sanitized lifecycle diagnostics. Ledger and mobile wallet entry points remain
+explicit choices. Interactive and return-visit sign-in share signer restoration:
+success requires the wallet context to render the authenticated address. A matching
+adapter ahead of React state waits; a different address still fails. Missing wallet
+registration waits for the existing deadline (120 seconds interactive, 30 seconds
+returning) before reporting unavailable. Connected-wallet stalls still emit a
+nonterminal timeout. Privy embedded wallet registration waits until WalletProvider has subscribed,
+then stays stable across wallet-list updates.
+Do not unregister/re-register in effect cleanup: the installed adapter retains
+removed adapters. Browser regressions use the actual WalletConnectionProvider,
+Wallet Standard adapter, bridge, signer restoration and reconnect prompt to check
+repeated updates, account changes, reconnect and offline signing. Separate controller
+contracts cover cancellation, retry and missing-wallet deadlines. Privy services and
+wallet-provider responses remain controlled; no network transactions are signed.

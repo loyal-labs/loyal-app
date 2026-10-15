@@ -52,7 +52,17 @@ let callbacks: {
   }) => void;
   onError: (code: string) => void;
 };
+let loginAttempts = 0;
 const login = () => {
+  loginAttempts++;
+  if (scenario === "privy_error" && loginAttempts === 1) {
+    callbacks.onError("unknown_connect_wallet_error");
+    return;
+  }
+  if (scenario === "oauth_cancel") {
+    callbacks.onError("oauth_user_denied");
+    return;
+  }
   if (new URLSearchParams(location.search).get("scenario") === "cancel") {
     callbacks.onError("exited_auth_flow");
     return;
@@ -84,3 +94,9 @@ const createWallet = async () => {
   return { wallet: { address: fixtureOwner.toBase58() } };
 };
 export const useCreateWallet = () => ({ createWallet });
+
+// The separate standard-browser fixture exercises the real wallet adapter.
+export const PrivyProvider = ({ children }: { children: React.ReactNode }) =>
+  children;
+export const toSolanaWalletConnectors = () => [];
+export const useStandardWallets = () => ({ ready: true, wallets: [] });
