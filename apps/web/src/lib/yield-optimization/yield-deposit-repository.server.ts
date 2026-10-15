@@ -879,7 +879,12 @@ async function recordCurrentVaultSourceWithdrawal(args: {
     dependencies.client.db
       .update(vaultPositionSnapshots)
       .set({ isCurrent: false })
-      .where(eq(vaultPositionSnapshots.vaultId, resolution.vault.id)) as never,
+      .where(
+        and(
+          eq(vaultPositionSnapshots.vaultId, resolution.vault.id),
+          eq(vaultPositionSnapshots.isCurrent, true)
+        )
+      ) as never,
     ...(snapshotPositionValues.length > 0
       ? [
           dependencies.client.db
@@ -3729,7 +3734,12 @@ export async function recordReconciledYieldVaultSnapshot(
     dependencies.client.db
       .update(vaultPositionSnapshots)
       .set({ isCurrent: false })
-      .where(eq(vaultPositionSnapshots.vaultId, input.vaultId)) as never,
+      .where(
+        and(
+          eq(vaultPositionSnapshots.vaultId, input.vaultId),
+          eq(vaultPositionSnapshots.isCurrent, true)
+        )
+      ) as never,
     dependencies.client.db
       .delete(vaultReservePositionsCurrent)
       .where(eq(vaultReservePositionsCurrent.vaultId, input.vaultId)) as never,

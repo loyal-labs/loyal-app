@@ -75,3 +75,8 @@ history/APY corrections invalidate the checkpoint, the existing full verified
 calculation runs instead. No migration of user balances or transaction data is
 required. The first calculation still builds a checkpoint; historical APY
 validation and the deposit/withdrawal ledger remain full reads.
+
+Publishing a new current vault snapshot clears `is_current` only on rows where
+it is currently true. Both reconciliation and withdrawal snapshot publication
+use the existing `vault_position_snapshots_one_current_idx`, avoiding a write
+across a long-lived vault's entire history and long-held schema locks.
