@@ -2998,44 +2998,51 @@ export async function findCompleteYieldVaultExposureSnapshots(
       )
     )
     .orderBy(
+      asc(vaultPositionSnapshots.observedAt),
       asc(vaultPositionSnapshots.observedSlot),
       asc(vaultPositionSnapshots.id)
     );
   if (snapshots.length === 0) {
     return [];
   }
-  // Long-lived vaults accumulate tens of thousands of snapshots; an
-  // inArray(snapshotIds) query here built a giant parameter list that
-  // Postgres could only satisfy by scanning the ~400GB positions table
-  // (ASK-2209: 295s, then killed). Join on vault_id and filter has_value
-  // (written as amountRaw > 0) so the (snapshot_id, has_value, ...) index
-  // drives the scan, and group rows by snapshot to avoid the O(S×R) join.
-  const reserveRows = await dependencies.client.db
-    .select({
-      amountRaw: vaultPositionSnapshotPositions.amountRaw,
-      liquidityMint: vaultPositionSnapshotPositions.liquidityMint,
-      reserve: vaultPositionSnapshotPositions.reserve,
-      snapshotId: vaultPositionSnapshotPositions.snapshotId,
-    })
-    .from(vaultPositionSnapshotPositions)
-    .innerJoin(
-      vaultPositionSnapshots,
-      eq(vaultPositionSnapshotPositions.snapshotId, vaultPositionSnapshots.id)
-    )
-    .where(
-      and(
-        eq(vaultPositionSnapshots.vaultId, vault.id),
-        sql`${vaultPositionSnapshots.context}->>'publication_scope' = 'complete_product_vault'`,
-        eq(vaultPositionSnapshotPositions.hasValue, true)
-      )
-    );
-  const reserveRowsBySnapshotId = new Map<bigint, typeof reserveRows>();
-  for (const row of reserveRows) {
-    const rows = reserveRowsBySnapshotId.get(row.snapshotId);
-    if (rows) {
-      rows.push(row);
-    } else {
-      reserveRowsBySnapshotId.set(row.snapshotId, [row]);
+  // Read in covering-index order, then restore chain order without a DB sort.
+  snapshots.sort((left, right) => {
+    if (left.observedSlot !== right.observedSlot) {
+      return left.observedSlot < right.observedSlot ? -1 : 1;
+    }
+    return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  });
+  // Bound each indexed positions read; one giant ID list or full-history join
+  // can exceed the query timeout for long-lived vaults.
+  const reserveRowsBySnapshotId = new Map<
+    bigint,
+    { amountRaw: bigint; liquidityMint: string; reserve: string }[]
+  >();
+  for (let offset = 0; offset < snapshots.length; offset += 1000) {
+    const reserveRows = await dependencies.client.db
+      .select({
+        amountRaw: vaultPositionSnapshotPositions.amountRaw,
+        liquidityMint: vaultPositionSnapshotPositions.liquidityMint,
+        reserve: vaultPositionSnapshotPositions.reserve,
+        snapshotId: vaultPositionSnapshotPositions.snapshotId,
+      })
+      .from(vaultPositionSnapshotPositions)
+      .where(
+        and(
+          inArray(
+            vaultPositionSnapshotPositions.snapshotId,
+            snapshots.slice(offset, offset + 1000).map((snapshot) => snapshot.id)
+          ),
+          eq(vaultPositionSnapshotPositions.hasValue, true)
+        )
+      );
+    for (const row of reserveRows) {
+      const rows = reserveRowsBySnapshotId.get(row.snapshotId);
+      if (rows) {
+        rows.push(row);
+      } else {
+        reserveRowsBySnapshotId.set(row.snapshotId, [row]);
+      }
     }
   }
   const idleRows = await dependencies.client.db
