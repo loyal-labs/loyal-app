@@ -1,15 +1,14 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import {
-  EarnEarningsUnavailableError,
-  readEarnEarningsRangeSet,
-} from "@/lib/yield-optimization/earnings-read-service.server";
+import { EarnEarningsUnavailableError } from "@/lib/yield-optimization/earnings-read-service.server";
+import { readCachedEarnEarningsRangeSet } from "@/lib/yield-optimization/earnings-cache.server";
 import type { EarnEarningsUnavailableResponse } from "@/lib/yield-optimization/earnings.shared";
 
 const EARN_VAULT_INDEX = 1;
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
@@ -27,13 +26,16 @@ export async function GET(request: Request) {
   const timezone = new URL(request.url).searchParams.get("timezone");
   try {
     return NextResponse.json(
-      await readEarnEarningsRangeSet({
-        cluster,
-        settings: principal.settingsPda,
-        timezone,
-        vaultIndex: EARN_VAULT_INDEX,
-        walletAddress: principal.walletAddress,
-      })
+      await readCachedEarnEarningsRangeSet(
+        {
+          cluster,
+          settings: principal.settingsPda,
+          timezone,
+          vaultIndex: EARN_VAULT_INDEX,
+          walletAddress: principal.walletAddress,
+        },
+        after
+      )
     );
   } catch (error) {
     const code =
