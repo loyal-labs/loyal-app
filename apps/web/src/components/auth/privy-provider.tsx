@@ -5,7 +5,7 @@ import {
   toSolanaWalletConnectors,
   useStandardWallets,
 } from "@privy-io/react-auth/solana";
-import { getWallets } from "@wallet-standard/app";
+import { registerWallet } from "@wallet-standard/wallet";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -31,17 +31,23 @@ function usePrivyTheme() {
   return isDark ? LOYAL_THEME.dark : LOYAL_THEME.light;
 }
 
+// Spike (ASK-2262). Bridges Privy's embedded Solana wallet into the existing
+// @solana/wallet-adapter tree by registering it as a Wallet Standard wallet,
+// so every useWallet() consumer keeps working unchanged.
+// ponytail: registers once per page load via module-level set; wallet-adapter
+// dedupes by name, so a duplicate register is a no-op rather than a bug.
+const registered = new Set<string>();
+
 function PrivyEmbeddedWalletBridge() {
   const { ready, wallets } = useStandardWallets();
   useEffect(() => {
     if (!ready) return;
-    // Privy can replace the wallet object after logout or an account change.
-    const unregister = wallets
-      .filter((wallet) => "isPrivyWallet" in wallet && wallet.isPrivyWallet)
-      .map((wallet) => getWallets().register(wallet));
-    return () => {
-      for (const remove of unregister) remove();
-    };
+    for (const wallet of wallets) {
+      if (!("isPrivyWallet" in wallet) || !wallet.isPrivyWallet) continue;
+      if (registered.has(wallet.name)) continue;
+      registered.add(wallet.name);
+      registerWallet(wallet);
+    }
   }, [ready, wallets]);
   return null;
 }
