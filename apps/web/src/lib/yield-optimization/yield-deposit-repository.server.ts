@@ -879,7 +879,12 @@ async function recordCurrentVaultSourceWithdrawal(args: {
     dependencies.client.db
       .update(vaultPositionSnapshots)
       .set({ isCurrent: false })
-      .where(eq(vaultPositionSnapshots.vaultId, resolution.vault.id)) as never,
+      .where(
+        and(
+          eq(vaultPositionSnapshots.vaultId, resolution.vault.id),
+          eq(vaultPositionSnapshots.isCurrent, true)
+        )
+      ) as never,
     ...(snapshotPositionValues.length > 0
       ? [
           dependencies.client.db
@@ -2964,7 +2969,7 @@ export async function findActiveYieldPositionsForVault(
 }
 
 export async function findCompleteYieldVaultExposureSnapshots(
-  input: ActiveYieldPositionForVaultLookupInput,
+  input: ActiveYieldPositionForVaultLookupInput & { observedSince?: Date },
   dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
     client: getYieldOptimizationClient(),
   }
@@ -2994,6 +2999,7 @@ export async function findCompleteYieldVaultExposureSnapshots(
     .where(
       and(
         eq(vaultPositionSnapshots.vaultId, vault.id),
+        input.observedSince ? sql`${vaultPositionSnapshots.observedAt} >= ${input.observedSince.toISOString()}::timestamptz` : undefined,
         sql`${vaultPositionSnapshots.context}->>'publication_scope' = 'complete_product_vault'`
       )
     )
@@ -3728,7 +3734,12 @@ export async function recordReconciledYieldVaultSnapshot(
     dependencies.client.db
       .update(vaultPositionSnapshots)
       .set({ isCurrent: false })
-      .where(eq(vaultPositionSnapshots.vaultId, input.vaultId)) as never,
+      .where(
+        and(
+          eq(vaultPositionSnapshots.vaultId, input.vaultId),
+          eq(vaultPositionSnapshots.isCurrent, true)
+        )
+      ) as never,
     dependencies.client.db
       .delete(vaultReservePositionsCurrent)
       .where(eq(vaultReservePositionsCurrent.vaultId, input.vaultId)) as never,
