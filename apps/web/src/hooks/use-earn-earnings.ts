@@ -13,7 +13,8 @@ import {
 } from "@/lib/yield-optimization/earnings.shared";
 
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
-const STALE_RETRY_MS = 60 * 1000;
+const STALE_RETRY_MS = 5 * 1000;
+const ERROR_RETRY_MS = 60 * 1000;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_CACHE_KEY = "default";
 const EARNINGS_EPSILON = 0.000_000_001;
@@ -405,7 +406,11 @@ export async function fetchEarnEarningsRangeSet(
                 ? summary.principalAmountRaws[0]
                 : (scope.revalidationKey ?? null);
             cachedEarnings.set(cacheKey, {
-              expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
+              expiresAt:
+                Date.now() +
+                (payload.freshness === "stale"
+                  ? STALE_RETRY_MS
+                  : CLIENT_CACHE_TTL_MS),
               revalidationKey: responseRevision,
               value: payload,
             });
@@ -520,9 +525,11 @@ export function useEarnEarnings({
       }
     };
     const delay =
-      error || !data || data.freshness === "stale"
-        ? STALE_RETRY_MS
-        : CLIENT_CACHE_TTL_MS;
+      error || !data || data.staleReason === "client_revalidation_failed"
+        ? ERROR_RETRY_MS
+        : data.freshness === "stale"
+          ? STALE_RETRY_MS
+          : CLIENT_CACHE_TTL_MS;
     const timer = window.setTimeout(revalidateVisible, delay);
     window.addEventListener("focus", revalidateVisible);
     document.addEventListener("visibilitychange", revalidateVisible);

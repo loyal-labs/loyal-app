@@ -18,6 +18,13 @@ lock coalesces refreshes across server instances by cluster, wallet, settings,
 vault index and timezone. Failed refreshes preserve the saved chart. A wallet
 with no saved chart still needs its first verified calculation.
 
+The visible web chart checks pending stale responses every five seconds and
+caches them for at most five seconds. Fresh responses retain the five-minute
+interval; request failures retry after one minute. Window focus also revalidates,
+but completing a pending refresh must not depend on switching windows.
+Verify this behavior with `cd apps/web && bun scripts/verify-earned-refresh.ts`
+(requires Playwright Chromium; `JOURNEY_CHROMIUM_PATH` can select an installed browser).
+
 The source revision is stored privately in the snapshot JSON and removed from
 API responses. Capture it before and after calculation: concurrent source changes
 must not produce a reusable cache revision. Older calculations cannot overwrite
