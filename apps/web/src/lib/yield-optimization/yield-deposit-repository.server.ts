@@ -3827,6 +3827,7 @@ export async function findYieldPositionEvents(
         id: userYieldPositionWithdrawals.id,
         confirmedSlot: userYieldPositionWithdrawals.confirmedSlot,
         amountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
+        sourceType: userYieldPositionWithdrawals.sourceType,
         confirmedAt: userYieldPositionWithdrawals.confirmedAt,
         liquidityMint: userYieldPositionWithdrawals.liquidityMint,
       })
@@ -3857,6 +3858,7 @@ export async function findYieldPositionEvents(
             id: userYieldPositionHoldingEvents.id,
             positionId: userYieldPositionHoldingEvents.positionId,
             eventType: userYieldPositionHoldingEvents.eventType,
+            principalDeltaRaw: userYieldPositionHoldingEvents.principalDeltaRaw,
             sourceDepositId: userYieldPositionHoldingEvents.sourceDepositId,
             sourceWithdrawalId:
               userYieldPositionHoldingEvents.sourceWithdrawalId,
@@ -3876,7 +3878,8 @@ export async function findYieldPositionEvents(
   }
   const metadata = (
     matches: typeof holdings | undefined,
-    type: "deposit" | "withdrawal"
+    type: "deposit" | "withdrawal",
+    sourceType?: string | null
   ) => {
     // Missing links may be legacy data; duplicate links are contradictory evidence.
     if (!matches) return {};
@@ -3904,9 +3907,63 @@ export async function findYieldPositionEvents(
       holdingEventId: holding.id,
       positionId: holding.positionId,
       initializesPosition: holding.eventType === "deposit_initialized",
+      // Chain observers historically subtracted past zero; replay their cash
+      // with a floor. Legacy reserve/idle writes recorded the principal portion.
+      principalDeltaRaw:
+        sourceType === "chain_snapshot"
+          ? undefined
+          : holding.principalDeltaRaw ?? undefined,
     };
   };
+  const settlements = await dependencies.client.db
+    .select({
+      id: userYieldPositionHoldingEvents.id,
+      positionId: userYieldPositionHoldingEvents.positionId,
+      confirmedAt: userYieldPositionHoldingEvents.observedAt,
+      confirmedSlot: userYieldPositionHoldingEvents.observedSlot,
+      liquidityMint: userYieldPositionHoldingEvents.liquidityMint,
+    })
+    .from(userYieldPositionHoldingEvents)
+    .innerJoin(
+      userYieldPositions,
+      eq(userYieldPositions.id, userYieldPositionHoldingEvents.positionId)
+    )
+    .where(
+      and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.walletAddress, input.walletAddress),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        input.vaultPubkey
+          ? eq(userYieldPositions.vaultPubkey, input.vaultPubkey)
+          : undefined,
+        eq(userYieldPositionHoldingEvents.eventType, "snapshot_reconciled"),
+        eq(userYieldPositionHoldingEvents.amountRaw, BigInt(0)),
+        sql`${userYieldPositionHoldingEvents.principalDeltaRaw} IS NOT NULL`,
+        sql`${userYieldPositionHoldingEvents.sourceDepositId} IS NULL`,
+        sql`${userYieldPositionHoldingEvents.sourceWithdrawalId} IS NULL`,
+        // Preview reserve snapshots are not evidence that the entire vault closed.
+        sql`(${userYieldPositionHoldingEvents.sourceSignature} IS NOT NULL OR EXISTS (
+        SELECT 1 FROM loyal_yield.vault_position_snapshots s
+        WHERE s.id = ${userYieldPositionHoldingEvents.sourceSnapshotId}
+          AND s.context->>'publication_scope' = 'complete_product_vault'
+          AND COALESCE(s.context->>'idle_vault_liquidity_amount_raw', '0') = '0'
+          AND NOT EXISTS (SELECT 1 FROM loyal_yield.vault_position_snapshot_positions p
+                          WHERE p.snapshot_id = s.id AND p.amount_raw > 0)
+      ))`
+      )
+    );
   return sortEarningsEvents([
+    ...settlements.map((event) => ({
+      amountRaw: BigInt(0),
+      confirmedAt: event.confirmedAt,
+      confirmedSlot: event.confirmedSlot,
+      liquidityMint: event.liquidityMint,
+      holdingEventId: event.id,
+      positionId: event.positionId,
+      initializesPosition: false,
+      settlesPosition: true,
+      type: "withdrawal" as const,
+    })),
     ...deposits.map((deposit) => ({
       amountRaw: deposit.amountRaw,
       confirmedAt: deposit.confirmedAt,
@@ -3920,7 +3977,11 @@ export async function findYieldPositionEvents(
       confirmedAt: withdrawal.confirmedAt,
       confirmedSlot: withdrawal.confirmedSlot,
       liquidityMint: withdrawal.liquidityMint,
-      ...metadata(withdrawalsById.get(withdrawal.id), "withdrawal"),
+      ...metadata(
+        withdrawalsById.get(withdrawal.id),
+        "withdrawal",
+        withdrawal.sourceType
+      ),
       type: "withdrawal" as const,
     })),
   ]) as UserYieldPositionEventRecord[];

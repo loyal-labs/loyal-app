@@ -15,6 +15,8 @@ export type YieldPositionEvent = {
   holdingEventId?: bigint;
   positionId?: bigint;
   initializesPosition?: boolean;
+  principalDeltaRaw?: bigint;
+  settlesPosition?: boolean;
   liquidityMint?: string;
   type: "deposit" | "withdrawal";
 };
@@ -51,7 +53,9 @@ export function sortEarningsEvents(events: readonly YieldPositionEvent[]) {
     if (
       left.type === right.type &&
       !left.initializesPosition &&
-      !right.initializesPosition
+      !right.initializesPosition &&
+      !left.settlesPosition &&
+      !right.settlesPosition
     )
       return 0;
     throw new EarningsPrincipalHistoryError(
@@ -584,11 +588,27 @@ function getPrincipalIndex(
   const byMint = new Map<string, bigint>();
   let total = BigInt(0);
   for (const event of sortEarningsEvents(events)) {
+    if (
+      event.principalDeltaRaw !== undefined &&
+      (event.type === "deposit"
+        ? event.principalDeltaRaw < BigInt(0)
+        : event.principalDeltaRaw > BigInt(0))
+    ) {
+      throw new EarningsPrincipalHistoryError(
+        "principal_history_delta_invalid"
+      );
+    }
+    const amount =
+      event.principalDeltaRaw === undefined
+        ? event.amountRaw
+        : event.type === "deposit"
+        ? event.principalDeltaRaw
+        : -event.principalDeltaRaw;
     if (clamp === "total") {
       total =
         event.type === "deposit"
-          ? total + event.amountRaw
-          : clampedSubtract(total, event.amountRaw);
+          ? total + amount
+          : clampedSubtract(total, amount);
     } else {
       const mint =
         clamp === "position"
@@ -613,12 +633,13 @@ function getPrincipalIndex(
         );
       }
       const current = byMint.get(mint) ?? BigInt(0);
-      const next =
-        event.type === "deposit"
-          ? (clamp === "position" && event.initializesPosition
-              ? BigInt(0)
-              : current) + event.amountRaw
-          : clampedSubtract(current, event.amountRaw);
+      const next = event.settlesPosition
+        ? BigInt(0)
+        : event.type === "deposit"
+        ? (clamp === "position" && event.initializesPosition
+            ? BigInt(0)
+            : current) + amount
+        : clampedSubtract(current, amount);
       byMint.set(mint, next);
       total += next - current;
     }
