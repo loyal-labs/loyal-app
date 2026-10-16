@@ -39,6 +39,13 @@ function Probe() {
       <button onClick={churn}>Refresh Privy wallets</button>
       <button onClick={finish}>Finish connection</button>
       <button onClick={() => setEnabled(true)}>Restore session signer</button>
+      <button onClick={async () => {
+        const entry = adapter.wallets.find(({ adapter }) => adapter.name === "Privy");
+        if (!entry) throw new Error("Fixture wallet unavailable");
+        await entry.adapter.connect();
+        adapter.select(entry.adapter.name);
+        setEnabled(true);
+      }}>Restore preconnected signer</button>
       <button
         onClick={() => {
           setEnabled(false);

@@ -1263,6 +1263,156 @@ describe("prepareEarnUsdcDeposit", () => {
     mock.restore();
   });
 
+  test("recovers a missing persisted Earn policy without duplicating live permissions", async () => {
+    mockKaminoDepositInstruction();
+    const policies: {
+      pubkey: PublicKey;
+      account: ReturnType<typeof createSerializedEarnPolicyAccount>;
+    }[] = [];
+    let settingsSeed = 6;
+    const getProgramAccounts = mock(async () => policies);
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async (address: PublicKey) => {
+          if (address.equals(settingsPda)) {
+            return createSerializedSettingsAccount(new BN(settingsSeed));
+          }
+          if (address.equals(kaminoReserve)) {
+            return createSerializedKaminoReserveAccount({
+              collateralSupplyRaw: BigInt(1_000_000),
+              liquidityAvailableAmountRaw: BigInt(1_000_000),
+            });
+          }
+          return (
+            policies.find((entry) => entry.pubkey.equals(address))?.account ??
+            null
+          );
+        }),
+        getProgramAccounts,
+      } as never,
+      programId,
+    });
+    const args = {
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(500_000),
+      initializeYieldRoutingPolicy: false,
+      yieldRoutingPolicy: { account: policyAccount, seed: BigInt(5) },
+    };
+    const recovered = await client.prepareEarnUsdcDeposit(args);
+    expect(recovered.persistence.policyInitialization).toBe("create");
+    expect(recovered.policy.seed).toBe(BigInt(7));
+    expect(recovered.setupPolicy?.seed).toBe(BigInt(8));
+    expectEarnPolicyInitializationUsesSafeUniverse({
+      setupPrepared: recovered.policySetupPrepared,
+      finalizePrepared: recovered.policyFinalizePrepared,
+    });
+    for (const [prepared, policy] of [
+      [recovered.policySetupPrepared!, recovered.policy],
+      [recovered.policyFinalizePrepared!, recovered.setupPolicy!],
+    ] as const) {
+      expect(
+        compilePreparedOperation({
+          prepared,
+          blockhash: "11111111111111111111111111111111",
+        }).serialize().length
+      ).toBeGreaterThan(0);
+      const create = decodeGeneratedPolicyCreate(prepared.instructions[0]);
+      const [, bump] = pda.getPolicyPda({
+        programId,
+        settingsPda,
+        policySeed: Number(policy.seed),
+      });
+      const [data] = Policy.fromArgs({
+        bump,
+        expiration: null,
+        policyState: create.policyCreationPayload as never,
+        rentCollector: feePayer,
+        seed: new BN(policy.seed.toString()),
+        settings: settingsPda,
+        signers: create.signers,
+        staleTransactionIndex: new BN(0),
+        start: new BN(0),
+        threshold: create.threshold,
+        timeLock: create.timeLock,
+        transactionIndex: new BN(0),
+      }).serialize();
+      policies.push({
+        pubkey: policy.account,
+        account: {
+          data,
+          executable: false,
+          lamports: 1,
+          owner: programId,
+          rentEpoch: 0,
+        },
+      });
+    }
+    settingsSeed = 8;
+    const reused = await client.prepareEarnUsdcDeposit(args);
+    expect(reused.policy.account.equals(recovered.policy.account)).toBe(true);
+    expect(reused.persistence.policyInitialization).toBe("reuse");
+    expect(reused.policySetupPrepared).toBeNull();
+    expect(reused.policyFinalizePrepared).toBeNull();
+    expect(getProgramAccounts).toHaveBeenCalledTimes(2);
+
+    await client.prepareEarnUsdcDeposit({
+      ...args,
+      yieldRoutingPolicy: recovered.policy,
+    });
+    expect(getProgramAccounts).toHaveBeenCalledTimes(2);
+  });
+
+  test.each(["read failure", "scan failure", "invalid owner"])(
+    "missing Earn policy recovery fails closed on %s",
+    async (failure) => {
+      const fetchMock = mockKaminoDepositInstruction();
+      const getProgramAccounts = mock(async () => {
+        throw new Error("scan failure");
+      });
+      const client = createSmartAccountVaultsClient({
+        connection: {
+          getAccountInfo: mock(async (address: PublicKey) => {
+            if (address.equals(settingsPda)) {
+              return createSerializedSettingsAccount(new BN(6));
+            }
+            if (address.equals(policyAccount)) {
+              if (failure === "read failure") throw new Error(failure);
+              if (failure === "invalid owner") {
+                return {
+                  ...createSerializedEarnPolicyAccount(),
+                  owner: SystemProgram.programId,
+                };
+              }
+            }
+            return null;
+          }),
+          getProgramAccounts,
+        } as never,
+        programId,
+      });
+      await expect(
+        client.prepareEarnUsdcDeposit({
+          settingsPda,
+          walletAddress,
+          feePayer,
+          policySigner: backendSigner,
+          amountRaw: BigInt(500_000),
+          initializeYieldRoutingPolicy: false,
+          yieldRoutingPolicy: { account: policyAccount, seed: BigInt(5) },
+        })
+      ).rejects.toThrow(
+        failure === "invalid owner" ? "unexpected owner" : failure
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(getProgramAccounts).toHaveBeenCalledTimes(
+        failure === "scan failure" ? 1 : 0
+      );
+    }
+  );
+
   test("builds the one-transaction earn deposit flow in order", async () => {
     const fetchMock = mockKaminoDepositInstruction();
     const getAccountInfo = mock(async (_address: PublicKey) =>

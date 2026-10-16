@@ -6936,9 +6936,11 @@ export function createSmartAccountVaultsClient(
       const currentPolicySeed =
         settings.policySeed == null ? BigInt(0) : toBigInt(settings.policySeed);
       if (!routeEntry) {
-        throw new Error(
-          "The persisted Earn route policy is absent on-chain. Refresh policy state before depositing."
-        );
+        // A confirmed exit can leave stale persistence; rediscover before creating anything.
+        return resolveEarnYieldRoutingPolicyForPreparation({
+          ...args,
+          knownRoute: undefined,
+        });
       }
       const generation = routeGeneration(routeEntry);
       if (!generation) {

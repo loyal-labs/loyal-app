@@ -19,6 +19,7 @@ export const completeFixtureConnection = () => {
   wallet = {
     ...wallet,
     connected: true,
+    publicKey: adapter.publicKey,
     wallets: [{ adapter, readyState: "Installed" }],
   };
   listeners.forEach((listener) => listener());
@@ -38,11 +39,13 @@ const adapter = {
       });
     if (scenario === "connect_rejected")
       throw new Error("Fixture adapter rejected connection");
+    if (scenario === "stale_signer") completeFixtureConnection();
   },
 };
 let wallet = {
-  publicKey: adapter.publicKey,
+  publicKey: (scenario === "stale_signer" ? null : adapter.publicKey) as PublicKey | null,
   connected:
+    scenario === "stale_signer" ||
     scenario === "context_delayed" ||
     scenario === "registration_delayed" ||
     scenario === "missing_wallet"
@@ -50,13 +53,23 @@ let wallet = {
       : adapter.connected,
   connecting: false,
   connect: adapter.connect,
-  select: () => {},
+  select: (name: string | null) => {
+    if (scenario !== "stale_signer") return;
+    if (!name) adapter.connected = false;
+    wallet = {
+      ...wallet,
+      connected: false,
+      publicKey: null,
+      wallet: name ? { adapter } : null,
+    };
+    listeners.forEach((listener) => listener());
+  },
   wallets:
     scenario === "registration_delayed" || scenario === "missing_wallet"
       ? []
       : [{ adapter, readyState: "Installed" }],
   sendTransaction: async () => "fixture-signature-never-broadcast",
-  wallet: { adapter },
+  wallet: { adapter } as { adapter: typeof adapter } | null,
 };
 export const useConnection = () => ({ connection });
 const listeners = new Set<() => void>();

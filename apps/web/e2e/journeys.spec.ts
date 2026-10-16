@@ -679,6 +679,7 @@ test("authenticated action retries retain failure, propagate trace context and r
 
 for (const scenario of [
   "success",
+  "stale_signer",
   "context_delayed",
   "registration_delayed",
   "missing_wallet",
@@ -756,8 +757,13 @@ for (const scenario of [
           .click();
       }
     }
+    if (scenario === "stale_signer") {
+      await expect.poll(() => events.some((event) => event.stage === "intent")).toBe(true);
+      await page.clock.fastForward(2501);
+    }
     const succeeds = [
       "success",
+      "stale_signer",
       "connect_delayed",
       "registration_delayed",
       "context_delayed",
@@ -781,6 +787,8 @@ for (const scenario of [
       events.filter((event) => event.outcome === "completed")
     ).toHaveLength(succeeds ? 1 : 0);
     expect(exchanges).toBe(0);
+    if (succeeds)
+      await expect(page.getByLabel("Signing wallet")).toHaveText(address);
     if (!succeeds)
       expect(
         events.find((event) => event.outcome === "failed")?.errorCode
@@ -796,6 +804,7 @@ for (const scenario of [
 
 for (const scenario of [
   "ready",
+  "preconnected",
   "registration_delayed",
   "delayed",
   "rejected",
@@ -807,7 +816,9 @@ for (const scenario of [
       await route.fulfill({ status: 202, json: { accepted: true } });
     });
     await page.goto(`/standard?scenario=${scenario}`);
-    await page.getByRole("button", { name: "Restore session signer" }).click();
+    await page.getByRole("button", {
+      name: scenario === "preconnected" ? "Restore preconnected signer" : "Restore session signer",
+    }).click();
     if (scenario === "registration_delayed" || scenario === "delayed") {
       await expect(page.getByLabel("Signer")).toHaveText("Disconnected");
       expect(events.some((event) => event.outcome === "failed")).toBe(false);
