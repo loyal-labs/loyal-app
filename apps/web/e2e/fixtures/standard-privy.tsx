@@ -13,6 +13,7 @@ let nextAddress = owner;
 let finishConnect: (() => void) | undefined;
 let accounts: readonly WalletAccount[] = [];
 let signatures = 0;
+let disconnects = 0;
 function account(address: string): WalletAccount {
   return {
     address,
@@ -60,7 +61,12 @@ const wallet = {
     },
     "standard:disconnect": {
       version: "1.0.0",
-      disconnect: async () => changeAccount(null),
+      disconnect: async () => {
+        disconnects++;
+        if (scenario === "preconnected_async_disconnect")
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        changeAccount(null);
+      },
     },
     "solana:signTransaction": {
       version: "1.0.0",
@@ -105,6 +111,7 @@ export function chooseWrong() {
   nextAddress = other;
 }
 export const signatureCount = () => signatures;
+export const disconnectCount = () => disconnects;
 export const PrivyProvider = ({ children }: { children: React.ReactNode }) => (
   <>{children}</>
 );

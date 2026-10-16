@@ -805,6 +805,7 @@ for (const scenario of [
 for (const scenario of [
   "ready",
   "preconnected",
+  "preconnected_async_disconnect",
   "registration_delayed",
   "delayed",
   "rejected",
@@ -817,7 +818,7 @@ for (const scenario of [
     });
     await page.goto(`/standard?scenario=${scenario}`);
     await page.getByRole("button", {
-      name: scenario === "preconnected" ? "Restore preconnected signer" : "Restore session signer",
+      name: scenario.startsWith("preconnected") ? "Restore preconnected signer" : "Restore session signer",
     }).click();
     if (scenario === "registration_delayed" || scenario === "delayed") {
       await expect(page.getByLabel("Signer")).toHaveText("Disconnected");
@@ -837,6 +838,14 @@ for (const scenario of [
     await expect
       .poll(() => events.some((event) => event.outcome === "completed"))
       .toBe(true);
+    await expect(page.getByLabel("Disconnects")).toHaveText("0");
+    await page.getByRole("button", { name: "Disconnect session signer" }).click();
+    await expect(page.getByLabel("Signer")).toHaveText("Disconnected");
+    await page.getByRole("button", { name: "Restore preconnected signer" }).click();
+    if (scenario === "delayed")
+      await page.getByRole("button", { name: "Finish connection" }).click();
+    await expect(page.getByLabel("Signer")).toHaveText("11111111111111111111111111111111");
+    await expect(page.getByLabel("Disconnects")).toHaveText("1");
     for (let i = 0; i < 5; i++) {
       await page.getByRole("button", { name: "Refresh Privy wallets" }).click();
       await expect(page.getByLabel("Adapters")).toHaveText("Privy");

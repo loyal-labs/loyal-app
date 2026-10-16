@@ -1,6 +1,5 @@
 "use client";
 
-import type { WalletName } from "@solana/wallet-adapter-base";
 import type { WalletContextState } from "@solana/wallet-adapter-react";
 import { useEffect, useRef } from "react";
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
@@ -12,7 +11,6 @@ type Attempt = {
   tracker: LifecycleTracker;
   timer: ReturnType<typeof setTimeout>;
   connecting: boolean;
-  reselectWalletName?: WalletName;
   recoveredStaleAdapter?: boolean;
   terminalKey?: string;
   succeeded?: boolean;
@@ -167,12 +165,6 @@ export function useSignerRestoration({
       return;
     }
     if (adapter.connecting || current.connecting) return;
-    if (current.reselectWalletName) {
-      if (adapter.wallet?.adapter.name === current.reselectWalletName) return;
-      adapter.select(current.reselectWalletName);
-      current.reselectWalletName = undefined;
-      return;
-    }
     if (!entry) {
       // Privy's wallet list and Wallet Standard registration settle separately.
       return;
@@ -197,13 +189,11 @@ export function useSignerRestoration({
       const recoveryTimer = setTimeout(() => {
         if (attemptRef.current !== current || targetRef.current !== address) return;
         current.recoveredStaleAdapter = true;
-        current.reselectWalletName = entry.adapter.name;
-        current.tracker.observe("wallet_select");
-        try {
-          adapter.select(null);
-        } catch {
-          finish("wallet_connection_failed");
-        }
+        const connectedKey = entry.adapter.publicKey;
+        if (!entry.adapter.connected || connectedKey?.toBase58() !== address) return;
+        current.tracker.observe("wallet_connect");
+        // Replay the verified connection; disconnecting revokes extension authorization.
+        entry.adapter.emit("connect", connectedKey);
       }, 2500);
       return () => clearTimeout(recoveryTimer);
     }
