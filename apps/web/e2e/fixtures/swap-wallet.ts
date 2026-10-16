@@ -32,6 +32,10 @@ const adapter = {
     scenario === "signer_mismatch"
       ? new PublicKey("So11111111111111111111111111111111111111112")
       : fixtureOwner,
+  emit: (_event: string, publicKey: PublicKey) => {
+    wallet = { ...wallet, connected: true, publicKey };
+    listeners.forEach((listener) => listener());
+  },
   connect: async () => {
     if (scenario === "connect_delayed")
       await new Promise<void>((resolve) => {

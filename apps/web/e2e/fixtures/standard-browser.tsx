@@ -15,6 +15,7 @@ import {
   owner,
   other,
   signatureCount,
+  disconnectCount,
   useWallets,
 } from "./standard-privy";
 
@@ -35,6 +36,7 @@ function Probe() {
         {adapter.connected ? adapter.publicKey?.toBase58() : "Disconnected"}
       </output>
       <output aria-label="Signatures">{signed}</output>
+      <output aria-label="Disconnects">{disconnectCount()}</output>
       <output aria-label="Error">{error}</output>
       <button onClick={churn}>Refresh Privy wallets</button>
       <button onClick={finish}>Finish connection</button>
