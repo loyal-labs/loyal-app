@@ -221,6 +221,12 @@ the package:
 - `prepareClosePolicies()` and `prepareCloseYieldRoutingPolicies()` emit `PolicyRemove` settings actions. The smart-account program closes each policy account and refunds rent to that policy account's stored `rentCollector`, which is the rent payer recorded at policy creation.
 - `prepareClosePoliciesSync()` and `prepareCloseYieldRoutingPoliciesSync()` execute the same `PolicyRemove` actions through `executeSettingsTransactionSync`, using the supplied settings signer pubkeys.
 
+Earn deposit preparation checks persisted routing permissions on-chain. When a
+saved route policy is missing, it scans for a valid existing pair before preparing
+fresh permissions at the current Settings seed. RPC failures and invalid policies
+still stop preparation. Any new permissions require wallet approval; preparation
+does not submit transactions or change persisted state.
+
 The send step is intentionally separate. Typical usage is:
 
 1. Prepare an operation with the client.

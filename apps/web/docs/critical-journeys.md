@@ -465,6 +465,8 @@ This timeout is a diagnostic dwell threshold, not proof that a provider failed.
 
 ## Return-visit signer restoration
 
+If the selected adapter already holds the authenticated wallet but React's signer state is stale, restoration allows 2.5 seconds for context updates, then deselects and reselects that adapter once before requiring manual reconnection. A genuinely different account is never accepted. The stale-signer browser contract checks that the signing context recovers without another session exchange.
+
 `auth.signer_restore` separately tracks the valid backend session, wallet selection, connection and matching signer. Missing wallets, account mismatch and connection errors are explicit outcomes; rejected approval is cancellation. A 30-second watchdog records a nonterminal timeout, allowing late recovery without restoring first-attempt success. Stable rerenders do not create new attempts; account changes invalidate pending completions. Browser contracts use the real controller and session provider with mocked wallet/Privy/HTTP boundaries; no funds move.
 
 Authentication recovery follow-up (October 15): dismissing Privy or denying OAuth
