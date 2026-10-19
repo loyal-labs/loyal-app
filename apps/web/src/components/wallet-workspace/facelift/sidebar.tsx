@@ -144,6 +144,7 @@ function ShortcutKey({
 
 export function FaceliftSidebar({
   activePage,
+  questsInProgress = false,
   earnBalanceUsd,
   earnMaxBalanceUsd,
   earnMaxForecastApyBps,
@@ -155,6 +156,7 @@ export function FaceliftSidebar({
   showEarnMax,
 }: {
   activePage: WorkspacePage;
+  questsInProgress?: boolean;
   earnBalanceUsd: number;
   earnMaxBalanceUsd: number;
   earnMaxForecastApyBps: number | null;
@@ -694,6 +696,40 @@ export function FaceliftSidebar({
         </button>
       </nav>
       )}
+
+      <button
+        aria-current={activePage === "quests" ? "page" : undefined}
+        className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
+          activePage === "quests" ? "bg-accent" : "hover:bg-accent"
+        }`}
+        onClick={() => onSelectPage("quests")}
+        type="button"
+      >
+        <span className="mr-3 flex size-11 shrink-0 items-center justify-center rounded-[11px] bg-primary">
+          <ThemedIcon
+            className="size-7 text-white"
+            src={`${ASSET_BASE}/icon-bone.svg`}
+          />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
+          <span className="flex items-center gap-1 text-[13px] leading-4 text-muted-foreground">
+            Quests
+            <ShortcutKey isFlashed={flashedShortcut === "quests"} letter="Q" />
+          </span>
+          {!isSignedOutNav && (
+            <span className="flex items-center gap-1 font-semibold text-[20px] leading-6">
+              {questsInProgress ? "11,250" : "0"}
+              <span className="-ml-1 text-tertiary">
+                {questsInProgress ? ".62" : ".00"}
+              </span>
+              <ThemedIcon
+                className="size-4 text-tertiary"
+                src={`${ASSET_BASE}/icon-bone.svg`}
+              />
+            </span>
+          )}
+        </span>
+      </button>
 
       {/* Figma 5429:36693 / 5429:37228 — the link list sits directly under
           the product cells; the spacer below pushes the wallet row down. */}

@@ -45,6 +45,7 @@ import {
   isTypingTarget,
 } from "@/components/wallet-workspace/facelift/keyboard";
 import { LifecycleOnboardingHost } from "@/components/wallet-workspace/facelift/lifecycle-onboarding";
+import { QuestsPage } from "@/components/wallet-workspace/facelift/quests-page";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useIsNarrowViewport } from "@/components/wallet-workspace/facelift/use-is-narrow-viewport";
@@ -64,7 +65,8 @@ export type WorkspacePage =
   | "activity"
   | "earn"
   | "earnmax"
-  | "wallet";
+  | "wallet"
+  | "quests";
 
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit" | "autoswap";
 
@@ -77,6 +79,7 @@ const WORKSPACE_PAGES: WorkspacePage[] = [
   "earn",
   "earnmax",
   "wallet",
+  "quests",
 ];
 
 // Desktop section shortcuts — surfaced as the sidebar's hover kbd hints.
@@ -86,6 +89,7 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
   e: "earn",
   m: "earnmax",
   s: "stables",
+  q: "quests",
 };
 
 // Figma 4693:64818 — fixed 3-pane workspace: 360px sidebar on the gray shell,
@@ -106,6 +110,7 @@ export function WorkspaceFaceliftShell() {
   // inline card, enlarged overlay) — enlarging must not reset the tab.
   const [chartTab, setChartTab] = useState<ChartTab | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("earn");
+  const [questsInProgress, setQuestsInProgress] = useState(false);
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
   // Reload lands on the last visited page (signed out: Earn or Earn MAX,
@@ -126,7 +131,15 @@ export function WorkspaceFaceliftShell() {
       return;
     }
     hasRestoredPageRef.current = true;
-    const stored = storedPageRef.current as WorkspacePage;
+    const questsPreview = new URLSearchParams(window.location.search).get(
+      "quests"
+    );
+    setQuestsInProgress(questsPreview === "in-progress");
+    const stored = (
+      questsPreview === "default" || questsPreview === "in-progress"
+        ? "quests"
+        : storedPageRef.current
+    ) as WorkspacePage;
     if (!WORKSPACE_PAGES.includes(stored) || stored === "earn") {
       return;
     }
@@ -451,6 +464,7 @@ export function WorkspaceFaceliftShell() {
         />
         <FaceliftSidebar
           activePage={activePage}
+          questsInProgress={questsInProgress}
           earnBalanceUsd={earnData.earnBalanceUsd}
           earnMaxBalanceUsd={earnMax.view.balanceUsd}
           earnMaxForecastApyBps={earnMax.view.forecastApyBps}
@@ -483,6 +497,12 @@ export function WorkspaceFaceliftShell() {
               onOpenSettings={() => setIsSettingsOpen(true)}
               showActivityBadge={hasUnseenActivity}
               showEarnMax={EARN_MAX_VISIBLE}
+            />
+          ) : activePage === "quests" ? (
+            <QuestsPage
+              inProgress={questsInProgress}
+              onSelectPage={handleSelectPage}
+              showActivityBadge={hasUnseenActivity}
             />
           ) : activePage === "activity" ? (
             <ActivityPage
