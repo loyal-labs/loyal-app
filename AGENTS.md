@@ -386,7 +386,9 @@ reward and invite actions show a coming-soon dialog and do not submit requests.
 Use `/app?quests=default` or `/app?quests=in-progress` while signed in to review
 both Figma states. The mobile in-progress fixture deliberately swaps the ready
 and cooldown cards to match its supplied design. Replace these fixtures when
-quest services are connected.
+quest services are connected. The desktop product rows use 8px gaps. Below 900px
+viewport height, sidebar resource links collapse into a keyboard-accessible
+popover; the center of the sidebar scrolls while wallet controls stay pinned.
 
 ### Earn MAX invite gate
 
