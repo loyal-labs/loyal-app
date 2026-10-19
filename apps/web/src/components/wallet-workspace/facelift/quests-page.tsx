@@ -296,10 +296,16 @@ export function QuestsPage({
                   />
                 </div>
                 <div className="flex justify-end pt-3 pb-6">
-                  <span className="relative flex items-center rounded-full bg-tertiary px-2 py-1 text-[13px] leading-4 text-white before:absolute before:-top-1 before:right-4 before:size-2 before:rotate-45 before:rounded-sm before:bg-tertiary">
-                    {inProgress ? "9,260" : "10,000"}
-                    <Bone className="mx-0.5 size-2.5" />
-                    to {inProgress ? "Guardian" : "Scout"}
+                  <span className="relative flex items-center gap-1 rounded-full bg-tertiary px-2 py-1 text-[13px] leading-4 text-white">
+                    <ThemedIcon
+                      className="absolute -top-2 right-3 h-2 w-5 text-tertiary"
+                      src={`${ASSETS}/quests/rank-tip.svg`}
+                    />
+                    <span className="flex items-center gap-0.5 font-medium">
+                      {inProgress ? "9,260" : "10,000"}
+                      <Bone className="size-2.5" />
+                    </span>
+                    <span>to {inProgress ? "Guardian" : "Scout"}</span>
                   </span>
                 </div>
                 <div className="mb-2 grid grid-cols-2 items-stretch gap-2 min-[796px]:hidden">
@@ -365,7 +371,7 @@ export function QuestsPage({
                           <Bone className="size-2.5" />
                         </span>
                       </span>
-                      <span className="ml-3 shrink-0">
+                      <span className="ml-3 flex shrink-0 items-center justify-center">
                         {quest.state === "claim" ? (
                           <span className="inline-flex min-w-16 items-center justify-center rounded-full bg-primary px-4 py-2.5 font-medium text-[13px] leading-4 text-white">
                             Claim
@@ -382,7 +388,7 @@ export function QuestsPage({
                                 ? "quests/quest-lock.svg"
                                 : quest.state === "completed"
                                 ? "icon-check.svg"
-                                : "icon-chevron-right.svg"
+                                : "quests/chevron-right.svg"
                             }`}
                           />
                         )}
