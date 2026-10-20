@@ -1,5 +1,6 @@
 "use client";
 
+import { useModalStatus } from "@privy-io/react-auth";
 import { Check, Copy, LogOut, Unplug, XIcon } from "lucide-react";
 import Image from "next/image";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -126,6 +127,17 @@ function ConnectedView() {
 }
 
 export function SignInModal() {
+  const { privyAppId } = usePublicEnv();
+  return privyAppId ? <PrivySignInModal /> : <SignInDialog />;
+}
+
+function PrivySignInModal() {
+  const { isOpen } = useModalStatus();
+  // Privy's portalled dialog must own focus while it is open.
+  return <SignInDialog privyModalOpen={isOpen} />;
+}
+
+function SignInDialog({ privyModalOpen = false }: { privyModalOpen?: boolean }) {
   const { isOpen, isLedgerMode, close } = useSignInModal();
   const { hasAuthSession } = useAuthCapability();
   const cherryRuntime = useCherryRuntime();
@@ -146,19 +158,23 @@ export function SignInModal() {
   // recipe keyframes. t-modal-center keeps the scale below 640px too — this
   // surface stays centered on mobile, it never becomes a bottom sheet.
   return (
-    <Dialog onOpenChange={handleOpenChange} open={isOpen}>
+    <Dialog
+      modal={!privyModalOpen}
+      onOpenChange={handleOpenChange}
+      open={isOpen}
+    >
       <DialogPortal>
         <DialogOverlay className="t-modal-overlay" />
         <DialogPrimitive.Content
           className="t-modal t-modal-center fixed top-[50%] left-[50%] z-[70] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[32px] border border-border bg-card text-card-foreground shadow-[0_24px_70px_rgba(0,0,0,0.2)] outline-none sm:max-w-[480px]"
-          // Privy's modals (login, link email, export key, MFA) stack on top
-          // of this one but pass pointer events through their backdrop, so a
-          // click on Privy's backdrop lands on our overlay and Radix reads it
-          // as an outside click. While Privy is up, nothing counts as outside.
+          // Keep Account open behind Privy's portalled dialog.
           onInteractOutside={(event) => {
-            if (document.querySelector("#privy-dialog")) {
+            if (privyModalOpen || document.querySelector("#privy-dialog")) {
               event.preventDefault();
             }
+          }}
+          onOpenAutoFocus={(event) => {
+            if (privyModalOpen) event.preventDefault();
           }}
         >
           {hasAuthSession ? (
