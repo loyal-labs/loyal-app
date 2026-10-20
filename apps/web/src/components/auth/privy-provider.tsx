@@ -5,10 +5,25 @@ import {
   toSolanaWalletConnectors,
   useStandardWallets,
 } from "@privy-io/react-auth/solana";
+import { createSolanaRpc, createSolanaRpcSubscriptions } from "@solana/kit";
 import { registerWallet } from "@wallet-standard/wallet";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+
+const mainnet = getFrontendSolanaEndpoints("mainnet");
+const devnet = getFrontendSolanaEndpoints("devnet");
+const solanaRpcs = {
+  "solana:mainnet": {
+    rpc: createSolanaRpc(mainnet.rpcEndpoint),
+    rpcSubscriptions: createSolanaRpcSubscriptions(mainnet.websocketEndpoint),
+  },
+  "solana:devnet": {
+    rpc: createSolanaRpc(devnet.rpcEndpoint),
+    rpcSubscriptions: createSolanaRpcSubscriptions(devnet.websocketEndpoint),
+  },
+};
 
 // Loyal brand: Background/Primary + Background/Accent from globals.css.
 const LOYAL_THEME = {
@@ -106,6 +121,7 @@ export function PrivyAuthProvider({ children }: { children: ReactNode }) {
     <PrivyProvider
       appId={privyAppId}
       config={{
+        solana: { rpcs: solanaRpcs },
         loginMethods: ["email", "google", "wallet"],
         appearance: {
           ...theme,
