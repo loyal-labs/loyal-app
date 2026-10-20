@@ -71,6 +71,8 @@ the legacy SIWS flow is used.
 Privy's embedded-wallet UI uses `config.solana.rpcs` with the shared frontend
 mainnet and devnet HTTP/WebSocket endpoints. External-wallet connectors alone
 do not configure the RPC clients required by embedded-wallet transaction screens.
+The Account dialog releases its modal focus lock while Privy's dialog is open,
+then restores it on return so email linking and other account actions accept input.
 
 Wallet sign-in provisions or reconciles the sponsored smart account before the
 session cookie is issued.
