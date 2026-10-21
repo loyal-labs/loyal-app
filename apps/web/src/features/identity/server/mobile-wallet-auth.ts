@@ -37,6 +37,7 @@ export const MOBILE_WALLET_AUTH_PURPOSES = [
   "earn-autodeposit-close-confirm",
   "earn-autodeposit-sweep-execute",
   "earn-refund-prepare",
+  "earn-max",
 ] as const;
 
 export type MobileWalletAuthPurpose =

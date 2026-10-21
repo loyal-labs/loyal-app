@@ -55,3 +55,18 @@ Offline money-movement contract checks (no RPC or wallet calls):
 cd apps/web
 bun scripts/verify-earn-max-claim-liquidity.ts
 ```
+
+## Native mobile access
+
+`POST /api/smart-accounts/mobile/earn-max` provides `summary`, `activity`, and
+`context` using the existing Voltr readers. Mobile access does not require an
+invite. The web UI retains its invite gate. Authenticate with a mobile Earn
+bearer token, a wallet signature scoped to `earn-max`, or the existing Loyal
+sign-in cookie matched to the active wallet. The server resolves the canonical
+smart account and verifies wallet control before returning private/no-store
+data; request account fields cannot select another account. Mainnet is required.
+This read-only endpoint does not provision accounts or submit transactions.
+The mobile app prepares and signs deposit, withdrawal request, and claim locally.
+
+Verify the auth/ownership/cluster boundaries with
+`bun scripts/verify-mobile-earn-max.ts` from `apps/web`.
