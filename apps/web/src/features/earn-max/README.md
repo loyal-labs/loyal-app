@@ -70,3 +70,10 @@ The mobile app prepares and signs deposit, withdrawal request, and claim locally
 
 Verify the auth/ownership/cluster boundaries with
 `bun scripts/verify-mobile-earn-max.ts` from `apps/web`.
+
+Mobile display reads use `GET /api/smart-accounts/mobile/earn-max` with
+`action=summary|activity` and `walletAddress`, matching ordinary mobile Earn.
+These passive reads return public on-chain-derived data without a session or
+wallet signature, never provision an account, validate the wallet and canonical
+account mapping, and reject transaction-context actions. POST context keeps
+its signature/bearer/cookie authentication.

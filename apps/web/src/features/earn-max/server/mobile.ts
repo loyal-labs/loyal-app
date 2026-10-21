@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileEarnRequest } from "@/features/identity/server/mobile-earn-session";
+import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import {
   assertAuthenticatedWalletControlsSettings,
@@ -122,5 +123,68 @@ export async function postMobileEarnMax(request: Request) {
       "earn_max_unavailable",
       "Earn MAX is temporarily unavailable."
     );
+  }
+}
+
+/** Same passive wallet-address read contract as mobile Earn state/earnings.
+ * Returns on-chain-derived data only; never provisions accounts or prepares transactions.
+ */
+export async function getMobileEarnMax(request: Request) {
+  const params = new URL(request.url).searchParams;
+  const action = params.get("action");
+  if (action !== "summary" && action !== "activity")
+    return failure(400, "invalid_request", "Unknown Earn MAX read action.");
+  const walletAddress = params.get("walletAddress")?.trim() ?? "";
+  try {
+    decodeWalletAddress(walletAddress);
+    const config = getServerEnv();
+    if (
+      EARN_MAX_BACKEND !== "voltr" ||
+      !["mainnet", "mainnet-beta"].includes(config.solanaEnv)
+    )
+      return failure(409, "unsupported_cluster", "Earn MAX requires mainnet.");
+    const user = await findCurrentUser({
+      provider: "solana",
+      authMethod: "wallet",
+      subjectAddress: walletAddress,
+      walletAddress,
+    });
+    const account = user
+      ? await findReadyCurrentUserSmartAccount({
+          userId: user.id,
+          walletAddress,
+        })
+      : null;
+    if (account)
+      await assertAuthenticatedWalletControlsSettings({
+        settingsPda: account.settingsPda,
+        smartAccountAddress: account.smartAccountAddress,
+        walletAddress,
+      });
+    if (action === "activity")
+      return json(
+        account
+          ? await readEarnMaxVoltrActivity(account.settingsPda)
+          : { operations: [], performance: [] }
+      );
+    return json({
+      config: {
+        delegatedSigner: "",
+        programId: config.loyalSmartAccounts.programId,
+      },
+      summary: account
+        ? await readEarnMaxVoltrSummary(account.settingsPda)
+        : null,
+    });
+  } catch (error) {
+    if (
+      error instanceof WalletAuthError ||
+      isSmartAccountProvisioningError(error)
+    )
+      return failure(error.status, error.code, error.message);
+    console.error("[mobile-earn-max] read failed", {
+      errorName: error instanceof Error ? error.name : typeof error,
+    });
+    return failure(502, "earn_max_unavailable", "Unable to update Earn MAX.");
   }
 }
