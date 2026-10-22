@@ -50,6 +50,10 @@ import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-
 import { useIsNarrowViewport } from "@/components/wallet-workspace/facelift/use-is-narrow-viewport";
 import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-home-page";
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
+import {
+  WorkspacePaneSkeleton,
+  WorkspaceSkeleton,
+} from "@/components/wallet-workspace/facelift/workspace-skeleton";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useEarnMax } from "@/features/earn-max";
@@ -378,7 +382,7 @@ export function WorkspaceFaceliftShell() {
   // hydration, the smart-account overview fetch (settingsPda === undefined —
   // hasResolvedPosition reads true while the position fetch is disabled, so
   // it can't be trusted before the overview lands), and the position fetch
-  // itself. A quiet white pane stands in; the real pane panel-reveals in.
+  // itself. The account skeleton stays until the real pane can render.
   const isPositionLoading =
     !isHydrated ||
     (isSignedIn &&
@@ -396,6 +400,8 @@ export function WorkspaceFaceliftShell() {
       isSignedIn &&
       !earnMax.view.isLoading &&
       !isEarnMaxUntouched(earnMax.view));
+
+  if (!isHydrated) return <WorkspaceSkeleton />;
 
   return (
     <BalanceVisibilityProvider>
@@ -541,7 +547,7 @@ export function WorkspaceFaceliftShell() {
                   }
                 >
                   {isPositionLoading ? (
-                    <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-card max-[795px]:rounded-none" />
+                    <WorkspacePaneSkeleton />
                   ) : earnData.hasPosition ? (
                     <PaneReveal>
                       <EarnPositionPane

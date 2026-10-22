@@ -19,8 +19,7 @@ export const metadata: Metadata = {
   title: "Loyal: Solana Wallet That Earns Yield Automatically",
   description:
     "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
-  // Landing CTAs now open the app at askloyal.com/app (same origin) for the
-  // preloaded transition, but the canonical app URL stays the subdomain.
+  // Landing CTAs navigate directly to the canonical app hostname.
   alternates: {
     canonical: "https://app.askloyal.com",
   },
