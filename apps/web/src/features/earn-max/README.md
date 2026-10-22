@@ -65,7 +65,13 @@ bearer token, a wallet signature scoped to `earn-max`, or the existing Loyal
 sign-in cookie matched to the active wallet. The server resolves the canonical
 smart account and verifies wallet control before returning private/no-store
 data; request account fields cannot select another account. Mainnet is required.
-This read-only endpoint does not provision accounts or submit transactions.
+Authenticated `context` requests provision a missing canonical smart account
+only after verifying at least $1 of spendable mainnet USDC in the wallet.
+Existing accounts are reused without this funding gate, so withdrawals and
+claims work with no wallet USDC. Older clients send no amount or operation,
+so first setup uses the product minimum. The existing idempotent provisioning
+service is reused and wallet ownership is verified after setup. GET and POST
+summary/activity reads never provision. Context does not submit deposits.
 The mobile app prepares and signs deposit, withdrawal request, and claim locally.
 
 Verify the auth/ownership/cluster boundaries with
@@ -90,3 +96,8 @@ The current UI does not request or render invite codes. Voltr history uses a
 
 Verify access and ownership boundaries with
 `bun scripts/verify-web-earn-max-access.ts` from `apps/web`.
+
+First-deposit setup checks: `bun scripts/verify-mobile-earn-max.ts` and
+`bun scripts/verify-earn-max-wallet-balance.ts`. Web sign-in already provisions
+the smart account before issuing its session; no ordinary Earn deposit is
+required before using Earn MAX.

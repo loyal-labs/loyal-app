@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Connection } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 
 import { getServerEnv } from "@/lib/core/config/server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
@@ -15,6 +15,7 @@ import {
   readVoltrPosition,
   voltrClaimBlockReason,
   voltrUserAccounts,
+  VOLTR_ASSET_MINT,
 } from "./program";
 
 import { readEarnMaxWithdrawalHealth } from "./withdrawal-health.server";
@@ -38,6 +39,24 @@ function authorityFor(settings: string) {
     settings,
     getServerEnv().loyalSmartAccounts.programId
   );
+}
+
+export async function readEarnMaxWalletUsdcBalance(walletAddress: string) {
+  const { value } = await getConnection().getParsedTokenAccountsByOwner(
+    new PublicKey(walletAddress),
+    { mint: VOLTR_ASSET_MINT }
+  );
+  let balance = BigInt(0);
+  for (const entry of value) {
+    const info = entry.account.data.parsed?.info;
+    if (
+      info?.state === "initialized" &&
+      typeof info.tokenAmount?.amount === "string"
+    ) {
+      balance += BigInt(info.tokenAmount.amount);
+    }
+  }
+  return balance;
 }
 
 export async function readEarnMaxVoltrActivity(settings: string) {
