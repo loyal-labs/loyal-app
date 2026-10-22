@@ -158,8 +158,8 @@ function decode(
   return entries;
 }
 
-// ponytail: unbounded per-instance map, one entry per Earn MAX account;
-// fine for an invite-only product, add an LRU if it ever goes public.
+// Bound history memory now that every wallet can access Earn MAX.
+const MAX_CACHED_HISTORIES = 256;
 const cache = new Map<string, { newest: string; value: EarnMaxVoltrHistory }>();
 
 /** Newest first. Deposits, withdrawal requests and claims of one authority. */
@@ -178,7 +178,11 @@ export async function readVoltrHistory(
   ).filter((s) => s.err === null);
   const newest = signatures[0]?.signature ?? "";
   const hit = cache.get(key);
-  if (hit && hit.newest === newest) return hit.value;
+  if (hit && hit.newest === newest) {
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit.value;
+  }
   const transactions = await connection.getParsedTransactions(
     signatures.map((s) => s.signature),
     { maxSupportedTransactionVersion: 0 }
@@ -201,7 +205,12 @@ export async function readVoltrHistory(
   // ponytail: first 100 signatures only; page with `before` once an account
   // outgrows that (the UI then treats history as incomplete).
   const value = { complete: signatures.length < HISTORY_LIMIT, entries };
+  cache.delete(key);
   cache.set(key, { newest, value });
+  if (cache.size > MAX_CACHED_HISTORIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   return value;
 }
 

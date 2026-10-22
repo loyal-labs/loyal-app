@@ -51,7 +51,6 @@ import {
   EarnedBarsChart,
   type EarnedChartBar,
 } from "@/components/wallet-workspace/facelift/earned-chart";
-import { EarnMaxInvitePane } from "@/components/wallet-workspace/facelift/earn-max-invite-pane";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PendingWithdrawalTooltip } from "@/components/wallet-workspace/facelift/pending-withdrawal-tooltip";
 import { isEscapeGuardedTarget } from "@/components/wallet-workspace/facelift/keyboard";
@@ -71,7 +70,6 @@ import {
   EARN_MAX_STRATEGY_NAME,
   type EarnMaxActions,
   type EarnMaxActivityItem,
-  type EarnMaxInviteState,
   type EarnMaxViewModel,
 } from "@/features/earn-max";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -1114,19 +1112,16 @@ function EarnMaxMainPane({
 }
 
 // The Earn MAX section: connect teaser + strategy rail when signed out;
-// invite-gated APY and position workspace (main / deposit / withdraw screens).
+// APY and position workspace for signed-in wallets (main / deposit / withdraw).
 export function EarnMaxWorkspace({
   earnData,
   earnMax,
-  invite,
   onBack,
   onOpenSettings,
   onViewAllActivity,
 }: {
   earnData: EarnPositionData;
   earnMax: { actions: EarnMaxActions; view: EarnMaxViewModel };
-  /** Invite gate: signed-in wallets without a redeemed code see the code pane. */
-  invite: EarnMaxInviteState;
   /** Mobile back chevron to the wallet home. */
   onBack: () => void;
   /** Mobile settings gear on the signed-out screen. */
@@ -1236,17 +1231,8 @@ export function EarnMaxWorkspace({
               tooltipText={EARN_MAX_TOOLTIP_TEXT}
             />
           </PaneReveal>
-        ) : !isHydrated || invite.redeemed === null ? (
+        ) : !isHydrated ? (
           <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-card max-[795px]:rounded-none" />
-        ) : !invite.redeemed ? (
-          <PaneReveal>
-            <EarnMaxInvitePane
-              key={earnData.walletAddress}
-              onBack={onBack}
-              onRedeem={invite.redeem}
-              tooltipText={EARN_MAX_TOOLTIP_TEXT}
-            />
-          </PaneReveal>
         ) : isVirgin ? (
           // Figma 5459:71433 — a wallet with no Earn MAX history gets the
           // first-deposit screen (same pane Earn's empty state uses).
@@ -1306,12 +1292,11 @@ export function EarnMaxWorkspace({
       </SheetReveal>
       {screen !== "main" ? null : !isHydrated ||
         !isSignedIn ||
-        invite.redeemed !== true ||
         isVirgin ? (
-        // Explain Earn MAX before invite access; show strategies to invited
-        // wallets without a position. Keep the shared Loyal Stats below both.
+        // Explain Earn MAX before sign-in; show strategies to wallets without a
+        // position. Keep the shared Loyal Stats below both.
         <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-          {isHydrated && isSignedIn && invite.redeemed === true ? (
+          {isHydrated && isSignedIn ? (
             <EarnMaxStrategiesCard apy={view} />
           ) : (
             <EarnMaxInfoFaqsCard className="flex shrink-0" />

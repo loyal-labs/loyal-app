@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 
 const checks = [
-  ["Web entry", "https://askloyal.com/app", "text/html"],
+  ["Web entry", "https://app.askloyal.com/app", "text/html"],
   [
     "ClickStack API",
     "https://observability.5.161.121.229.sslip.io/api/health",

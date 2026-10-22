@@ -60,7 +60,7 @@ bun scripts/verify-earn-max-claim-liquidity.ts
 
 `POST /api/smart-accounts/mobile/earn-max` provides `summary`, `activity`, and
 `context` using the existing Voltr readers. Mobile access does not require an
-invite. The web UI retains its invite gate. Authenticate with a mobile Earn
+invite. Web access also requires no invite. Authenticate with a mobile Earn
 bearer token, a wallet signature scoped to `earn-max`, or the existing Loyal
 sign-in cookie matched to the active wallet. The server resolves the canonical
 smart account and verifies wallet control before returning private/no-store
@@ -77,3 +77,16 @@ These passive reads return public on-chain-derived data without a session or
 wallet signature, never provision an account, validate the wallet and canonical
 account mapping, and reject transaction-context actions. POST context keeps
 its signature/bearer/cookie authentication.
+
+## Web access
+
+Earn MAX is available to every signed-in wallet. Summary and activity still
+resolve the authenticated smart account and verify wallet ownership before
+reading data. The legacy GET invite endpoint returns `redeemed: true` after
+the same authentication checks so older web bundles also unlock. Existing
+redemption records and the legacy code-redemption endpoint are retained.
+The current UI does not request or render invite codes. Voltr history uses a
+256-account LRU cache per server instance; eviction only causes a fresh read.
+
+Verify access and ownership boundaries with
+`bun scripts/verify-web-earn-max-access.ts` from `apps/web`.
