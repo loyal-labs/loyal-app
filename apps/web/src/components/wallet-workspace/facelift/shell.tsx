@@ -52,7 +52,7 @@ import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-ho
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
-import { useEarnMax, useEarnMaxInvite } from "@/features/earn-max";
+import { useEarnMax } from "@/features/earn-max";
 import { useAuthCapability } from "@/lib/auth/capability";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
@@ -184,15 +184,10 @@ export function WorkspaceFaceliftShell() {
   // so the mobile tab bar's clock shows the same badge.
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const earnData = useEarnPositionData();
-  const earnMaxInvite = useEarnMaxInvite(
-    EARN_MAX_VISIBLE ? earnData.walletAddress : null
-  );
-  // Earn MAX data is fetched only for wallets past the invite gate; the
-  // server refuses the rest anyway.
-  const earnMaxUnlocked = EARN_MAX_VISIBLE && earnMaxInvite.redeemed === true;
+  const earnMaxAvailable = EARN_MAX_VISIBLE && isSignedIn;
   const { actions: earnMaxRawActions, view: earnMaxView } = useEarnMax({
-    settingsPda: earnMaxUnlocked ? earnData.settingsPda : undefined,
-    walletAddress: earnMaxUnlocked ? earnData.walletAddress : null,
+    settingsPda: earnMaxAvailable ? earnData.settingsPda : undefined,
+    walletAddress: earnMaxAvailable ? earnData.walletAddress : null,
   });
   // Signing actions go through the same sign-in / reconnect-wallet prompt as
   // Earn, instead of failing with "Connect the authenticated wallet".
@@ -496,7 +491,6 @@ export function WorkspaceFaceliftShell() {
             <EarnMaxWorkspace
               earnData={earnData}
               earnMax={earnMax}
-              invite={earnMaxInvite}
               onBack={() => handleSelectPage("wallet")}
               onOpenSettings={() => setIsSettingsOpen(true)}
               onViewAllActivity={() => handleSelectPage("activity")}

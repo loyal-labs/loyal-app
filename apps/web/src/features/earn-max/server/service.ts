@@ -12,7 +12,7 @@ import {
   readEarnMaxVoltrActivity,
   readEarnMaxVoltrSummary,
 } from "../voltr/summary.server";
-import { hasRedeemedInvite, redeemInvite } from "./invite.server";
+import { redeemInvite } from "./invite.server";
 import { consumeInviteAttempt } from "./invite-rate-limit.server";
 import { readEarnMaxActivity, readEarnMaxSummary } from "./repository.server";
 
@@ -50,9 +50,6 @@ async function authenticatedRead<T>(
 ) {
   const principal = await principalFor(request);
   if (!principal) return unauthenticated();
-  if (!(await hasRedeemedInvite(principal.walletAddress))) {
-    return json({ error: { code: "invite_required" } }, 403);
-  }
   return json(await read(principal.settingsPda));
 }
 
@@ -88,7 +85,8 @@ export function getActivity(request: Request) {
 export async function getInvite(request: Request) {
   const principal = await principalFor(request);
   if (!principal) return unauthenticated();
-  return json({ redeemed: await hasRedeemedInvite(principal.walletAddress) });
+  // Older web bundles still use this endpoint to decide whether to show Earn MAX.
+  return json({ redeemed: true });
 }
 
 export async function postInvite(request: Request) {
