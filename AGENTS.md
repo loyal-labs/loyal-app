@@ -721,3 +721,11 @@ Run targeted tests:
 cd apps/telegram
 bun test src/lib/core/__tests__/object-path.test.ts src/lib/core/__tests__/cdn-url.test.ts src/lib/core/__tests__/r2-upload.test.ts
 ```
+
+### App loading
+
+Landing CTAs navigate directly to the app hostname without a timed splash.
+The Vite entry HTML and router pending state render `WorkspaceSkeleton`; the
+workspace keeps it until auth hydration settles, then uses a pane skeleton for
+pending account data. There is no minimum display duration. Skeleton styles
+share the app surface tokens, responsive breakpoints and reduced-motion rules.
