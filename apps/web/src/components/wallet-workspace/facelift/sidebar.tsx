@@ -2,6 +2,7 @@
 
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Moon, Sun } from "lucide-react";
+import { Popover } from "radix-ui";
 import {
   type CSSProperties,
   useEffect,
@@ -144,6 +145,7 @@ function ShortcutKey({
 
 export function FaceliftSidebar({
   activePage,
+  questsInProgress = false,
   earnBalanceUsd,
   earnMaxBalanceUsd,
   earnMaxForecastApyBps,
@@ -155,6 +157,7 @@ export function FaceliftSidebar({
   showEarnMax,
 }: {
   activePage: WorkspacePage;
+  questsInProgress?: boolean;
   earnBalanceUsd: number;
   earnMaxBalanceUsd: number;
   earnMaxForecastApyBps: number | null;
@@ -172,7 +175,12 @@ export function FaceliftSidebar({
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { isAuthenticated, logout } = useAuthSession();
   const cherryRuntime = useCherryRuntime();
-  const { connected: isWalletConnected, disconnect, publicKey, wallet } = useWallet();
+  const {
+    connected: isWalletConnected,
+    disconnect,
+    publicKey,
+    wallet,
+  } = useWallet();
   const walletIcon =
     publicKey?.toBase58() === data.walletAddress
       ? WALLET_ICONS[wallet?.adapter.name.toLowerCase() ?? ""]
@@ -388,338 +396,397 @@ export function FaceliftSidebar({
         </div>
       </div>
 
-      {isSignedOutNav ? null : (
-      <div className="w-full py-2">
-        <div className="flex w-full flex-col gap-0.5 px-4 py-2">
-          <div className="flex items-center gap-1">
-            <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
-              Total balance
-            </p>
-            {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
-            <InfoTooltip text="Wallet and Earn balances combined" />
-          </div>
-          <div className="flex items-center gap-3">
-            <p className="whitespace-nowrap font-semibold text-[40px] text-foreground leading-[48px] tracking-[-0.44px]">
-              <SkeletonReveal
-                isRevealed={isTotalRevealed}
-                skeletonClassName="rounded-lg bg-accent-selected"
-              >
-                {isTotalRevealed ? (
-                  <ScrambledPopDigits
-                    isHidden={isBalanceHidden}
-                    segments={[
-                      { text: totalBalance.balanceWhole },
-                      {
-                        color: "var(--tertiary)",
-                        text: totalBalance.balanceFraction,
-                      },
-                    ]}
-                  />
-                ) : (
-                  // Invisible placeholder sizes the skeleton bar.
-                  `${totalBalance.balanceWhole}${totalBalance.balanceFraction}`
-                )}
-              </SkeletonReveal>
-            </p>
-            <button
-              aria-label={isBalanceHidden ? "Show balance" : "Hide balance"}
-              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
-              onClick={toggleBalanceHidden}
-              type="button"
-            >
-              <ThemedIcon
-                className="size-6 text-tertiary"
-                src={`${ASSET_BASE}/icon-eye.svg`}
-              />
-            </button>
-          </div>
-        </div>
-      </div>
-      )}
-
-      <div className="w-full px-2">
-        <AddEmailNudge />
-      </div>
-
-      {isSignedOutNav ? (
-        <nav className="flex w-full flex-col py-2">
-          {/* Figma 5429:36643 — same 60px cell metrics as the signed-in rows
-              (44px icon in a py-2 wrapper), single line: label + APY badge. */}
-          <button
-            className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
-              activePage === "earn" ? "bg-accent" : "hover:bg-accent"
-            }`}
-            onClick={() => onSelectPage("earn")}
-            type="button"
-          >
-            <span className="flex items-center py-2 pr-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-11 shrink-0"
-                src={`${ASSET_BASE}/earn-icon.svg`}
-              />
-            </span>
-            <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
-              <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
-                Earn
-              </span>
-              <SkeletonReveal
-                isRevealed={isApyLoaded}
-                skeletonClassName="rounded-md bg-accent-selected"
-              >
-                <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
-                  <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                    {formatEarnApyLabel(earnApy.apyBps)}
-                  </span>
-                </span>
-              </SkeletonReveal>
-            </span>
-          </button>
-          <button
-            className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
-              activePage === "earnmax" ? "bg-accent" : "hover:bg-accent"
-            }`}
-            onClick={() => onSelectPage("earnmax")}
-            type="button"
-          >
-            <span className="flex items-center py-2 pr-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-11 shrink-0"
-                src={`${ASSET_BASE}/earn-max-icon.svg`}
-              />
-            </span>
-            <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
-              <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
-                Earn MAX
-              </span>
-              {earnMaxApyLabel ? (
-                <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
-                  <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                    {earnMaxApyLabel}
-                  </span>
-                </span>
-              ) : null}
-            </span>
-          </button>
-        </nav>
-      ) : (
-      <nav className="flex w-full flex-col py-2">
-        <button
-          className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
-            activePage === "earn" ? "bg-accent" : "hover:bg-accent"
-          }`}
-          onClick={() => onSelectPage("earn")}
-          type="button"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="mr-3 size-11 shrink-0"
-            src={`${ASSET_BASE}/earn-icon.svg`}
-          />
-          <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-            <span className="flex items-center gap-1">
-              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
-                Earn
-              </span>
-              {/* Skeleton the whole pill until the real APY lands, then
-                  reveal + pop the digits (the hook's fallback APY is a
-                  hardcoded number that would otherwise flash and re-pop). */}
-              <SkeletonReveal
-                isRevealed={isApyLoaded}
-                skeletonClassName="rounded-md bg-accent-selected"
-              >
-                <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="h-3 w-2"
-                    src="/wallet-workspace/earn-flash.svg"
-                  />
-                  <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                    {isApyLoaded ? (
-                      <PopDigits
+      <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&>*]:shrink-0">
+        {isSignedOutNav ? null : (
+          <div className="w-full py-2">
+            <div className="flex w-full flex-col gap-0.5 px-4 py-2">
+              <div className="flex items-center gap-1">
+                <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
+                  Total balance
+                </p>
+                {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
+                <InfoTooltip text="Wallet and Earn balances combined" />
+              </div>
+              <div className="flex items-center gap-3">
+                <p className="whitespace-nowrap font-semibold text-[40px] text-foreground leading-[48px] tracking-[-0.44px]">
+                  <SkeletonReveal
+                    isRevealed={isTotalRevealed}
+                    skeletonClassName="rounded-lg bg-accent-selected"
+                  >
+                    {isTotalRevealed ? (
+                      <ScrambledPopDigits
+                        isHidden={isBalanceHidden}
                         segments={[
+                          { text: totalBalance.balanceWhole },
                           {
-                            text: formatEarnApyLabel(
-                              earnApy.apyBps,
-                              earnApy.availability,
-                              earnApy.source
-                            ),
+                            color: "var(--tertiary)",
+                            text: totalBalance.balanceFraction,
                           },
                         ]}
                       />
                     ) : (
-                      formatEarnApyLabel(
-                        earnApy.apyBps,
-                        earnApy.availability,
-                        earnApy.source
-                      )
+                      // Invisible placeholder sizes the skeleton bar.
+                      `${totalBalance.balanceWhole}${totalBalance.balanceFraction}`
                     )}
-                  </span>
-                </span>
-              </SkeletonReveal>
-              <ShortcutKey isFlashed={flashedShortcut === "earn"} letter="E" />
-            </span>
-            <SplitAmount
-              fraction={earnBalance.balanceFraction}
-              fractionColor="var(--tertiary)"
-              isHidden={isBalanceHidden}
-              isRevealed={isEarnBalanceRevealed}
-              whole={earnBalance.balanceWhole}
-            />
-          </span>
-        </button>
+                  </SkeletonReveal>
+                </p>
+                <button
+                  aria-label={isBalanceHidden ? "Show balance" : "Hide balance"}
+                  className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
+                  onClick={toggleBalanceHidden}
+                  type="button"
+                >
+                  <ThemedIcon
+                    className="size-6 text-tertiary"
+                    src={`${ASSET_BASE}/icon-eye.svg`}
+                  />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
-        {showEarnMax ? (
-          <button
-            className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
-              activePage === "earnmax" ? "bg-accent" : "hover:bg-accent"
-            }`}
-            onClick={() => onSelectPage("earnmax")}
-            type="button"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="mr-3 size-11 shrink-0"
-              src={`${ASSET_BASE}/earn-max-icon.svg`}
-            />
-            <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-              <span className="flex items-center gap-1">
-                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+        <div className="w-full px-2">
+          <AddEmailNudge />
+        </div>
+
+        {isSignedOutNav ? (
+          <nav className="flex w-full flex-col gap-2 py-2">
+            {/* Figma 5429:36643 — same 60px cell metrics as the signed-in rows
+              (44px icon in a py-2 wrapper), single line: label + APY badge. */}
+            <button
+              className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+                activePage === "earn" ? "bg-accent" : "hover:bg-accent"
+              }`}
+              onClick={() => onSelectPage("earn")}
+              type="button"
+            >
+              <span className="flex items-center py-2 pr-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="size-11 shrink-0"
+                  src={`${ASSET_BASE}/earn-icon.svg`}
+                />
+              </span>
+              <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
+                <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
+                  Earn
+                </span>
+                <SkeletonReveal
+                  isRevealed={isApyLoaded}
+                  skeletonClassName="rounded-md bg-accent-selected"
+                >
+                  <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
+                    <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                      {formatEarnApyLabel(earnApy.apyBps)}
+                    </span>
+                  </span>
+                </SkeletonReveal>
+              </span>
+            </button>
+            <button
+              className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+                activePage === "earnmax" ? "bg-accent" : "hover:bg-accent"
+              }`}
+              onClick={() => onSelectPage("earnmax")}
+              type="button"
+            >
+              <span className="flex items-center py-2 pr-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="size-11 shrink-0"
+                  src={`${ASSET_BASE}/earn-max-icon.svg`}
+                />
+              </span>
+              <span className="flex min-w-0 flex-1 items-center gap-1 py-2">
+                <span className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5">
                   Earn MAX
                 </span>
                 {earnMaxApyLabel ? (
-                  <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="h-3 w-2"
-                      src="/wallet-workspace/earn-flash.svg"
-                    />
+                  <span className="inline-flex items-center rounded-md bg-positive/[0.14] px-1 py-px">
                     <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
                       {earnMaxApyLabel}
                     </span>
                   </span>
                 ) : null}
-                <ShortcutKey
-                  isFlashed={flashedShortcut === "earnmax"}
-                  letter="M"
+              </span>
+            </button>
+          </nav>
+        ) : (
+          <nav className="flex w-full flex-col gap-2 py-2">
+            <button
+              className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
+                activePage === "earn" ? "bg-accent" : "hover:bg-accent"
+              }`}
+              onClick={() => onSelectPage("earn")}
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="mr-3 size-11 shrink-0"
+                src={`${ASSET_BASE}/earn-icon.svg`}
+              />
+              <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
+                <span className="flex items-center gap-1">
+                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                    Earn
+                  </span>
+                  {/* Skeleton the whole pill until the real APY lands, then
+                  reveal + pop the digits (the hook's fallback APY is a
+                  hardcoded number that would otherwise flash and re-pop). */}
+                  <SkeletonReveal
+                    isRevealed={isApyLoaded}
+                    skeletonClassName="rounded-md bg-accent-selected"
+                  >
+                    <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        alt=""
+                        aria-hidden="true"
+                        className="h-3 w-2"
+                        src="/wallet-workspace/earn-flash.svg"
+                      />
+                      <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                        {isApyLoaded ? (
+                          <PopDigits
+                            segments={[
+                              {
+                                text: formatEarnApyLabel(
+                                  earnApy.apyBps,
+                                  earnApy.availability,
+                                  earnApy.source
+                                ),
+                              },
+                            ]}
+                          />
+                        ) : (
+                          formatEarnApyLabel(
+                            earnApy.apyBps,
+                            earnApy.availability,
+                            earnApy.source
+                          )
+                        )}
+                      </span>
+                    </span>
+                  </SkeletonReveal>
+                  <ShortcutKey
+                    isFlashed={flashedShortcut === "earn"}
+                    letter="E"
+                  />
+                </span>
+                <SplitAmount
+                  fraction={earnBalance.balanceFraction}
+                  fractionColor="var(--tertiary)"
+                  isHidden={isBalanceHidden}
+                  isRevealed={isEarnBalanceRevealed}
+                  whole={earnBalance.balanceWhole}
                 />
               </span>
-              <SplitAmount
-                fraction={earnMaxBalance.balanceFraction}
-                isHidden={isBalanceHidden}
-                isRevealed={isEarnMaxBalanceRevealed}
-                whole={earnMaxBalance.balanceWhole}
+            </button>
+
+            {showEarnMax ? (
+              <button
+                className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
+                  activePage === "earnmax" ? "bg-accent" : "hover:bg-accent"
+                }`}
+                onClick={() => onSelectPage("earnmax")}
+                type="button"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="mr-3 size-11 shrink-0"
+                  src={`${ASSET_BASE}/earn-max-icon.svg`}
+                />
+                <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
+                  <span className="flex items-center gap-1">
+                    <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                      Earn MAX
+                    </span>
+                    {earnMaxApyLabel ? (
+                      <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          alt=""
+                          aria-hidden="true"
+                          className="h-3 w-2"
+                          src="/wallet-workspace/earn-flash.svg"
+                        />
+                        <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                          {earnMaxApyLabel}
+                        </span>
+                      </span>
+                    ) : null}
+                    <ShortcutKey
+                      isFlashed={flashedShortcut === "earnmax"}
+                      letter="M"
+                    />
+                  </span>
+                  <SplitAmount
+                    fraction={earnMaxBalance.balanceFraction}
+                    isHidden={isBalanceHidden}
+                    isRevealed={isEarnMaxBalanceRevealed}
+                    whole={earnMaxBalance.balanceWhole}
+                  />
+                </span>
+              </button>
+            ) : null}
+
+            <button
+              className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
+                activePage === "stables" ? "bg-accent" : "hover:bg-accent"
+              }`}
+              onClick={() => onSelectPage("stables")}
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="mr-3 size-11 shrink-0"
+                src={`${ASSET_BASE}/stablecoins-icon.svg`}
               />
-            </span>
-          </button>
-        ) : null}
+              <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
+                <span className="flex items-center gap-1">
+                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                    Stablecoins
+                  </span>
+                  <ShortcutKey
+                    isFlashed={flashedShortcut === "stables"}
+                    letter="S"
+                  />
+                </span>
+                <SplitAmount
+                  fraction={stablecoinsBalance.balanceFraction}
+                  isHidden={isBalanceHidden}
+                  isRevealed={isWalletDataRevealed}
+                  whole={stablecoinsBalance.balanceWhole}
+                />
+              </span>
+            </button>
+
+            <button
+              className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
+                activePage === "crypto" ? "bg-accent" : "hover:bg-accent"
+              }`}
+              onClick={() => onSelectPage("crypto")}
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="mr-3 size-11 shrink-0"
+                src={`${ASSET_BASE}/crypto-icon.svg`}
+              />
+              <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
+                <span className="flex items-center gap-1">
+                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                    Crypto
+                  </span>
+                  <ShortcutKey
+                    isFlashed={flashedShortcut === "crypto"}
+                    letter="C"
+                  />
+                </span>
+                <SplitAmount
+                  fraction={cryptoBalance.balanceFraction}
+                  isHidden={isBalanceHidden}
+                  isRevealed={isWalletDataRevealed}
+                  whole={cryptoBalance.balanceWhole}
+                />
+              </span>
+            </button>
+          </nav>
+        )}
 
         <button
+          aria-current={activePage === "quests" ? "page" : undefined}
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
-            activePage === "stables" ? "bg-accent" : "hover:bg-accent"
+            activePage === "quests" ? "bg-accent" : "hover:bg-accent"
           }`}
-          onClick={() => onSelectPage("stables")}
+          onClick={() => onSelectPage("quests")}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="mr-3 size-11 shrink-0"
-            src={`${ASSET_BASE}/stablecoins-icon.svg`}
-          />
+          <span className="mr-3 flex size-11 shrink-0 items-center justify-center rounded-[11px] bg-primary">
+            <ThemedIcon
+              className="size-7 text-white"
+              src={`${ASSET_BASE}/icon-bone.svg`}
+            />
+          </span>
           <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-            <span className="flex items-center gap-1">
-              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
-                Stablecoins
-              </span>
+            <span className="flex items-center gap-1 text-[13px] leading-4 text-muted-foreground">
+              Quests
               <ShortcutKey
-                isFlashed={flashedShortcut === "stables"}
-                letter="S"
+                isFlashed={flashedShortcut === "quests"}
+                letter="Q"
               />
             </span>
-            <SplitAmount
-              fraction={stablecoinsBalance.balanceFraction}
-              isHidden={isBalanceHidden}
-              isRevealed={isWalletDataRevealed}
-              whole={stablecoinsBalance.balanceWhole}
-            />
+            {!isSignedOutNav && (
+              <span className="flex items-center gap-1 font-semibold text-[20px] leading-6">
+                {questsInProgress ? "11,250" : "0"}
+                <span className="-ml-1 text-tertiary">
+                  {questsInProgress ? ".62" : ".00"}
+                </span>
+                <ThemedIcon
+                  className="size-4 text-tertiary"
+                  src={`${ASSET_BASE}/icon-bone.svg`}
+                />
+              </span>
+            )}
           </span>
         </button>
 
-        <button
-          className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
-            activePage === "crypto" ? "bg-accent" : "hover:bg-accent"
-          }`}
-          onClick={() => onSelectPage("crypto")}
-          type="button"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="mr-3 size-11 shrink-0"
-            src={`${ASSET_BASE}/crypto-icon.svg`}
-          />
-          <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-            <span className="flex items-center gap-1">
-              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
-                Crypto
-              </span>
-              <ShortcutKey
-                isFlashed={flashedShortcut === "crypto"}
-                letter="C"
-              />
-            </span>
-            <SplitAmount
-              fraction={cryptoBalance.balanceFraction}
-              isHidden={isBalanceHidden}
-              isRevealed={isWalletDataRevealed}
-              whole={cryptoBalance.balanceWhole}
-            />
-          </span>
-        </button>
-      </nav>
-      )}
-
-      {/* Figma 5429:36693 / 5429:37228 — the link list sits directly under
-          the product cells; the spacer below pushes the wallet row down. */}
-      <div className="flex w-full flex-col py-2">
-        {SIDEBAR_LINKS.map((link) => (
-          <a
-            className="t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent"
-            href={link.href}
-            key={link.label}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <span className="mr-3 flex size-11 shrink-0 items-center justify-center">
-              <ThemedIcon
-                className="size-6 text-tertiary"
-                src={`${ASSET_BASE}/${link.icon}`}
-              />
-            </span>
-            <span className="py-2 font-medium text-muted-foreground text-[16px] leading-5">
-              {link.label}
-            </span>
-          </a>
-        ))}
+        <div className="w-full py-2">
+          <div className="[@media(max-height:899px)]:hidden">
+            <SidebarResourceLinks />
+          </div>
+          <div className="hidden [@media(max-height:899px)]:block">
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  className="t-hover flex min-h-11 w-full items-center rounded-2xl px-4 text-left text-muted-foreground hover:bg-accent"
+                  type="button"
+                >
+                  <span className="mr-3 flex size-11 shrink-0 items-center justify-center">
+                    <ThemedIcon
+                      className="size-6 text-tertiary"
+                      src={`${ASSET_BASE}/icon-question.svg`}
+                    />
+                  </span>
+                  <span className="flex-1 font-medium text-[16px] leading-5">
+                    Help &amp; resources
+                  </span>
+                  <ThemedIcon
+                    className="size-6 text-tertiary"
+                    src={`${ASSET_BASE}/icon-chevron-down.svg`}
+                  />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  aria-label="Help and resources"
+                  align="start"
+                  side="top"
+                  sideOffset={4}
+                  collisionPadding={8}
+                  onEscapeKeyDown={(event) => event.stopPropagation()}
+                  className="z-50 max-h-[var(--radix-popover-content-available-height)] w-[var(--radix-popover-trigger-width)] overflow-y-auto rounded-2xl bg-popover/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95 motion-reduce:animate-none"
+                >
+                  <SidebarResourceLinks />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          </div>
+        </div>
       </div>
-
-      <div aria-hidden="true" className="w-full min-h-0 flex-1" />
 
       {/* Figma 4768:102489 — bottom rail: wallet chip left, Receive +
           Settings right; the wallet menu now grows upward from the chip.
@@ -925,5 +992,31 @@ export function FaceliftSidebar({
         </div>
       )}
     </aside>
+  );
+}
+
+function SidebarResourceLinks() {
+  return (
+    <nav aria-label="Help and resources" className="flex w-full flex-col">
+      {SIDEBAR_LINKS.map((link) => (
+        <a
+          className="t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent"
+          href={link.href}
+          key={link.label}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <span className="mr-3 flex size-11 shrink-0 items-center justify-center">
+            <ThemedIcon
+              className="size-6 text-tertiary"
+              src={`${ASSET_BASE}/${link.icon}`}
+            />
+          </span>
+          <span className="py-2 font-medium text-muted-foreground text-[16px] leading-5">
+            {link.label}
+          </span>
+        </a>
+      ))}
+    </nav>
   );
 }

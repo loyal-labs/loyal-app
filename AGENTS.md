@@ -376,6 +376,20 @@ wallet, configured cluster, vault index `1`, and canonical target reserve. The
 workspace uses it to decide whether to show the active Earn view, set the
 displayed principal, and cap partial/full withdrawals.
 
+### Quests UI
+
+Quests is a presentation-only section in
+`apps/web/src/components/wallet-workspace/facelift/quests-page.tsx`, reached from
+the desktop sidebar or the mobile bone tab. It uses the existing wallet session
+gate. Values, referral code, quest completion, and cooldowns are design fixtures;
+reward and invite actions show a coming-soon dialog and do not submit requests.
+Use `/app?quests=default` or `/app?quests=in-progress` while signed in to review
+both Figma states. The mobile in-progress fixture deliberately swaps the ready
+and cooldown cards to match its supplied design. Replace these fixtures when
+quest services are connected. The desktop product rows use 8px gaps. Below 900px
+viewport height, sidebar resource links collapse into a keyboard-accessible
+popover; the center of the sidebar scrolls while wallet controls stay pinned.
+
 ### Earn MAX invite gate
 
 Earn MAX is invite-only. Valid codes are six uppercase letters/digits and

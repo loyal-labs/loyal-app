@@ -4,8 +4,7 @@ import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
-// Figma 5465:83296 — mobile-only bottom tab bar: bone (future quests,
-// inactive) · mascot pill (the wallet home) · Activity. Earn and Earn MAX are
+// Mobile-only bottom tab bar: Quests · mascot pill (wallet home) · Activity. Earn and Earn MAX are
 // subscreens behind the home's product cards, not tabs. Input screens
 // (deposit/withdraw/autodeposit, send/swap) hide the bar under the keyboard.
 export function MobileTabBar({
@@ -13,23 +12,27 @@ export function MobileTabBar({
   onSelect,
   showActivityBadge = false,
 }: {
-  activeTab: "activity" | "wallet";
-  onSelect: (tab: "activity" | "wallet") => void;
+  activeTab: "activity" | "wallet" | "quests";
+  onSelect: (tab: "activity" | "wallet" | "quests") => void;
   showActivityBadge?: boolean;
 }) {
   return (
     <div className="cherry-mobile-tab-bar w-full shrink-0 bg-card px-4 min-[796px]:hidden">
       <div className="flex w-full items-center gap-4">
-        {/* Future quests slot — decorative until the feature ships. */}
-        <div
-          aria-hidden="true"
-          className="flex flex-1 flex-col items-center justify-center py-4 opacity-40"
+        <button
+          aria-current={activeTab === "quests" ? "page" : undefined}
+          aria-label="Quests"
+          className="t-hover flex flex-1 flex-col items-center justify-center py-4"
+          onClick={() => onSelect("quests")}
+          type="button"
         >
           <ThemedIcon
-            className="size-7 text-tertiary"
+            className={`size-7 ${
+              activeTab === "quests" ? "text-foreground" : "text-tertiary"
+            }`}
             src={`${ASSET_BASE}/icon-bone.svg`}
           />
-        </div>
+        </button>
         <button
           aria-current={activeTab === "wallet" ? "page" : undefined}
           aria-label="Wallet"
