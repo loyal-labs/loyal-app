@@ -6,6 +6,12 @@ let cookieWallet: string | null = null;
 let controls = true;
 let reads = 0;
 let accountExists = true;
+let userExists = true;
+let balance = BigInt(1_000_000);
+let balanceReads = 0;
+let provisions = 0;
+let userCreates = 0;
+let provisioningFails = false;
 
 let cluster = "mainnet";
 const settings = "canonical-settings";
@@ -21,7 +27,12 @@ mock.module("@/features/identity/server/mobile-earn-session", () => ({
   },
 }));
 mock.module("@/features/chat/server/app-user", () => ({
-  findCurrentUser: async () => ({ id: "user" }),
+  findCurrentUser: async () => (userExists ? { id: "user" } : null),
+  getOrCreateCurrentUser: async (principal: { walletAddress: string }) => {
+    assert.equal(principal.walletAddress, "authenticated-wallet");
+    userCreates++;
+    return { id: "user" };
+  },
 }));
 mock.module("@/features/smart-accounts/server/service", () => ({
   findReadyCurrentUserSmartAccount: async () =>
@@ -31,6 +42,22 @@ mock.module("@/features/smart-accounts/server/service", () => ({
           smartAccountAddress: "canonical-account",
         }
       : null,
+  ensureWalletUserSmartAccountTraced: async (args: {
+    userId: string;
+    walletAddress: string;
+  }) => {
+    assert.equal(args.userId, "user");
+    assert.equal(args.walletAddress, "authenticated-wallet");
+    provisions++;
+    if (provisioningFails) throw new Error("provisioning failed");
+    accountExists = true;
+    return {
+      smartAccount: {
+        settingsPda: settings,
+        smartAccountAddress: "canonical-account",
+      },
+    };
+  },
   assertAuthenticatedWalletControlsSettings: async () => {
     if (!controls) throw new Error("ownership changed");
   },
@@ -47,6 +74,11 @@ mock.module("@/features/identity/server/auth-session", () => ({
     cookieWallet ? { walletAddress: cookieWallet } : null,
 }));
 mock.module("@/features/earn-max/voltr/summary.server", () => ({
+  readEarnMaxWalletUsdcBalance: async (wallet: string) => {
+    assert.equal(wallet, "authenticated-wallet");
+    balanceReads++;
+    return balance;
+  },
   readEarnMaxVoltrSummary: async (address: string) => {
     assert.equal(address, settings);
     reads++;
@@ -148,4 +180,64 @@ assert.equal((await publicRead("summary")).status, 409);
 assert.equal(reads, 2);
 console.log(
   "Passive Earn MAX reads need no session; context remains authenticated (offline)."
+);
+
+// Missing-account setup must remain behind auth, cluster and on-chain funding gates.
+cluster = "mainnet";
+accountExists = false;
+userExists = false;
+assert.equal((await call("context")).status, 401);
+assert.equal(provisions, 0);
+assert.equal(balanceReads, 0);
+assert.equal(userCreates, 0);
+authenticated = true;
+cluster = "devnet";
+assert.equal((await call("context")).status, 409);
+assert.equal(balanceReads, 0);
+assert.equal(userCreates, 0);
+cluster = "mainnet";
+for (const action of ["summary", "activity"]) {
+  assert.equal((await call(action)).status, 409);
+  assert.equal((await publicRead(action)).status, 200);
+}
+assert.equal(balanceReads, 0);
+assert.equal(provisions, 0);
+assert.equal(userCreates, 0);
+balance = BigInt(999_999);
+assert.equal((await call("context")).status, 402);
+assert.equal(provisions, 0);
+assert.equal(userCreates, 0);
+balance = BigInt(1_000_000);
+const first = await call("context");
+assert.equal(first.status, 200);
+assert.equal((await first.json()).settingsPda, settings);
+assert.equal(provisions, 1);
+assert.equal(userCreates, 1);
+userExists = true;
+balance = BigInt(0);
+const readsBeforeReuse = balanceReads;
+assert.equal((await call("context")).status, 200);
+assert.equal(provisions, 1, "repeat preparation reuses the canonical account");
+assert.equal(
+  balanceReads,
+  readsBeforeReuse,
+  "existing withdrawals/claims need no wallet USDC"
+);
+accountExists = false;
+balance = BigInt(1_000_000);
+provisioningFails = true;
+assert.equal(
+  (await call("context")).status,
+  500,
+  "failed setup must not return a transaction context"
+);
+provisioningFails = false;
+controls = false;
+assert.equal(
+  (await call("context")).status,
+  500,
+  "new accounts must pass the ownership check"
+);
+console.log(
+  "First Earn MAX context provisions funded authenticated wallets only; reads never provision; retries reuse accounts."
 );

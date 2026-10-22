@@ -3,12 +3,16 @@ import "server-only";
 import { NextResponse } from "next/server";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
-import { findCurrentUser } from "@/features/chat/server/app-user";
+import {
+  findCurrentUser,
+  getOrCreateCurrentUser,
+} from "@/features/chat/server/app-user";
 import { authenticateMobileEarnRequest } from "@/features/identity/server/mobile-earn-session";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import {
   assertAuthenticatedWalletControlsSettings,
+  ensureWalletUserSmartAccountTraced,
   findReadyCurrentUserSmartAccount,
   isSmartAccountProvisioningError,
 } from "@/features/smart-accounts/server/service";
@@ -18,6 +22,7 @@ import { EARN_MAX_BACKEND } from "../constants";
 import {
   readEarnMaxVoltrActivity,
   readEarnMaxVoltrSummary,
+  readEarnMaxWalletUsdcBalance,
 } from "../voltr/summary.server";
 
 function json(value: unknown, status = 200) {
@@ -64,24 +69,46 @@ export async function postMobileEarnMax(request: Request) {
     ) {
       return failure(409, "unsupported_cluster", "Earn MAX requires mainnet.");
     }
-    const user = await findCurrentUser({
+    let user = await findCurrentUser({
       provider: "solana",
       authMethod: "wallet",
       subjectAddress: walletAddress,
       walletAddress,
     });
-    const account = user
+    let account = user
       ? await findReadyCurrentUserSmartAccount({
           userId: user.id,
           walletAddress,
         })
       : null;
+    if (!account && body.action === "context") {
+      // Shipped clients send no deposit amount; require the $1 minimum before sponsoring setup.
+      const balance = await readEarnMaxWalletUsdcBalance(walletAddress);
+      if (balance < BigInt(1_000_000)) {
+        return failure(
+          402,
+          "insufficient_balance",
+          "At least $1 USDC is needed in your wallet to set up Earn MAX."
+        );
+      }
+      user ??= await getOrCreateCurrentUser({
+        provider: "solana",
+        authMethod: "wallet",
+        subjectAddress: walletAddress,
+        walletAddress,
+      });
+      const ensured = await ensureWalletUserSmartAccountTraced({
+        userId: user.id,
+        walletAddress,
+        request,
+      });
+      account = ensured.smartAccount;
+    }
     if (!account) {
-      // Privy sign-in provisions this account; reads must never sponsor creation.
       return failure(
         409,
         "smart_account_required",
-        "Sign in to set up your smart account."
+        "Your Earn MAX account will be set up with your first deposit."
       );
     }
     await assertAuthenticatedWalletControlsSettings({
