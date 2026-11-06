@@ -1,0 +1,128 @@
+---
+title: "RWA Loop strategy and settlement"
+description: "How Loyal's Voltr vaults loop USDC on Kamino, rebalance, report NAV and settle withdrawals."
+---
+
+Both Loyal vaults on Voltr run the same strategy: USDC is looped on Kamino against yield-bearing RWA collateral, and one Loyal worker moves money between lanes and reports NAV to Voltr.
+
+| Vault | Address | Custody | Who it is for |
+| --- | --- | --- | --- |
+| Loyal RWA Multiply USDC (Earn) | `HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA` | Non-custodial: custom NAV adaptor, funds move only within Squads policies | Loyal app users (Earn MAX) |
+| Loyal Looping (Backyard) | `GrHZD15bMiUwrVPsmBwz8GRoQeDZN6wNEQVdW8k8SxV1` | Custodial: Voltr Trustful adaptor, NAV reported by the manager | Backyard depositors |
+
+Deposits always go to Voltr first. Loyal's worker then moves allocatable USDC to a Squads account owned by that vault, which holds the Kamino positions. Each vault has its own Squads account, so the two books never mix.
+
+## Realized yield
+
+The Earn vault's measured realized APY was 12.96% from Oct 1 to Oct 24, 2026, taken from its on-chain share price.
+
+| Date (00:00 UTC) | Share price (USDC per LP) |
+| --- | --- |
+| Oct 1, 2026 | 370,846.28 |
+| Oct 24, 2026 | 373,703.98 |
+
+The return is +0.771% over 23 days, compounded to an annual rate. Each price is the median of all NAV reports within 90 minutes of midnight UTC.
+
+## How the strategy works
+
+The vault earns the spread between an RWA token's yield and the USDC borrow rate on Kamino, multiplied by leverage. One loop: buy the collateral with USDC, deposit it on Kamino, borrow USDC against it, buy more collateral.
+
+The worker can run these lanes. Each lane's leverage cap is set under the lender's limits:
+
+| Lane (issuer / collateral / debt) | Max leverage | Kamino liquidation LTV | Worker brake LTV |
+| --- | --- | --- | --- |
+| OnRe / ONyc / USDC | 2.5x (60% LTV) | 75% | 63% |
+| AUTO / AUTO / PYUSD, AUTO / AUTO / wYLDS | 3x (66.7%) | 80% | 70% |
+| Maple / syrupUSDC / USDC | 3x (66.7%) | 90% | 80% |
+| Prime lanes | 3x (66.7%) | 91% | 81% |
+
+Limits as read from the Kamino reserves on Oct 15, 2026. The brake is the LTV at which the worker starts cutting leverage, well before liquidation.
+
+**Choosing a lane.** A selector prices every move over a 30-day horizon. Cash enters a lane only when the lane's expected 30-day gain beats the full cost of getting there: swap loss both ways, the leverage steps, network fees and account rent. A result must hold for 30 minutes and clear $0.25 of benefit plus 10 bps of uncertainty before the worker acts.
+
+**Choosing leverage.** Leverage moves one level at a time on a fixed ladder (1.5x, 1.75x, 2x, 2.5x, 3x). The worker steps up only while the spread (collateral yield minus USDC borrow APY) is wide enough, and steps down when it narrows:
+
+| Level | LTV | Step up when spread is at least | Step down when spread falls under |
+| --- | --- | --- | --- |
+| 1.5x | 33.3% | 1 pt | 0 |
+| 1.75x | 42.9% | 2 pts | 1 pt |
+| 2x | 50% | 2.5 pts | 1.5 pts |
+| 2.5x | 60% | 2.5 pts | 1.5 pts |
+| 3x | 66.7% | 2.5 pts | 1.5 pts |
+
+**Diversification.** On the Earn vault, new capital is directed about 90% to OnRe and AUTO, 5% to Maple and 5% to Prime, with a cap on exposure to any one issuer. Existing positions are not sold to rebalance to these weights.
+
+## How rebalancing works
+
+Every 5 seconds the worker reads the chain in one batch, works out where the vault should be, and takes at most one atomic transaction toward it. No plan is stored, so a restart or a failed transaction needs no recovery: the next tick recomputes the target from chain state.
+
+The target follows these rules, highest priority first:
+
+1. **Hard LTV.** A lane at or past its brake steps down to its level's LTV.
+2. **Term maturity.** A fixed-term collateral (wYLDS, 30-day term) repays its debt before the term ends.
+3. **Operator exit.** An operator can order a lane to zero debt, or fully back to USDC.
+4. **Withdrawals.** Pending Voltr withdrawal requests are funded first from Squads cash, then by unwinding the lane with the most equity (the shortfall plus 1%).
+5. **Selector choices.** Idle cash enters the selector's chosen lane. A rotation sells a tranche of one lane to USDC and enters it in a better one, a tranche at a time, never more than 90% of a lane's equity.
+6. **Leverage level.** Each lane moves one step toward its approved level.
+
+Only rules 1 to 3 can force debt to zero. Every transaction is simulated, signed and checked before it is sent, and a failed simulation is never sent.
+
+Leverage cuts must be sustained and pay for their own trading cost, and an ordinary withdrawal unwind may lose at most 20 bps to slippage.
+
+## Risk controls
+
+The worker stops and holds rather than act on state it cannot explain. A hold sends no risk-increasing transaction; mandatory deleverage still runs.
+
+- **Bound actions.** The Squads account acts only through policies that name the exact programs, accounts, swap routes and Kamino operations each lane may use.
+- **Book identity.** Voltr's total value must equal Voltr idle cash plus the reported NAV plus tracked custody. Any mismatch latches the vault until an operator clears it.
+- **NAV drift.** On the Earn vault, a NAV move of more than 50 bps that no transaction explains holds the vault.
+- **Fee terms.** The worker checks the vault's on-chain fee settings against the approved terms and holds the vault if they differ.
+- **One writer.** A single worker process holds the vault lock, with at most one transaction in flight per vault.
+- **Alerts.** The team is paged if no NAV report has reconciled for 3 hours.
+- **Instant liquidity.** The Earn vault keeps a 5,000 USDC buffer in Voltr idle. Larger withdrawals are funded by unwinding a lane within Voltr's 600-second wait.
+
+## NAV reporting and settlement frequency
+
+Both vaults settle NAV at least once an hour, not daily. The share price changes only when the worker reports NAV to Voltr through `deposit_strategy` (amount 0).
+
+| Vault | Reporting rule |
+| --- | --- |
+| Earn (`HXtk15…`) | At least hourly, and within 60 s after any capital move |
+| Looping (`GrHZD15…`) | At least hourly, and whenever the book moves more than 50 bps from the last report |
+
+**What NAV includes.** Squads cash plus, for each lane, collateral minus debt, all read from chain at one slot. Collateral is valued at its Kamino mark minus the cost of selling it, so NAV is what the book would return in USDC, not its mark-to-market value.
+
+The reported value is the manager's statement of the book; Voltr does not compute it on chain. Anyone can recompute it from the Squads account's token balances and Kamino obligations.
+
+## How the Backyard vault is settled
+
+The Looping vault runs the same worker and lanes as Earn, on its own Squads account (`6HTfVjwk5FfW4GH67hmEen7VHeURdB5EJj6E429qTrUY`, vault index 2).
+
+1. **Deposit.** A depositor calls Voltr `depositVault` and receives loyLOOP at the current share price. The USDC lands in Voltr idle.
+2. **Allocate.** The worker moves idle USDC to the Squads account and enters a lane once the expected 30-day gain covers the full move cost, including about $2.50 of one-time account rent per lane. Below that, the USDC waits in Voltr idle.
+3. **Report.** The worker reports the Squads book to Voltr at least hourly (see above). That report sets the share price.
+4. **Withdraw.** `requestWithdrawVault` escrows the LP. The worker unwinds enough of a lane and returns USDC to Voltr idle before the 600-second wait ends; the depositor then calls `withdrawVault`. In the Oct 14, 2026 mainnet test, a 20 USDC request was funded 53 seconds after it was made.
+
+## How to verify on chain
+
+Every number above can be checked from public chain data; no Loyal API is needed.
+
+```text
+share price = (totalValue / 10^6) / (LP supply incl. accrued fees / 10^9)
+```
+
+USDC has 6 decimals and both LP mints have 9. Using the LP supply including accrued fees gives the price a holder actually redeems at.
+
+- **Share price history.** Each NAV report emits a Voltr `DepositStrategyEvent` with total value and LP supply before and after. Decode the `Program data:` logs of the vault's transactions to get a price for every report.
+- **The book behind NAV.** Read the manager Squads account's token balances and its Kamino obligations at the same slot.
+- **Deposits and withdrawals.** `DepositVaultEvent` and `WithdrawVaultEvent` give the exact price each depositor got.
+
+| Account | Earn | Looping (Backyard) |
+| --- | --- | --- |
+| Voltr vault | `HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA` | `GrHZD15bMiUwrVPsmBwz8GRoQeDZN6wNEQVdW8k8SxV1` |
+| LP mint | `6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb` | `5MAGdiFcSQumjZX5BDh3LqHyFog5auvEBXXJezDXAArg` |
+| Strategy | `DCpR24Eb6xCWxDyaZvCBTkadkxCB2vkqJN1EfYNWtLxY` | `GUCvzfn1hqThWp5uQNF7CqoxC1XckCPTjsRGKVXHPxu1` |
+| Adaptor | `FSj27QT2PtP7365pQRtgSAwSwk5h2m2ATCBoXQjwTSxW` (Loyal NAV adaptor) | `3pnpK9nrs1R65eMV1wqCXkDkhSgN18xb1G5pgYPwoZjJ` (Voltr Trustful) |
+| Manager Squads account | `ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh` | `6HTfVjwk5FfW4GH67hmEen7VHeURdB5EJj6E429qTrUY` |
+
+Voltr program: `vVoLTRjQmtFpiYoegx285Ze4gsLJ8ZxgFKVcuvmG1a8`.

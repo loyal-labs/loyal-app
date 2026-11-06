@@ -108,6 +108,14 @@
                 ]
               },
               {
+                "group": "Voltr vaults",
+                "icon": "vault",
+                "expanded": false,
+                "pages": [
+                  "vaults/rwa-loop-strategy"
+                ]
+              },
+              {
                 "group": "Reference",
                 "icon": "book-open",
                 "root": "build/reference",
@@ -127,7 +135,9 @@
         "groups": [
           {
             "group": "Team",
-            "pages": ["Introduction/team"]
+            "pages": [
+              "Introduction/team"
+            ]
           },
           {
             "group": "Reports",
