@@ -6,10 +6,10 @@ import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.serv
 
 import { apyHistory, type DailyPrice, realizedApy } from "./math";
 import {
+  BACKYARD_VAULT,
   BORROW_LANES,
   type BackyardVault,
   DEFAULT_LANE,
-  findBackyardVault,
   LANES,
 } from "./vaults";
 
@@ -441,9 +441,8 @@ async function loadBreakdown(lane: string, since: string) {
   };
 }
 
-async function load(slug: string) {
-  const vault = findBackyardVault(slug);
-  if (!vault) throw new Error(`Unknown vault ${slug}`);
+async function load() {
+  const vault = BACKYARD_VAULT;
   const [route, navSeries, health, moves, moveDays, history, voltr, borrowing] =
     await Promise.all([
       part(() => loadRoute(vault)),
@@ -481,7 +480,7 @@ async function load(slug: string) {
 
 export type BackyardData = Awaited<ReturnType<typeof load>>;
 
-/** One load per vault per minute, shared by every viewer. */
-export const getBackyardData = unstable_cache(load, ["backyard-dashboard-v1"], {
+/** One load per minute, shared by every viewer. */
+export const getBackyardData = unstable_cache(load, ["backyard-dashboard-v2"], {
   revalidate: 60,
 });

@@ -1,9 +1,8 @@
-// The two Loyal vaults Backyard lists. Both run on the same Loyal worker
-// (loyal-yield-routing go/workers/internal/backyard/vault.go); each has its
-// own Squads account and its own route row in the yield database.
+// The Loyal vault Backyard integrates: the custodial Looping vault. It runs on
+// the Loyal worker (loyal-yield-routing go/workers/internal/backyard/vault.go)
+// with its own Squads account and its own route row in the yield database.
 
 export type BackyardVault = {
-  slug: "earn" | "looping";
   name: string;
   short: string;
   custody: string;
@@ -15,37 +14,17 @@ export type BackyardVault = {
   navCadence: string;
 };
 
-export const BACKYARD_VAULTS: BackyardVault[] = [
-  {
-    slug: "earn",
-    name: "Loyal RWA Multiply USDC",
-    short: "Non-custodial",
-    custody:
-      "Non-custodial. A custom NAV adaptor; funds move only within Squads policies.",
-    voltrVault: "HXtk15EA5pBg3rSKxBm8sWPExScPkTknSRp37fXNHgNA",
-    lpMint: "6tNheTBYSpQkfMLhcczKgmTLSGffK54npKMG1WQR2tvb",
-    squads: "ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh",
-    routeKey: "rwa-multiply:ST999VUTo5QExYEX9bz1oDDoKGkjXG9zpphy4Hj7VWh",
-    navCadence: "at least hourly, and within 60 s after any capital move",
-  },
-  {
-    slug: "looping",
-    name: "Loyal Looping",
-    short: "Custodial",
-    custody:
-      "Custodial. Voltr Trustful adaptor; NAV is reported by the manager.",
-    voltrVault: "GrHZD15bMiUwrVPsmBwz8GRoQeDZN6wNEQVdW8k8SxV1",
-    lpMint: "5MAGdiFcSQumjZX5BDh3LqHyFog5auvEBXXJezDXAArg",
-    squads: "6HTfVjwk5FfW4GH67hmEen7VHeURdB5EJj6E429qTrUY",
-    routeKey: "backyard:6HTfVjwk5FfW4GH67hmEen7VHeURdB5EJj6E429qTrUY",
-    navCadence:
-      "at least hourly, and whenever the book moves more than 50 bps from the last report",
-  },
-];
-
-export function findBackyardVault(slug: string) {
-  return BACKYARD_VAULTS.find((vault) => vault.slug === slug) ?? null;
-}
+export const BACKYARD_VAULT: BackyardVault = {
+  name: "Loyal Looping",
+  short: "Custodial",
+  custody: "Custodial. Voltr Trustful adaptor; NAV is reported by the manager.",
+  voltrVault: "GrHZD15bMiUwrVPsmBwz8GRoQeDZN6wNEQVdW8k8SxV1",
+  lpMint: "5MAGdiFcSQumjZX5BDh3LqHyFog5auvEBXXJezDXAArg",
+  squads: "6HTfVjwk5FfW4GH67hmEen7VHeURdB5EJj6E429qTrUY",
+  routeKey: "backyard:6HTfVjwk5FfW4GH67hmEen7VHeURdB5EJj6E429qTrUY",
+  navCadence:
+    "at least hourly, and whenever the book moves more than 50 bps from the last report",
+};
 
 // Kamino reserves per lane, from the worker's route catalog
 // (go/workers/internal/backyard/route_catalog.go).
