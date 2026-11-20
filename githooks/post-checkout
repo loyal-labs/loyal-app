@@ -1,0 +1,29 @@
+#!/bin/sh
+# Runs after `git checkout`/`git switch` and after `git worktree add`.
+# A fresh worktree has no .env files and no node_modules, so the pre-push
+# lint+build fails there (ASKLOYAL_TGBOT_KEY is not set). Seed it from the
+# main worktree once; a normal checkout inside an existing worktree is a no-op.
+set -eu
+
+[ "${3:-0}" = "1" ] || exit 0 # branch checkout only, not file checkout
+
+worktree="$(git rev-parse --show-toplevel)"
+main="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+[ "$worktree" != "$main" ] || exit 0
+[ ! -d "$worktree/node_modules" ] || exit 0
+
+echo "[post-checkout] New worktree: copying .env files from $main, bun install, build:packages"
+for app in apps/*/ packages/*/; do
+  for env in "$main/$app".env "$main/$app".env.*; do
+    [ -f "$env" ] || continue
+    case "$env" in *.example) continue ;; esac
+    cp -n "$env" "$worktree/$app" 2>/dev/null || true
+  done
+done
+cp -n "$main"/.env "$main"/.env.* "$worktree"/ 2>/dev/null || true
+
+if command -v bun >/dev/null 2>&1; then
+  (cd "$worktree" && bun install --frozen-lockfile && bun run build:packages)
+else
+  echo "[post-checkout] bun not found; run bun install manually" >&2
+fi
