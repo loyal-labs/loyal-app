@@ -5,7 +5,7 @@ const checks = [
   ["Web entry", "https://app.askloyal.com/app", "text/html"],
   [
     "ClickStack API",
-    "https://observability.5.161.121.229.sslip.io/api/health",
+    "https://observability.askloyal.com/api/health",
     "application/json",
   ],
 ];

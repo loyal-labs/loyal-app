@@ -9,7 +9,7 @@ import {
 } from "./journey-summary";
 
 export const JOURNEY_LOG_SOURCE_ID = "6a58601284f8f1d4ff4d12a5";
-export const CLICKSTACK_UI = "https://observability.5.161.121.229.sslip.io";
+export const CLICKSTACK_UI = "https://observability.askloyal.com";
 const MAX_ROWS = 2000;
 const fields: Record<string, string> = {
   trafficKind: "loyal.traffic.kind",
