@@ -2,7 +2,7 @@
   "verifiedAt": "2026-10-14T12:37:46.721Z",
   "environment": "mainnet product; isolated local fixtures; no transaction broadcasts",
   "clickstack": {
-    "apiBase": "https://observability.5.161.121.229.sslip.io/api/api/v2",
+    "apiBase": "https://observability.askloyal.com/api/api/v2",
     "realLogSearchHttpStatus": 200,
     "adminLoaderCoverage": "available",
     "newJourneyRows": 6,
@@ -111,7 +111,7 @@
     "notificationAndRecovery": "User confirmed Telegram delivery for test alert at 2026-10-14T12:18Z; ClickStack ALERT -> OK verified at 12:19Z. Recovery notification not confirmed. Temporary test alert removed after verification.",
     "heartbeatAbsenceAlert": "configured in repository; activation gated on deployed heartbeat",
     "syntheticTestAlertId": "6acf7215f1ee537a8e9117ec",
-    "syntheticEvidenceSearch": "https://observability.5.161.121.229.sslip.io/search/6acf7208f1ee537a8e9117e7"
+    "syntheticEvidenceSearch": "https://observability.askloyal.com/search/6acf7208f1ee537a8e9117e7"
   },
   "deployment": "Latest preview verified Ready: https://loyal-frontend-rd7karwb9-loyal-team.vercel.app (dpl_3te6Ti5GB398mGCpuYpwLX9ZWe4U). Production web/admin/relay rollout and scheduled workflow activation pending.",
   "browserVerifiedAt": "2026-10-14T11:54:36.818925+00:00",

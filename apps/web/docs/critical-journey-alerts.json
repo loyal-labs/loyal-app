@@ -28,7 +28,7 @@
       "type": "webhook",
       "webhookId": "6a60b666dcc64beb0ded8d48"
     },
-    "message": "Owner: web Earn. Flow: earn.deposit; step: position_visible. A confirmed, recorded deposit remained without an authoritative visible position for 60 seconds in an active browser. Do not deposit again: inspect RPC read freshness and position reconciliation. The alert group identifies the client release; the matched rows identify affected journeys and users. Evidence: https://observability.5.161.121.229.sslip.io/search/6ace1464f1ee537a8e910b64 ; dashboard: https://admin.askloyal.com/journeys"
+    "message": "Owner: web Earn. Flow: earn.deposit; step: position_visible. A confirmed, recorded deposit remained without an authoritative visible position for 60 seconds in an active browser. Do not deposit again: inspect RPC read freshness and position reconciliation. The alert group identifies the client release; the matched rows identify affected journeys and users. Evidence: https://observability.askloyal.com/search/6ace1464f1ee537a8e910b64 ; dashboard: https://admin.askloyal.com/journeys"
   },
   "verification": {
     "queryAndEvaluation": "passed; zero matches at 2026-10-13T11:25:00Z and 2026-10-13T11:30:00Z",
@@ -54,7 +54,7 @@
           "type": "webhook",
           "webhookId": "6a60b666dcc64beb0ded8d48"
         },
-        "message": "Owner: web platform. Synthetic telemetry heartbeat missing for 15 minutes (expected every 5 minutes), independent of user volume. Journey rates may be incomplete; do not interpret silence as zero failures. Inspect the deployed web release, Vercel cron invocation /api/cron/telemetry-heartbeat (200 accepted, 503 exporter failure), and collector health. Evidence: https://observability.5.161.121.229.sslip.io/search ; dashboard: https://admin.askloyal.com/journeys"
+        "message": "Owner: web platform. Synthetic telemetry heartbeat missing for 15 minutes (expected every 5 minutes), independent of user volume. Journey rates may be incomplete; do not interpret silence as zero failures. Inspect the deployed web release, Vercel cron invocation /api/cron/telemetry-heartbeat (200 accepted, 503 exporter failure), and collector health. Evidence: https://observability.askloyal.com/search ; dashboard: https://admin.askloyal.com/journeys"
       }
     }
   },

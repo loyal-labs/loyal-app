@@ -370,7 +370,7 @@ Access verified on October 13: the default Vercel CLI authentication is Loyal
 is personal (`vladzima`). No reauthentication is required. The web deployment
 already has OTLP endpoint/ingestion credentials; admin already has its API URL/key.
 The working admin REST base is
-`https://observability.5.161.121.229.sslip.io/api/api/v2` (the repeated `/api` is the
+`https://observability.askloyal.com/api/api/v2` (the repeated `/api` is the
 configured reverse-proxy path). A real log search and the actual `getJourneyData`
 loader both succeeded against it using the supplied query key. Zero version-2
 journeys is expected until the local changes deploy, not proof of healthy flows.
